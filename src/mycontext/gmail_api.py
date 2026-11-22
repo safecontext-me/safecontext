@@ -57,9 +57,10 @@ class GmailAPI(Protocol):
 # --- real implementation ---------------------------------------------------
 
 QUOTA_UNITS = {"get": 5, "list": 5, "history": 2, "profile": 1}
-# Gmail's per-user quota is counted per minute; bursts and quick retries trip it.
-# Stay well under it with small batches and a steady rate (about 20 messages/second).
-DEFAULT_UNITS_PER_SECOND = float(os.environ.get("MYCONTEXT_GMAIL_UNITS_PER_SEC", "100"))
+# Gmail's per-user quota is counted per minute. As of late 2026 new projects get
+# 6,000 units/minute/user (100/s), down from the documented 15,000. Run at 80% of
+# that with no bursts: about 16 messages/second, and no per-minute pauses.
+DEFAULT_UNITS_PER_SECOND = float(os.environ.get("MYCONTEXT_GMAIL_UNITS_PER_SEC", "80"))
 BATCH_SIZE = 10
 PER_MINUTE_WAIT = 65.0
 _RETRYABLE = {429, 500, 502, 503, 504}
@@ -120,8 +121,8 @@ class GoogleGmailAPI:
         from googleapiclient.discovery import build  # uses the bundled discovery doc, no network
 
         self._svc = build("gmail", "v1", credentials=creds, cache_discovery=False)
-        # Bucket holds one second of quota; a 10-message batch (50 units) fits easily.
-        self._bucket = _TokenBucket(units_per_second, max(units_per_second, QUOTA_UNITS["get"] * BATCH_SIZE))
+        # Bucket holds just one batch (50 units), so requests are spread evenly instead of bursting.
+        self._bucket = _TokenBucket(units_per_second, QUOTA_UNITS["get"] * BATCH_SIZE)
         self._max_retries = max_retries
         self._sleep = sleep
 

@@ -337,4 +337,4 @@ def test_plain_rate_limit_backs_off_more_than_a_second():
 
 def test_defaults_are_gentle():
     from mycontext.gmail_api import BATCH_SIZE, DEFAULT_UNITS_PER_SECOND
-    assert BATCH_SIZE <= 10 and DEFAULT_UNITS_PER_SECOND <= 125  # half of Gmail's 250 units/s per user
+    assert BATCH_SIZE <= 10 and DEFAULT_UNITS_PER_SECOND <= 85  # under the 6,000 units/min (100/s) per-user quota
