@@ -56,8 +56,10 @@ universal2 build). To drop Intel support, remove that pin and set
 The home page and privacy policy that Google OAuth verification needs live in `site/`.
 They are plain static files: no build step. Hosted on Cloudflare Pages.
 
-Before publishing, replace the `[[DEVELOPER NAME]]` placeholders in `site/privacy.html`
-(`grep -rn '\[\[' site/` should print nothing).
+Before going live, set up the contact address the pages list, `privacy@safecontext.me`:
+Cloudflare dashboard → `safecontext.me` → **Email → Email Routing**, enable it (it adds the MX/TXT
+records), add a custom address `privacy` that forwards to your own inbox, and confirm the destination.
+Then send a test email to privacy@safecontext.me and check that it arrives.
 
 ## Deploy
 
