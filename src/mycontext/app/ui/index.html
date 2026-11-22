@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Email content must never load anything remote (tracking pixels, scripts, fonts). -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MyContext</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="loading" class="loading">Loading…</div>
+
+<!-- First run: connect Gmail -->
+<section id="onboarding" class="onboarding" hidden>
+  <div class="card onboard-card">
+    <div class="brand-lg"><span class="logo" aria-hidden="true"></span> MyContext <span class="muted brand-sub">· your private context layer</span></div>
+    <h1>Ask Grok about your email, with the sensitive parts removed first.</h1>
+    <ul class="points">
+      <li><b>Stays on this Mac.</b> Your mail is downloaded and stored here. There is no MyContext server; nothing is uploaded except what you ask an AI about.</li>
+      <li><b>Scrubbed before it's saved.</b> 2FA codes, passwords, card and account numbers, API keys, addresses and more are removed. Security, banking, tax and health email is skipped entirely.</li>
+      <li><b>You decide what Grok sees.</b> Only the scrubbed messages Grok searches for are sent to xAI, and only when you ask a question.</li>
+    </ul>
+    <fieldset class="modes">
+      <legend>What to download</legend>
+      <label class="mode"><input type="radio" name="mode" value="full" checked>
+        <span><b>Full messages</b> <span class="tag">Recommended</span><br><small>Bodies are scrubbed, then stored. Attachments are never downloaded; only their names.</small></span></label>
+      <label class="mode"><input type="radio" name="mode" value="headers">
+        <span><b>Headers only</b><br><small>Sender, recipients, subject and date. No message text at all.</small></span></label>
+    </fieldset>
+    <label class="field"><span>Gmail address <small>(optional, pre-fills Google's account picker)</small></span>
+      <input id="ob-email" type="email" placeholder="you@gmail.com" autocomplete="off"></label>
+    <button id="ob-connect" class="btn primary lg">Connect Gmail</button>
+    <p class="hint" id="ob-hint">Google will warn that this app isn't verified. That's expected for a small app like this: click <b>Advanced</b>, then <b>Go to MyContext</b>.</p>
+    <p class="error" id="ob-error" hidden></p>
+  </div>
+</section>
+
+<!-- Main app -->
+<div id="shell" class="shell" hidden>
+  <aside class="sidebar">
+    <div class="brand"><span class="logo" aria-hidden="true"></span> MyContext <span id="demo-badge" class="tag" hidden>Demo</span></div>
+    <div class="brand-sub muted">Private context layer</div>
+    <div class="account" id="account"></div>
+    <div class="sync" id="sync">
+      <div class="sync-line"><span class="dot" id="sync-dot"></span><span id="sync-text">—</span></div>
+      <div class="sync-sub" id="sync-sub"></div>
+      <button class="btn small" id="sync-now">Sync now</button>
+    </div>
+    <nav class="nav">
+      <button data-view="search" class="active">Search</button>
+      <button data-view="ask">Ask Grok</button>
+      <button data-view="removed">What was removed</button>
+      <button data-view="settings">Settings</button>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <div id="banner" class="banner" hidden>
+      <span id="banner-text"></span>
+      <button class="btn small primary" id="reconnect">Reconnect Gmail</button>
+    </div>
+
+    <!-- Search -->
+    <section id="view-search" class="view">
+      <form class="toolbar" id="search-form" autocomplete="off">
+        <input id="q" type="search" placeholder="Search your scrubbed mail" aria-label="Search">
+        <input id="f-from" placeholder="From (name, address or @domain)" aria-label="From">
+        <label class="date">After <input id="f-after" type="date"></label>
+        <label class="date">Before <input id="f-before" type="date"></label>
+        <button class="btn primary" type="submit">Search</button>
+      </form>
+      <div class="panes">
+        <div class="list" id="results" role="list"></div>
+        <div class="reader" id="reader"><div class="empty">Select a message to read it.</div></div>
+      </div>
+    </section>
+
+    <!-- Ask Grok -->
+    <section id="view-ask" class="view" hidden>
+      <div class="ask-head">
+        <div>
+          <h2>Ask Grok</h2>
+          <p class="muted">Grok searches your scrubbed mail. Your question and the messages it finds are sent to xAI; nothing else is.</p>
+        </div>
+        <button class="btn small" id="new-chat">New chat</button>
+      </div>
+      <div id="no-key" class="card notice" hidden>
+        <b>Add your xAI API key to use Grok.</b> <span class="muted">It's stored in your Mac's Keychain.</span>
+        <button class="btn small" data-goto="settings">Open Settings</button>
+      </div>
+      <div class="transcript" id="transcript">
+        <div class="suggestions" id="suggestions">
+          <button class="chip-btn">What plans do I have this weekend?</button>
+          <button class="chip-btn">Summarize what Taylor sent me recently</button>
+          <button class="chip-btn">Who asked me to pay them back?</button>
+        </div>
+      </div>
+      <form class="composer" id="ask-form">
+        <textarea id="ask-input" rows="2" placeholder="Ask about your email…"></textarea>
+        <button class="btn primary" type="submit" id="ask-send">Ask</button>
+      </form>
+    </section>
+
+    <!-- What was removed -->
+    <section id="view-removed" class="view" hidden>
+      <h2>What was removed</h2>
+      <p class="muted">Everything below was removed on this Mac before anything was saved.</p>
+      <div class="tiles">
+        <div class="tile"><div class="num" id="t-kept">0</div><div class="lbl">messages kept (scrubbed)</div></div>
+        <div class="tile"><div class="num" id="t-dropped">0</div><div class="lbl">messages skipped entirely</div></div>
+        <div class="tile"><div class="num" id="t-redacted">0</div><div class="lbl">sensitive values blanked out</div></div>
+      </div>
+      <div class="two-col">
+        <div class="card"><h3>Skipped entirely</h3><div id="dropped-bars" class="bars"></div></div>
+        <div class="card"><h3>Blanked out inside kept messages</h3><div id="redacted-bars" class="bars"></div></div>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section id="view-settings" class="view" hidden>
+      <h2>Settings</h2>
+      <div class="card setting">
+        <h3>Gmail</h3>
+        <div class="row"><span class="muted">Account</span><span id="s-account">—</span></div>
+        <div class="row"><span class="muted">Mode</span><span id="s-mode">—</span></div>
+        <div class="row"><span class="muted">Stored at</span><code id="s-dir"></code></div>
+        <div class="actions">
+          <button class="btn" id="s-disconnect">Disconnect, keep local mail</button>
+          <button class="btn danger" id="s-wipe">Disconnect and delete local mail</button>
+        </div>
+      </div>
+      <div class="card setting">
+        <h3>Grok (xAI)</h3>
+        <div class="row"><span class="muted">API key</span><span id="s-key">—</span></div>
+        <form class="inline" id="key-form" autocomplete="off">
+          <input id="key-input" type="password" placeholder="xai-…" aria-label="xAI API key">
+          <button class="btn" type="submit">Save key</button>
+          <button class="btn" type="button" id="key-clear">Remove</button>
+        </form>
+        <form class="inline" id="model-form" autocomplete="off">
+          <label class="muted" for="model-input">Model</label>
+          <input id="model-input" placeholder="grok-4.7">
+          <button class="btn" type="submit">Save</button>
+        </form>
+        <p class="error" id="key-error" hidden></p>
+      </div>
+      <div class="card setting">
+        <h3>Use from other AI apps (MCP)</h3>
+        <p class="muted">Add this to an MCP client's config to give it the same read-only, scrubbed search tools.</p>
+        <pre id="mcp-json" class="code"></pre>
+        <button class="btn small" id="mcp-copy">Copy</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="confirm">
+  <form method="dialog">
+    <p id="confirm-text"></p>
+    <div class="actions">
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn danger" value="ok" id="confirm-ok">Delete</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

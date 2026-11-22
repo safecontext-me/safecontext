@@ -1,0 +1,38 @@
+# Building the signed Mac app
+
+The app is packaged with [Briefcase](https://briefcase.readthedocs.io), which bundles
+its own Python runtime (use 3.12) so users don't need Python installed.
+
+## You need
+
+1. **Python 3.12** on the build Mac (python.org installer or `uv python install 3.12`).
+2. **Apple Developer Program membership** ($99/year) and a
+   **"Developer ID Application" certificate** in your login Keychain.
+   Without it macOS blocks the app with an "unidentified developer" warning.
+3. **The Google OAuth client file.** In Google Cloud Console, create an OAuth client
+   of type *Desktop app*, download the JSON, and save it as
+   `src/mycontext/oauth_client.json`. It is bundled into the app. Google treats
+   Desktop client secrets as non-confidential, so shipping it is expected.
+4. Set `bundle` in `pyproject.toml` (`[tool.briefcase]`) to your reverse-DNS domain.
+
+## Build
+
+```bash
+python3.12 -m venv .venv312 && .venv312/bin/pip install briefcase
+.venv312/bin/briefcase create macOS
+.venv312/bin/briefcase build macOS
+.venv312/bin/briefcase run macOS            # smoke test
+.venv312/bin/briefcase package macOS --identity "Developer ID Application: <Your Name> (<TEAMID>)"
+```
+
+`package` signs the app and submits it to Apple for notarization. The first time,
+Briefcase asks for an app-specific password for `notarytool`. The result is a
+`.dmg` in `dist/`.
+
+## Before you ship
+
+- Run the full test suite under 3.12: `.venv312/bin/pip install -e '.[dev]' && .venv312/bin/pytest`.
+- Do one real sync with your own Gmail account, plus one `ask`, to confirm
+  the live Gmail and xAI APIs behave the way the fakes do.
+- The MCP config shown in Settings points at the Python that runs the app.
+  In the bundled app that's the bundled runtime, so check the path shown there.

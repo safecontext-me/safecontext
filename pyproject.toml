@@ -1,0 +1,51 @@
+[project]
+name = "mycontext"
+version = "0.1.0"
+description = "A private context layer for AI: your data is scrubbed on your Mac before any AI can read it. Gmail is the first source."
+requires-python = ">=3.9"
+dependencies = [
+    "phonenumbers>=8.13",
+    "google-auth>=2.30",
+    "google-auth-oauthlib>=1.2",
+    "google-api-python-client>=2.130",
+    "keyring>=25",
+    "openai>=1.60",
+    "pywebview>=5.0",
+]
+
+[project.scripts]
+mycontext = "mycontext.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+
+# --- Mac app packaging (Briefcase) -------------------------------------------
+# See packaging/README.md. Run Briefcase from Python 3.12 so the bundled
+# runtime is 3.12, not this Mac's system Python 3.9.
+[tool.briefcase]
+project_name = "MyContext"
+bundle = "com.example"            # TODO: your reverse-DNS domain
+version = "0.1.0"
+license.file = "LICENSE"
+
+[tool.briefcase.app.mycontext]
+formal_name = "MyContext"
+description = "A private context layer for AI. Your data, scrubbed on your Mac."
+sources = ["src/mycontext"]
+requires = [
+    "phonenumbers>=8.13",
+    "google-auth>=2.30",
+    "google-auth-oauthlib>=1.2",
+    "google-api-python-client>=2.130",
+    "keyring>=25",
+    "openai>=1.60",
+    "pywebview>=5.0",
+]
+
+[tool.briefcase.app.mycontext.macOS]
+universal_build = true
+requires = []
