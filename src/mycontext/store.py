@@ -323,6 +323,17 @@ class Store:
         return {"kept": kept, "dropped": sum(reasons.values()), "dropped_by_reason": reasons,
                 "redactions": redactions}
 
+    def counts(self):
+        """(kept, dropped), cheap enough to poll."""
+        with self._lock:
+            return (self._db.execute("SELECT count(*) FROM messages").fetchone()[0],
+                    self._db.execute("SELECT count(*) FROM dropped").fetchone()[0])
+
+    def date_range(self):
+        """(oldest, newest) date_ms of kept messages, or (None, None)."""
+        with self._lock:
+            return tuple(self._db.execute("SELECT min(date_ms), max(date_ms) FROM messages").fetchone())
+
     # reads ------------------------------------------------------------------
 
     def _citation(self, row: sqlite3.Row) -> Citation:

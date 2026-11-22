@@ -88,6 +88,8 @@ def cmd_status(args) -> int:
                                            "backfill_page_token", "last_sync_ms")}
     info["backfill_in_progress"] = bool(info.pop("backfill_page_token")) or info["history_id"] is None
     info.update(store.stats())
+    from .sync import read_heartbeat
+    info["sync_running"] = read_heartbeat(store)
     if info.get("auth_state") == "needs_reconnect":
         from .auth import RECONNECT_MESSAGE
         info["action"] = RECONNECT_MESSAGE

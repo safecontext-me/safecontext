@@ -108,6 +108,15 @@ async function openGmail(url) {
   if (!r.ok) toast(r.error);
 }
 
+function monthYear(ms) {
+  return new Date(ms).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+}
+
+function duration(ms) {
+  const m = Math.floor(ms / 60000), h = Math.floor(m / 60);
+  return h ? `${h}h ${m % 60}m` : `${m}m`;
+}
+
 // ---------- status / shell ----------
 async function refreshStatus() {
   const r = await api().status();
@@ -126,17 +135,39 @@ async function refreshStatus() {
   $("banner-text").textContent = r.reconnect_message;
 
   const dot = $("sync-dot");
-  dot.className = "dot" + (r.syncing ? " busy" : r.needs_reconnect || (r.last_result && r.last_result.status !== "ok") ? " warn" : "");
+  const p = r.progress;
+  const waiting = p && p.waiting_until_ms && p.waiting_until_ms > Date.now();
+  dot.className = "dot" + (waiting ? " warn" : r.syncing ? " busy" : r.needs_reconnect || (r.last_result && r.last_result.status !== "ok") ? " warn" : "");
+  $("sync-stats").hidden = !(r.syncing && p.backfill);
+  $("sync-note").hidden = true;
   if (r.syncing) {
-    const p = r.progress;
-    $("sync-text").textContent = r.first_sync_done ? "Checking for new mail…" : "Downloading & scrubbing…";
-    $("sync-sub").textContent = `${n(p.kept)} kept · ${n(p.dropped)} skipped`;
+    if (waiting) {
+      $("sync-text").textContent = "Paused for Gmail limit";
+      $("sync-sub").textContent = `Resuming in ${Math.max(1, Math.round((p.waiting_until_ms - Date.now()) / 1000))}s`;
+    } else {
+      $("sync-text").textContent = p.backfill ? "Syncing…" : "Checking for new mail…";
+      $("sync-sub").textContent = p.backfill ? "Newest mail first" : `${n(p.kept)} kept · ${n(p.dropped)} skipped`;
+    }
+    if (p.backfill) {
+      $("ss-done").textContent = n(r.kept + r.dropped);
+      $("ss-kept").textContent = n(r.kept);
+      $("ss-reach").textContent = r.oldest_ms ? monthYear(r.oldest_ms) : "—";
+      $("ss-pace").textContent = p.per_min == null ? "measuring…" : `${n(Math.round(p.per_min))}/min`;
+      $("ss-time").textContent = p.started_ms ? duration(Date.now() - p.started_ms) : "—";
+    }
+    if (p.elsewhere) {
+      $("sync-note").hidden = false;
+      $("sync-note").textContent = "Running from the command line. It pauses while your Mac sleeps.";
+    }
   } else if (r.needs_reconnect) {
     $("sync-text").textContent = "Paused";
     $("sync-sub").textContent = "Gmail needs reconnecting";
   } else if (r.last_result && r.last_result.status !== "ok") {
     $("sync-text").textContent = "Will retry";
     $("sync-sub").textContent = r.last_result.message;
+  } else if (!r.first_sync_done) {
+    $("sync-text").textContent = "Paused";
+    $("sync-sub").textContent = `${n(r.kept)} messages so far${r.oldest_ms ? " · back to " + monthYear(r.oldest_ms) : ""}. Sync now to continue.`;
   } else {
     $("sync-text").textContent = "Up to date";
     $("sync-sub").textContent = `${n(r.kept)} messages · ${r.last_sync_ms ? ago(r.last_sync_ms) : "never synced"}`;

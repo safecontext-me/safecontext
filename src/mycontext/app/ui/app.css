@@ -111,6 +111,10 @@ input:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--accen
 .sync { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
 .sync-line { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
 .sync-sub { color: var(--muted); font-size: 12px; margin: 4px 0 8px; }
+.sync-stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0 0 8px; font-size: 12px; }
+.sync-stats dt { color: var(--muted); }
+.sync-stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.sync-note { font-size: 11px; margin: 0 0 8px; line-height: 1.35; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
 .dot.busy { background: var(--accent); animation: pulse 1s infinite ease-in-out; }
 .dot.warn { background: #d8a200; }

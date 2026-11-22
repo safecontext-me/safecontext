@@ -132,6 +132,15 @@ class GoogleGmailAPI:
         self._max_rate = units_per_second
         self._min_rate = 2.0
         self._last_rate_change = clock()
+        # Optional callback(seconds or None) so a status display can say "waiting for quota".
+        self.wait_hook: Optional[Callable[[Optional[float]], None]] = None
+
+    def _notify_wait(self, seconds: Optional[float]) -> None:
+        if self.wait_hook:
+            try:
+                self.wait_hook(seconds)
+            except Exception:
+                log.debug("wait hook failed", exc_info=True)
 
     @property
     def rate(self) -> float:
@@ -172,7 +181,10 @@ class GoogleGmailAPI:
             # A per-minute quota only frees up when the minute window rolls over.
             self._slow_down()
             log.warning("Gmail per-minute quota reached; waiting %ds", int(PER_MINUTE_WAIT))
-            self._sleep(PER_MINUTE_WAIT + random.random() * 5)
+            wait = PER_MINUTE_WAIT + random.random() * 5
+            self._notify_wait(wait)
+            self._sleep(wait)
+            self._notify_wait(None)
             self._last_rate_change = self._clock()  # the waiting minute doesn't count as a clean one
         elif rate_limited:
             self._sleep(min(120.0, 5 * (2 ** attempt)) + random.random())

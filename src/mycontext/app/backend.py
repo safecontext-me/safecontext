@@ -11,6 +11,7 @@ from __future__ import annotations
 import functools
 import json
 import logging
+import os
 import sys
 import threading
 import webbrowser
@@ -19,7 +20,7 @@ from typing import Any, Callable, Dict, Optional
 
 from .. import auth, grok
 from ..store import DEFAULT_DATA_DIR, Store
-from ..sync import SyncResult, Syncer
+from ..sync import SyncResult, Syncer, read_heartbeat
 from ..tools import run_tool
 
 log = logging.getLogger("mycontext.app")
@@ -102,7 +103,11 @@ class Backend:
         s = self._store
         p = self._progress
         last = s.get_meta("last_sync_ms")
-        st = s.stats()
+        kept, dropped = s.counts()
+        hb = read_heartbeat(s)
+        if self._is_syncing() and hb is None:  # local thread starting up, before its first beat
+            hb = {"phase": p.phase, "fetched": p.fetched, "kept": p.kept, "dropped": p.dropped}
+        oldest, newest = s.date_range()
         return {
             "demo": self._demo,
             "account": s.get_meta("account_email"),
@@ -110,13 +115,18 @@ class Backend:
             "needs_reconnect": s.get_meta("auth_state") == "needs_reconnect",
             "reconnect_message": auth.RECONNECT_MESSAGE,
             "first_sync_done": s.get_meta("history_id") is not None,
-            "syncing": self._is_syncing(),
-            "progress": {"phase": p.phase, "fetched": p.fetched, "kept": p.kept, "dropped": p.dropped,
-                         "deleted": p.deleted},
+            "syncing": hb is not None,
+            "progress": None if hb is None else {
+                "phase": hb.get("phase") or "", "fetched": hb.get("fetched", 0), "kept": hb.get("kept", 0),
+                "dropped": hb.get("dropped", 0), "started_ms": hb.get("started_ms"),
+                "per_min": hb.get("per_min"), "waiting_until_ms": hb.get("waiting_until_ms"),
+                "elsewhere": hb.get("pid") not in (None, os.getpid()),
+                "backfill": s.get_meta("history_id") is None},
+            "oldest_ms": oldest, "newest_ms": newest,
             "last_result": None if not self._last_result else {
                 "status": self._last_result.status, "message": self._last_result.message},
             "last_sync_ms": int(last) if last else None,
-            "kept": st["kept"], "dropped": st["dropped"],
+            "kept": kept, "dropped": dropped,
             "has_xai_key": bool(self._grok_client_factory) or bool(grok.get_api_key()),
             "model": s.get_meta("grok_model") or grok.DEFAULT_MODEL,
             "data_dir": str(self._data_dir),
@@ -147,7 +157,8 @@ class Backend:
 
     def _start_sync(self) -> bool:
         with self._sync_lock:
-            if self._is_syncing() or not self._store.get_meta("account_email"):
+            if (self._is_syncing() or read_heartbeat(self._store) is not None
+                    or not self._store.get_meta("account_email")):
                 return False
             self._sync_thread = threading.Thread(target=self._run_sync, daemon=True, name="sync")
             self._sync_thread.start()
@@ -168,7 +179,8 @@ class Backend:
         except Exception as e:
             log.exception("sync crashed")
             result = SyncResult(status="retry_later", message=f"Sync stopped unexpectedly ({type(e).__name__}).")
-        self._last_result = result
+        if result.status != "busy":
+            self._last_result = result
         self._progress = result
 
     def _on_progress(self, r: SyncResult) -> None:
