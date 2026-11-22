@@ -315,3 +315,26 @@ def test_real_client_uses_a_bucket_that_fits_a_batch():
     from mycontext.gmail_api import QUOTA_UNITS, GoogleGmailAPI
     c = GoogleGmailAPI(creds(), sleep=lambda s: None)
     c._bucket.take(QUOTA_UNITS["get"] * 50)  # returns without hanging
+
+
+def test_per_minute_quota_waits_for_the_window_to_roll_over():
+    from mycontext.gmail_api import PER_MINUTE_WAIT, GoogleGmailAPI
+    waits = []
+    c = GoogleGmailAPI(creds(), sleep=waits.append)
+    quota = _http_error(403, b'{"error":{"code":403,"message":"Quota exceeded for quota metric \'Total Query Cost\' '
+                             b'and limit \'Units per minute per user\'","errors":[{"reason":"rateLimitExceeded"}]}}')
+    assert c._execute(_Req([quota, {"ok": 1}]), 5) == {"ok": 1}
+    assert waits and waits[0] >= PER_MINUTE_WAIT
+
+
+def test_plain_rate_limit_backs_off_more_than_a_second():
+    from mycontext.gmail_api import GoogleGmailAPI
+    waits = []
+    c = GoogleGmailAPI(creds(), sleep=waits.append)
+    assert c._execute(_Req([_http_error(429), {"ok": 1}]), 5) == {"ok": 1}
+    assert waits[0] >= 5
+
+
+def test_defaults_are_gentle():
+    from mycontext.gmail_api import BATCH_SIZE, DEFAULT_UNITS_PER_SECOND
+    assert BATCH_SIZE <= 10 and DEFAULT_UNITS_PER_SECOND <= 125  # half of Gmail's 250 units/s per user

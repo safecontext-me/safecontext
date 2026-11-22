@@ -8,6 +8,8 @@ and server errors with exponential backoff, and maps auth failures to
 """
 from __future__ import annotations
 
+import logging
+import os
 import random
 import threading
 import time
@@ -19,6 +21,8 @@ except ImportError:  # pragma: no cover
     Protocol = object  # type: ignore
 
 from .auth import NeedsReconnect, TransientAuthError, is_invalid_grant
+
+log = logging.getLogger("mycontext.gmail")  # status codes and counts only, never content
 
 
 class GmailError(Exception):
@@ -53,6 +57,11 @@ class GmailAPI(Protocol):
 # --- real implementation ---------------------------------------------------
 
 QUOTA_UNITS = {"get": 5, "list": 5, "history": 2, "profile": 1}
+# Gmail's per-user quota is counted per minute; bursts and quick retries trip it.
+# Stay well under it with small batches and a steady rate (about 20 messages/second).
+DEFAULT_UNITS_PER_SECOND = float(os.environ.get("MYCONTEXT_GMAIL_UNITS_PER_SEC", "100"))
+BATCH_SIZE = 10
+PER_MINUTE_WAIT = 65.0
 _RETRYABLE = {429, 500, 502, 503, 504}
 _METADATA_HEADERS = ["From", "To", "Cc", "Subject", "Date", "Message-ID", "List-Unsubscribe", "Precedence"]
 
@@ -82,6 +91,14 @@ class _TokenBucket:
             self.sleep(wait)
 
 
+def _reason(err: Exception) -> str:
+    """Short machine reason like '429 rateLimitExceeded', for logs. No message content."""
+    import re as _re
+    text = str(getattr(err, "content", b"") or "")
+    m = _re.search(r'"reason":\s*"([A-Za-z]+)"', text)
+    return f"{_status(err) or type(err).__name__}" + (f" {m.group(1)}" if m else "")
+
+
 def _status(err: Exception) -> int:
     resp = getattr(err, "resp", None)
     return int(getattr(resp, "status", 0) or 0)
@@ -98,12 +115,13 @@ def _is_rate_limit(err: Exception) -> bool:
 
 
 class GoogleGmailAPI:
-    def __init__(self, creds, *, units_per_second: float = 200, max_retries: int = 6,
+    def __init__(self, creds, *, units_per_second: float = DEFAULT_UNITS_PER_SECOND, max_retries: int = 8,
                  sleep: Callable[[float], None] = time.sleep) -> None:
         from googleapiclient.discovery import build  # uses the bundled discovery doc, no network
 
         self._svc = build("gmail", "v1", credentials=creds, cache_discovery=False)
-        self._bucket = _TokenBucket(units_per_second, units_per_second)
+        # Bucket holds one second of quota; a 10-message batch (50 units) fits easily.
+        self._bucket = _TokenBucket(units_per_second, max(units_per_second, QUOTA_UNITS["get"] * BATCH_SIZE))
         self._max_retries = max_retries
         self._sleep = sleep
 
@@ -124,8 +142,15 @@ class GoogleGmailAPI:
             if "insufficient" in text or "scope" in text:
                 raise NeedsReconnect("scope_not_granted") from None
 
-    def _backoff(self, attempt: int) -> None:
-        self._sleep(min(64.0, (2 ** attempt) + random.random()))
+    def _backoff(self, attempt: int, err: Optional[Exception] = None, rate_limited: bool = False) -> None:
+        if err is not None and "per minute" in str(getattr(err, "content", b"") or err).lower():
+            # A per-minute quota only frees up when the minute window rolls over.
+            log.warning("Gmail per-minute quota reached; waiting %ds", int(PER_MINUTE_WAIT))
+            self._sleep(PER_MINUTE_WAIT + random.random() * 5)
+        elif rate_limited:
+            self._sleep(min(120.0, 5 * (2 ** attempt)) + random.random())
+        else:
+            self._sleep(min(64.0, (2 ** attempt) + random.random()))
 
     def _execute(self, request, units: int):
         from googleapiclient.errors import HttpError
@@ -137,7 +162,7 @@ class GoogleGmailAPI:
             except HttpError as e:
                 self._map_auth(e)
                 if _is_rate_limit(e) or _status(e) in _RETRYABLE:
-                    self._backoff(attempt)
+                    self._backoff(attempt, e, rate_limited=_is_rate_limit(e))
                     continue
                 raise
             except (OSError, TimeoutError) as e:  # connection reset, DNS, timeouts
@@ -186,6 +211,8 @@ class GoogleGmailAPI:
                 break
             failed: List[str] = []
             fatal: List[Exception] = []
+            reasons: Dict[str, int] = {}
+            limit_errors: List[Exception] = []
 
             def callback(request_id, response, exception):
                 if exception is None:
@@ -194,11 +221,15 @@ class GoogleGmailAPI:
                     results[request_id] = None
                 elif _is_rate_limit(exception) or _status(exception) in _RETRYABLE:
                     failed.append(request_id)
+                    if _is_rate_limit(exception):
+                        limit_errors.append(exception)
+                    r = _reason(exception)
+                    reasons[r] = reasons.get(r, 0) + 1
                 else:
                     fatal.append(exception)
 
-            for i in range(0, len(pending), 50):
-                chunk = pending[i:i + 50]
+            for i in range(0, len(pending), BATCH_SIZE):
+                chunk = pending[i:i + BATCH_SIZE]
                 batch = self._svc.new_batch_http_request(callback=callback)
                 for mid in chunk:
                     kwargs = dict(userId="me", id=mid, format=fmt)
@@ -211,10 +242,12 @@ class GoogleGmailAPI:
                 except HttpError as e:
                     self._map_auth(e)
                     failed.extend(m for m in chunk if m not in results)
+                    reasons[_reason(e)] = reasons.get(_reason(e), 0) + 1
                 except Exception as e:
                     self._map_auth(e)
                     if isinstance(e, (OSError, TimeoutError)):
                         failed.extend(m for m in chunk if m not in results)
+                        reasons[type(e).__name__] = reasons.get(type(e).__name__, 0) + 1
                     else:
                         raise
             for e in fatal:
@@ -222,9 +255,12 @@ class GoogleGmailAPI:
             if fatal:
                 raise fatal[0]
             pending = failed
+            self.last_errors = reasons
             if pending:
-                self._backoff(attempt)
+                log.warning("retrying %d of %d messages after: %s", len(pending), len(ids), reasons)
+                self._backoff(attempt, limit_errors[-1] if limit_errors else None, rate_limited=bool(limit_errors))
         if pending:
-            raise TransientError(f"{len(pending)} messages could not be fetched; will retry on the next sync")
+            raise TransientError(f"{len(pending)} messages could not be fetched ({self.last_errors}); "
+                                 "will retry on the next sync")
         return results
 

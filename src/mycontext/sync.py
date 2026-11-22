@@ -73,7 +73,7 @@ class Syncer:
         except TransientError as e:
             self.result.status = "retry_later"
             self.result.message = "Couldn't reach Gmail. Progress is saved; sync will resume automatically."
-            log.warning("sync paused: %s", type(e).__name__)
+            log.warning("sync paused: %s", e)  # e carries counts and status codes only
         return self.result
 
     # --- phases -----------------------------------------------------------

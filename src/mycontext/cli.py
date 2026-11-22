@@ -185,6 +185,8 @@ def cmd_app(args) -> int:
 
 
 def main(argv=None) -> int:
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     p = argparse.ArgumentParser(prog="mycontext")
     p.add_argument("--data-dir", help="defaults to ~/Library/Application Support/MyContext")
     sub = p.add_subparsers(dest="cmd")
