@@ -48,12 +48,18 @@ Demo mode (below) makes no network calls.
 
 ## Install for development
 
+Requires Python 3.11 or newer; 3.12 is what the Mac app is built with. macOS's built-in
+`python3` is 3.9 and won't work. Install 3.12 from python.org or with `uv python install 3.12`.
+
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
+python3.12 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/mycontext --help
 ```
 
-`pyproject.toml` sets the supported Python range (`requires-python`). The app targets macOS:
+If `python3.12` isn't on your `PATH` (for example, a uv-managed install), use
+`uv venv --python 3.12 .venv` instead, then run the `pip install` step above.
+
+The app targets macOS:
 tokens and keys are stored in the macOS Keychain and the default data directory is under
 `~/Library/Application Support`.
 
