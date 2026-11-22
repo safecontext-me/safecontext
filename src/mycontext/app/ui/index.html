@@ -2,9 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- Email content must never load anything remote (tracking pixels, scripts, fonts). -->
+<!-- Email content must never load anything remote (tracking pixels, scripts, fonts).
+     'unsafe-eval' is required: pywebview 6 sets up window.pywebview.api with eval(),
+     and without it the page hangs on "Loading…". -->
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline' 'self'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+      content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'self';style-src 'unsafe-inline' 'self'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MyContext</title>
 <link rel="stylesheet" href="app.css">
