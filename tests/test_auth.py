@@ -338,3 +338,38 @@ def test_plain_rate_limit_backs_off_more_than_a_second():
 def test_defaults_are_gentle():
     from mycontext.gmail_api import BATCH_SIZE, DEFAULT_UNITS_PER_SECOND
     assert BATCH_SIZE <= 10 and DEFAULT_UNITS_PER_SECOND <= 85  # under the 6,000 units/min (100/s) per-user quota
+
+
+# --- adaptive pace -------------------------------------------------------------
+
+def _per_minute_error():
+    return _http_error(403, b'{"error":{"message":"Quota exceeded for quota metric \'Total Query Cost\' and limit '
+                            b'\'Units per minute per user\'","errors":[{"reason":"rateLimitExceeded"}]}}')
+
+
+def test_pace_drops_when_the_per_minute_quota_is_hit():
+    from mycontext.gmail_api import GoogleGmailAPI
+    clock = _FakeClock()
+    c = GoogleGmailAPI(creds(), units_per_second=80, sleep=clock.sleep, clock=clock.now)
+    c._execute(_Req([_per_minute_error(), {"ok": 1}]), 5)
+    assert c.rate == pytest.approx(48)
+    for _ in range(20):
+        c._execute(_Req([_per_minute_error(), {"ok": 1}]), 5)
+    assert c.rate == pytest.approx(2.0)  # floor
+
+
+def test_pace_recovers_slowly_after_clean_minutes_but_never_exceeds_the_cap():
+    from mycontext.gmail_api import GoogleGmailAPI
+    clock = _FakeClock()
+    c = GoogleGmailAPI(creds(), units_per_second=80, sleep=clock.sleep, clock=clock.now)
+    c._execute(_Req([_per_minute_error(), {"ok": 1}]), 5)
+    slowed = c.rate
+    c._execute(_Req([{"ok": 1}]), 5)
+    assert c.rate == slowed  # not yet a clean minute
+    clock.t += 61
+    c._execute(_Req([{"ok": 1}]), 5)
+    assert c.rate == pytest.approx(slowed * 1.1)
+    for _ in range(50):
+        clock.t += 61
+        c._execute(_Req([{"ok": 1}]), 5)
+    assert c.rate == pytest.approx(80)

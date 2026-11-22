@@ -117,14 +117,38 @@ def _is_rate_limit(err: Exception) -> bool:
 
 class GoogleGmailAPI:
     def __init__(self, creds, *, units_per_second: float = DEFAULT_UNITS_PER_SECOND, max_retries: int = 8,
-                 sleep: Callable[[float], None] = time.sleep) -> None:
+                 sleep: Callable[[float], None] = time.sleep,
+                 clock: Callable[[], float] = time.monotonic) -> None:
         from googleapiclient.discovery import build  # uses the bundled discovery doc, no network
 
         self._svc = build("gmail", "v1", credentials=creds, cache_discovery=False)
         # Bucket holds just one batch (50 units), so requests are spread evenly instead of bursting.
-        self._bucket = _TokenBucket(units_per_second, QUOTA_UNITS["get"] * BATCH_SIZE)
+        self._bucket = _TokenBucket(units_per_second, QUOTA_UNITS["get"] * BATCH_SIZE, clock=clock, sleep=sleep)
         self._max_retries = max_retries
         self._sleep = sleep
+        self._clock = clock
+        # Adaptive pace: Google's real per-message cost varies (often ~10x the documented
+        # 5 units), so learn the account's pace instead of trusting the documented numbers.
+        self._max_rate = units_per_second
+        self._min_rate = 2.0
+        self._last_rate_change = clock()
+
+    @property
+    def rate(self) -> float:
+        return self._bucket.rate
+
+    def _slow_down(self) -> None:
+        """Hit the per-minute quota: cut the pace sharply (multiplicative decrease)."""
+        self._bucket.rate = max(self._min_rate, self._bucket.rate * 0.6)
+        self._last_rate_change = self._clock()
+        log.warning("slowing to %.1f units/s to stay under Gmail's per-minute quota", self._bucket.rate)
+
+    def _maybe_speed_up(self) -> None:
+        """After a clean minute, creep the pace back up 10% (additive-ish increase), capped."""
+        now = self._clock()
+        if self._bucket.rate < self._max_rate and now - self._last_rate_change >= 60:
+            self._bucket.rate = min(self._max_rate, self._bucket.rate * 1.1)
+            self._last_rate_change = now
 
     # error mapping -------------------------------------------------------
     def _map_auth(self, err: Exception) -> None:
@@ -146,8 +170,10 @@ class GoogleGmailAPI:
     def _backoff(self, attempt: int, err: Optional[Exception] = None, rate_limited: bool = False) -> None:
         if err is not None and "per minute" in str(getattr(err, "content", b"") or err).lower():
             # A per-minute quota only frees up when the minute window rolls over.
+            self._slow_down()
             log.warning("Gmail per-minute quota reached; waiting %ds", int(PER_MINUTE_WAIT))
             self._sleep(PER_MINUTE_WAIT + random.random() * 5)
+            self._last_rate_change = self._clock()  # the waiting minute doesn't count as a clean one
         elif rate_limited:
             self._sleep(min(120.0, 5 * (2 ** attempt)) + random.random())
         else:
@@ -159,7 +185,9 @@ class GoogleGmailAPI:
         for attempt in range(self._max_retries):
             self._bucket.take(units)
             try:
-                return request.execute(num_retries=0)
+                result = request.execute(num_retries=0)
+                self._maybe_speed_up()
+                return result
             except HttpError as e:
                 self._map_auth(e)
                 if _is_rate_limit(e) or _status(e) in _RETRYABLE:
@@ -257,6 +285,8 @@ class GoogleGmailAPI:
                 raise fatal[0]
             pending = failed
             self.last_errors = reasons
+            if not limit_errors:
+                self._maybe_speed_up()
             if pending:
                 log.warning("retrying %d of %d messages after: %s", len(pending), len(ids), reasons)
                 self._backoff(attempt, limit_errors[-1] if limit_errors else None, rate_limited=bool(limit_errors))
