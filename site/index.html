@@ -3,24 +3,50 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MyContext</title>
+<title>SafeContext: private Gmail context for AI, scrubbed on your Mac</title>
+<meta name="description" content="SafeContext is a Mac app that reads your Gmail with your permission, removes sensitive details on your computer, and lets AI assistants you choose search the result.">
+<link rel="canonical" href="https://safecontext.me/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f5bd3'/%3E%3Cpath d='M16 6l8 3v6c0 5-3.4 9-8 11-4.6-2-8-6-8-11V9z' fill='%23fff'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<header class="site">
+  <a class="brand" href="https://safecontext.me/">SafeContext</a>
+  <nav><a href="privacy.html">Privacy Policy</a></nav>
+</header>
 <main>
-<h1>MyContext</h1>
-<p class="lead">A private context layer for AI. Your email is scrubbed on your Mac before any AI can read it.</p>
+<h1>SafeContext</h1>
+<p class="lead">A Mac app that gives AI assistants private context from your Gmail. Your email is scrubbed on your Mac before any AI can read it.</p>
 
+<p class="callout">SafeContext asks for <b>read-only access to your Gmail</b>. Read the
+<a href="privacy.html"><b>SafeContext Privacy Policy</b></a> for exactly what it reads, where it is stored and when anything leaves your Mac.</p>
+
+<h2>What SafeContext does</h2>
+<p>SafeContext downloads your Gmail to your own Mac, removes sensitive information from it there, and saves a searchable copy
+on your computer. You can then ask questions about your email, for example “when is my flight to Denver?” or
+“what did the landlord say about the lease?”, and get answers that cite the messages they came from.</p>
+
+<h2>Why it needs access to your Gmail</h2>
+<p>When you connect your Google account, SafeContext asks for one read-only Gmail permission:</p>
 <ul>
-  <li><b>Stays on your Mac.</b> MyContext downloads your Gmail to your computer. There is no MyContext server.</li>
+  <li><b>Full mode</b> (<code>gmail.readonly</code>): reads your messages and labels so it can scrub them and let you search them on your Mac.</li>
+  <li><b>Headers-only mode</b> (<code>gmail.metadata</code>): reads only sender, recipients, subject and date, without message bodies.</li>
+</ul>
+<p>SafeContext uses this access only to provide these features to you. It cannot send, delete or change your email.</p>
+
+<h2>How your data is protected</h2>
+<ul>
+  <li><b>Stays on your Mac.</b> There is no SafeContext server. The developer never receives, stores or sees your email.</li>
   <li><b>Scrubbed before it's saved.</b> Verification codes, passwords, card and account numbers, API keys, addresses and similar details are removed. Security, banking, tax and health email is skipped entirely.</li>
-  <li><b>Read-only.</b> MyContext can't send, delete or change your email.</li>
-  <li><b>You choose what AI sees.</b> When you ask Grok a question, only the scrubbed messages relevant to it are sent.</li>
+  <li><b>You choose what AI sees.</b> Nothing is sent to an AI service unless you ask a question or connect an AI app yourself, and then only scrubbed messages are shared.</li>
+  <li><b>No ads, no selling, no AI training.</b> Your Google data is never used for advertising, never sold, and never used to train AI models.</li>
+  <li><b>Disconnect any time.</b> One click in Settings deletes the local copy and revokes SafeContext's access to your Google account.</li>
 </ul>
 
-<p>MyContext is currently in a small private preview.</p>
-
-<p><a href="privacy.html">Privacy Policy</a></p>
+<p>SafeContext is currently in a small private preview for macOS.</p>
 </main>
+<footer class="site">
+  <a href="privacy.html">Privacy Policy</a> · <a href="mailto:privacy@safecontext.me">Contact</a>
+</footer>
 </body>
 </html>

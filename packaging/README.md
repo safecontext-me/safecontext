@@ -51,3 +51,47 @@ universal2 build). To drop Intel support, remove that pin and set
   the live Gmail and xAI APIs behave the way the fakes do.
 - The MCP config shown in Settings points at the Python that runs the app.
   In the bundled app that's the bundled runtime, so check the path shown there.
+
+# Publishing the website (safecontext.me)
+
+The home page and privacy policy that Google OAuth verification needs live in `site/`.
+They are plain static files: no build step. Hosted on Cloudflare Pages.
+
+Before going live, set up the contact address the pages list, `privacy@safecontext.me`:
+Cloudflare dashboard → `safecontext.me` → **Email → Email Routing**, enable it (it adds the MX/TXT
+records), add a custom address `privacy` that forwards to your own inbox, and confirm the destination.
+Then send a test email to privacy@safecontext.me and check that it arrives.
+
+## Deploy
+
+Either connect the repo (redeploys on every push to `main`):
+
+1. Cloudflare dashboard → **Workers & Pages → Create → Pages → Connect to Git**, pick this GitHub repo.
+2. Production branch `main`, framework preset **None**, build command **empty**,
+   build output directory **`site`**. Save and deploy.
+
+Or upload directly from this folder:
+
+```bash
+npx wrangler pages deploy site --project-name safecontext
+```
+
+`site/_headers` sets security headers and `site/404.html` is served for unknown paths;
+Pages picks both up automatically and does not publish `_headers` itself.
+Pages serves `privacy.html` at `/privacy` (it redirects `.html` URLs to the clean form).
+
+## Custom domain
+
+In the Pages project → **Custom domains → Set up a custom domain** → `safecontext.me`.
+If the domain's DNS is on Cloudflare this adds the record for you; otherwise add the
+CNAME it shows. Optionally add `www.safecontext.me` too.
+
+## Google Search Console and the consent screen
+
+1. [Search Console](https://search.google.com/search-console) → **Add property → Domain** → `safecontext.me`.
+2. Copy the `google-site-verification=…` value and add it as a **TXT** record on `safecontext.me`
+   (Cloudflare → DNS → Records → Add record, type TXT, name `@`). Click **Verify** (DNS can take a few minutes).
+   Use the same Google account that owns the Cloud project.
+3. Google Cloud Console → **Google Auth Platform → Branding**: app name **SafeContext**,
+   home page `https://safecontext.me/`, privacy policy `https://safecontext.me/privacy`,
+   and add `safecontext.me` under **Authorized domains**.
