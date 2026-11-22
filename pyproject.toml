@@ -2,7 +2,7 @@
 name = "mycontext"
 version = "0.1.0"
 description = "A private context layer for AI: your data is scrubbed on your Mac before any AI can read it. Gmail is the first source."
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "phonenumbers>=8.13",
     "google-auth>=2.30",
@@ -25,7 +25,7 @@ testpaths = ["tests"]
 
 # --- Mac app packaging (Briefcase) -------------------------------------------
 # See packaging/README.md. Run Briefcase from Python 3.12 so the bundled
-# runtime is 3.12, not this Mac's system Python 3.9.
+# runtime is 3.12 (the project needs 3.11+).
 [tool.briefcase]
 project_name = "MyContext"
 bundle = "com.example"            # TODO: your reverse-DNS domain

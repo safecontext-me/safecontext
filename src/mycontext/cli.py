@@ -16,10 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import warnings
 from pathlib import Path
-
-warnings.filterwarnings("ignore", category=FutureWarning)  # google-auth nags about Python 3.9
 
 
 def _store(args):
