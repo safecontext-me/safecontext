@@ -30,7 +30,8 @@ testpaths = ["tests"]
 project_name = "MyContext"
 bundle = "com.example"            # TODO: your reverse-DNS domain
 version = "0.1.0"
-license.file = "LICENSE"
+license = "LicenseRef-Proprietary"
+license-files = ["LICENSE"]
 
 [tool.briefcase.app.mycontext]
 formal_name = "MyContext"
@@ -48,4 +49,12 @@ requires = [
 
 [tool.briefcase.app.mycontext.macOS]
 universal_build = true
-requires = []
+# cryptography 49+ ships no Intel Mac wheels; 48.x is the last universal2 build.
+# Drop this pin (and set universal_build = false) once Intel Macs are dropped.
+# No std-nslog: it would redirect stdout to the system log, and the bundled
+# launcher also serves MCP over stdio (`MyContext --data-dir … mcp`).
+requires = ["cryptography<49"]
+# Universal builds accept wheels only, and pywebview's dependency proxy_tools
+# ships only a source archive. Build its wheel first (see packaging/README.md):
+#   .venv312/bin/pip wheel --no-deps -w packaging/wheels proxy_tools
+requirement_installer_args = ["--find-links", "packaging/wheels"]

@@ -18,7 +18,10 @@ its own Python runtime (use 3.12) so users don't need Python installed.
 ## Build
 
 ```bash
+uv python install 3.12            # or the python.org installer
 python3.12 -m venv .venv312 && .venv312/bin/pip install briefcase
+# pywebview needs proxy_tools, which has no wheel; universal builds accept wheels only.
+.venv312/bin/pip wheel --no-deps -w packaging/wheels proxy_tools
 .venv312/bin/briefcase create macOS
 .venv312/bin/briefcase build macOS
 .venv312/bin/briefcase run macOS            # smoke test
@@ -28,6 +31,17 @@ python3.12 -m venv .venv312 && .venv312/bin/pip install briefcase
 `package` signs the app and submits it to Apple for notarization. The first time,
 Briefcase asks for an app-specific password for `notarytool`. The result is a
 `.dmg` in `dist/`.
+
+The unsigned app built by `build` is at `build/mycontext/macos/app/MyContext.app`
+(ad-hoc signed, runs on this Mac only). After changing dependencies, run
+`briefcase update macOS -r` before `build`.
+
+### Intel Macs
+
+`universal_build = true` makes an arm64 + x86_64 app. cryptography 49+ publishes no
+Intel Mac wheels, so the macOS `requires` pins `cryptography<49` (48.x is the last
+universal2 build). To drop Intel support, remove that pin and set
+`universal_build = false`.
 
 ## Before you ship
 

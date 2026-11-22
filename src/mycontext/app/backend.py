@@ -46,6 +46,14 @@ REDACTION_LABELS = {
 }
 
 
+def _in_app_bundle(executable: str) -> bool:
+    """True for a Briefcase .app launcher (…/MyContext.app/Contents/MacOS/MyContext),
+    false for a python interpreter, including a framework build's Python.app."""
+    exe = Path(executable)
+    return (exe.parent.name == "MacOS" and exe.parent.parent.name == "Contents"
+            and not exe.name.lower().startswith("python"))
+
+
 def _safe(fn: Callable) -> Callable:
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
@@ -296,12 +304,16 @@ class Backend:
     # --- MCP -------------------------------------------------------------------------
     @_safe
     def mcp_config(self) -> Dict[str, Any]:
-        src = str(Path(__file__).resolve().parents[2])
-        cfg = {"mcpServers": {"mycontext": {
-            "command": sys.executable,
-            "args": ["-m", "mycontext", "--data-dir", str(self._data_dir), "mcp"],
-            "env": {"PYTHONPATH": src, "PYTHONWARNINGS": "ignore"}}}}
-        return {"json": json.dumps(cfg, indent=2)}
+        args = ["--data-dir", str(self._data_dir), "mcp"]
+        if _in_app_bundle(sys.executable):
+            # Packaged .app: sys.executable is the app's launcher, which always runs
+            # mycontext and passes its arguments straight through (it doesn't take -m).
+            server = {"command": sys.executable, "args": args}
+        else:
+            src = str(Path(__file__).resolve().parents[2])
+            server = {"command": sys.executable, "args": ["-m", "mycontext", *args],
+                      "env": {"PYTHONPATH": src, "PYTHONWARNINGS": "ignore"}}
+        return {"json": json.dumps({"mcpServers": {"mycontext": server}}, indent=2)}
 
     def _shutdown(self) -> None:
         self._stop.set()

@@ -2,7 +2,7 @@
 import json
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import keyring
 import pytest
@@ -18,6 +18,11 @@ CLIENT = {"installed": {
     "client_id": "123-test.apps.googleusercontent.com", "client_secret": "GOCSPX-test-not-secret",
     "auth_uri": "https://accounts.google.com/o/oauth2/auth", "token_uri": "https://oauth2.googleapis.com/token",
     "redirect_uris": ["http://localhost"]}}
+
+
+def _utcnow():
+    """Naive UTC, which is what google-auth compares Credentials.expiry against."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class MemoryKeyring(KeyringBackend):
@@ -51,7 +56,7 @@ def mem_keyring():
 def creds(scope=auth.SCOPE_READONLY, expired=False, refresh_token="1//refresh-test"):
     c = Credentials(token="ya29.test", refresh_token=refresh_token, client_id="cid", client_secret="cs",
                     token_uri="https://oauth2.googleapis.com/token", scopes=[scope])
-    c.expiry = datetime.utcnow() + (timedelta(hours=-1) if expired else timedelta(hours=1))
+    c.expiry = _utcnow() + (timedelta(hours=-1) if expired else timedelta(hours=1))
     return c
 
 
@@ -160,7 +165,7 @@ def test_successful_refresh_is_saved(monkeypatch, mem_keyring):
 
     def ok(self, request):
         self.token = "ya29.new"
-        self.expiry = datetime.utcnow() + timedelta(hours=1)
+        self.expiry = _utcnow() + timedelta(hours=1)
 
     monkeypatch.setattr(Credentials, "refresh", ok)
     assert get_credentials("a@example.org").token == "ya29.new"

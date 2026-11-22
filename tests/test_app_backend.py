@@ -161,6 +161,25 @@ def test_mcp_config_points_at_this_data(backend):
     import json
     cfg = json.loads(backend.mcp_config()["json"])["mcpServers"]["mycontext"]
     assert cfg["args"][-1] == "mcp" and str(backend._data_dir) in cfg["args"]
+    assert cfg["args"][:2] == ["-m", "mycontext"]  # running from a python interpreter
+
+
+def test_mcp_config_in_packaged_app_calls_the_launcher_without_dash_m(backend, monkeypatch):
+    import json
+    import sys
+    exe = "/Applications/MyContext.app/Contents/MacOS/MyContext"
+    monkeypatch.setattr(sys, "executable", exe)
+    cfg = json.loads(backend.mcp_config()["json"])["mcpServers"]["mycontext"]
+    assert cfg["command"] == exe
+    assert cfg["args"] == ["--data-dir", str(backend._data_dir), "mcp"]
+    assert "env" not in cfg
+
+
+def test_framework_python_app_is_not_mistaken_for_the_bundle():
+    from mycontext.app.backend import _in_app_bundle
+    assert not _in_app_bundle("/Library/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python")
+    assert not _in_app_bundle("/usr/local/bin/python3.12")
+    assert _in_app_bundle("/Applications/MyContext.app/Contents/MacOS/MyContext")
 
 
 def test_html_is_self_contained_and_locked_down():
