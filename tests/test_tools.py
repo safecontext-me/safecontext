@@ -1,9 +1,9 @@
 import pytest
 
-from mycontext.scrub import scrub
-from mycontext.store import Store
-from mycontext.tools import MAX_BODY_CHARS, MAX_THREAD_MESSAGES, TOOLS, citations, run_tool
-from mycontext.demo.synthetic import mailbox, msg
+from safecontext.scrub import scrub
+from safecontext.store import Store
+from safecontext.tools import MAX_BODY_CHARS, MAX_THREAD_MESSAGES, TOOLS, citations, run_tool
+from safecontext.demo.synthetic import mailbox, msg
 
 
 @pytest.fixture

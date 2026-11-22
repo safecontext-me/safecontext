@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from mycontext.mcp_server import MCPServer
-from mycontext.scrub import scrub
-from mycontext.store import Store
-from mycontext.demo.synthetic import mailbox
+from safecontext.mcp_server import MCPServer
+from safecontext.scrub import scrub
+from safecontext.store import Store
+from safecontext.demo.synthetic import mailbox
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -100,7 +100,7 @@ def test_real_stdio_process(store, tmp_path):
     msgs = [init(), {"jsonrpc": "2.0", "method": "notifications/initialized"},
             rpc(2, "tools/call", {"name": "read_thread", "arguments": {"thread_id": "t0004"}})]
     env = {**os.environ, "PYTHONPATH": f"{ROOT / 'src'}", "PYTHONWARNINGS": "ignore"}
-    proc = subprocess.run([sys.executable, "-m", "mycontext", "--data-dir", str(tmp_path / "data"), "mcp"],
+    proc = subprocess.run([sys.executable, "-m", "safecontext", "--data-dir", str(tmp_path / "data"), "mcp"],
                           input="".join(json.dumps(m) + "\n" for m in msgs), capture_output=True, text=True,
                           env=env, timeout=60)
     lines = proc.stdout.splitlines()

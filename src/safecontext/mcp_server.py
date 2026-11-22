@@ -5,7 +5,7 @@ messages on stdin/stdout) so it has no extra dependencies. The official
 `mcp` SDK needs Python 3.10+; the packaged app can switch to it later
 without changing the tools.
 
-Clients run it as:  python -m mycontext mcp
+Clients run it as:  python -m safecontext mcp
 stdout carries protocol messages only; diagnostics go to stderr.
 """
 from __future__ import annotations
@@ -53,7 +53,7 @@ class MCPServer:
             return _ok(id_, {
                 "protocolVersion": self.protocol_version,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "mycontext", "title": "MyContext: private context layer (Gmail)", "version": __version__},
+                "serverInfo": {"name": "safecontext", "title": "SafeContext: private context layer (Gmail)", "version": __version__},
                 "instructions": INSTRUCTIONS,
             })
         if is_notification:
@@ -91,7 +91,7 @@ class MCPServer:
                 try:
                     reply = self.handle(msg)
                 except Exception as e:  # never crash the client's connection
-                    print(f"mycontext mcp: internal error {type(e).__name__}", file=sys.stderr)
+                    print(f"safecontext mcp: internal error {type(e).__name__}", file=sys.stderr)
                     reply = _err(msg.get("id") if isinstance(msg, dict) else None, -32603, "Internal error")
             if reply is not None:
                 stdout.write(json.dumps(reply, ensure_ascii=False) + "\n")

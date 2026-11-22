@@ -4,12 +4,12 @@ import os
 
 import pytest
 
-from mycontext.app.backend import Backend
-from mycontext.app.demo import DEMO_ACCOUNT, DemoGrok
-from mycontext.demo.fake_gmail import FakeGmail
-from mycontext.demo.synthetic import mailbox
-from mycontext.store import Store
-from mycontext.sync import HEARTBEAT_KEY, Syncer, _SyncLock, read_heartbeat
+from safecontext.app.backend import Backend
+from safecontext.app.demo import DEMO_ACCOUNT, DemoGrok
+from safecontext.demo.fake_gmail import FakeGmail
+from safecontext.demo.synthetic import mailbox
+from safecontext.store import Store
+from safecontext.sync import HEARTBEAT_KEY, Syncer, _SyncLock, read_heartbeat
 
 
 @pytest.fixture

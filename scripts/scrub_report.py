@@ -6,9 +6,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src"), str(ROOT)]
 
-from mycontext.scrub import Dropped, scrub  # noqa: E402
-from mycontext.scrub.normalize import html_to_text  # noqa: E402
-from mycontext.demo.synthetic import mailbox  # noqa: E402
+from safecontext.scrub import Dropped, scrub  # noqa: E402
+from safecontext.scrub.normalize import html_to_text  # noqa: E402
+from safecontext.demo.synthetic import mailbox  # noqa: E402
 
 
 def block(text):

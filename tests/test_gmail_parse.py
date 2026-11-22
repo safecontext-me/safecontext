@@ -1,6 +1,6 @@
 import base64
 
-from mycontext.gmail_parse import MAX_TEXT_CHARS, history_message_ids, parse_gmail_message
+from safecontext.gmail_parse import MAX_TEXT_CHARS, history_message_ids, parse_gmail_message
 
 
 def b64(data: bytes) -> str:

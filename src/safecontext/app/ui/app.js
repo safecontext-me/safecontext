@@ -1,4 +1,4 @@
-// MyContext window. All mail content is inserted with textContent / text nodes,
+// SafeContext window. All mail content is inserted with textContent / text nodes,
 // never parsed as HTML, so nothing in an email can run code or load resources.
 "use strict";
 

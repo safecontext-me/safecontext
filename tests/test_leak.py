@@ -6,9 +6,9 @@ import dataclasses
 import json
 import logging
 
-from mycontext.scrub import Dropped, ScrubbedMessage, scrub
-from mycontext.store import Store
-from mycontext.demo.synthetic import BENIGN_MARKER, all_needles, leak_matrix, mailbox
+from safecontext.scrub import Dropped, ScrubbedMessage, scrub
+from safecontext.store import Store
+from safecontext.demo.synthetic import BENIGN_MARKER, all_needles, leak_matrix, mailbox
 
 
 def _scan(data_dir):
@@ -22,7 +22,7 @@ def _scan(data_dir):
 
 
 def _log_results(data_dir, results):
-    log = logging.getLogger("mycontext.leaktest")
+    log = logging.getLogger("safecontext.leaktest")
     handler = logging.FileHandler(str(data_dir / "sync.log"))
     log.addHandler(handler)
     log.setLevel(logging.DEBUG)

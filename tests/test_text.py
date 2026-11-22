@@ -1,6 +1,6 @@
 """Normalization, HTML conversion, quote and signature stripping."""
-from mycontext.scrub.normalize import html_to_text, normalize_text
-from mycontext.scrub.quotes import strip_quoted, strip_signature
+from safecontext.scrub.normalize import html_to_text, normalize_text
+from safecontext.scrub.quotes import strip_quoted, strip_signature
 
 
 # --- normalization --------------------------------------------------------

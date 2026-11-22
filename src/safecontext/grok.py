@@ -17,14 +17,16 @@ from typing import Any, Dict, List, Optional
 import keyring
 import keyring.errors
 
+from .migrate import getenv, keychain_delete, keychain_get
 from .store import Store
 from .tools import TOOLS, citations, run_tool
 
 XAI_BASE_URL = "https://api.x.ai/v1"
 DEFAULT_MODEL = "grok-4.7"
-MODEL_ENV = "MYCONTEXT_GROK_MODEL"
+MODEL_ENV = "SAFECONTEXT_GROK_MODEL"  # MYCONTEXT_GROK_MODEL still works
 KEY_ENV = "XAI_API_KEY"
-KEYRING_SERVICE = "MyContext xAI"
+KEYRING_SERVICE = "SafeContext xAI"
+LEGACY_KEYRING_SERVICE = "MyContext xAI"  # before the rename; see migrate.py
 KEYRING_USER = "api_key"
 MAX_ROUNDS = 8
 
@@ -48,7 +50,7 @@ def get_api_key() -> Optional[str]:
     if os.environ.get(KEY_ENV):
         return os.environ[KEY_ENV]
     try:
-        return keyring.get_password(KEYRING_SERVICE, KEYRING_USER)
+        return keychain_get(KEYRING_SERVICE, KEYRING_USER, LEGACY_KEYRING_SERVICE)
     except keyring.errors.KeyringError:
         return None
 
@@ -57,12 +59,16 @@ def set_api_key(key: str) -> None:
     keyring.set_password(KEYRING_SERVICE, KEYRING_USER, key.strip())
 
 
+def clear_api_key() -> None:
+    keychain_delete(KEYRING_SERVICE, KEYRING_USER, LEGACY_KEYRING_SERVICE)
+
+
 def make_client(api_key: Optional[str] = None):
     from openai import OpenAI
 
     key = api_key or get_api_key()
     if not key:
-        raise GrokError("No xAI API key. Run `mycontext set-xai-key` or set XAI_API_KEY.")
+        raise GrokError("No xAI API key. Run `safecontext set-xai-key` or set XAI_API_KEY.")
     return OpenAI(api_key=key, base_url=XAI_BASE_URL, timeout=120)
 
 
@@ -94,7 +100,7 @@ class GrokMailAgent:
     def __init__(self, store: Store, client=None, model: Optional[str] = None, max_rounds: int = MAX_ROUNDS) -> None:
         self.store = store
         self.client = client or make_client()
-        self.model = model or os.environ.get(MODEL_ENV) or DEFAULT_MODEL
+        self.model = model or getenv("GROK_MODEL") or DEFAULT_MODEL
         self.max_rounds = max_rounds
         self.history: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
@@ -146,7 +152,7 @@ class GrokMailAgent:
         except Exception as e:  # map SDK errors to something a person can act on
             name = type(e).__name__
             if name == "AuthenticationError":
-                raise GrokError("xAI rejected the API key. Run `mycontext set-xai-key` with a valid key.") from None
+                raise GrokError("xAI rejected the API key. Run `safecontext set-xai-key` with a valid key.") from None
             if name in ("APIConnectionError", "APITimeoutError"):
                 raise GrokError("Couldn't reach xAI. Check your connection and try again.") from None
             if name == "NotFoundError":

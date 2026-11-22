@@ -13,7 +13,7 @@ macOS/
 logs/
 
 # Google OAuth client (bundled at build time; keep it out of the repo)
-src/mycontext/oauth_client.json
+src/safecontext/oauth_client.json
 oauth_client*.json
 client_secret*.json
 

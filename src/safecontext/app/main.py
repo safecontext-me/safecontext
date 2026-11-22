@@ -1,7 +1,7 @@
-"""Open the MyContext window.
+"""Open the SafeContext window.
 
-    python -m mycontext app           # your real mailbox
-    python -m mycontext app --demo    # synthetic mailbox, no network
+    python -m safecontext app           # your real mailbox
+    python -m safecontext app --demo    # synthetic mailbox, no network
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def run(demo: bool = False, data_dir: Optional[Path] = None, debug: bool = False
         backend = Backend(**demo_backend_kwargs(data_dir))
     else:
         backend = Backend(data_dir)
-    title = "MyContext (demo)" if demo else "MyContext"
+    title = "SafeContext (demo)" if demo else "SafeContext"
     webview.create_window(title, html=build_html(), js_api=backend, width=1180, height=780,
                           min_size=(860, 560), text_select=True)
     try:

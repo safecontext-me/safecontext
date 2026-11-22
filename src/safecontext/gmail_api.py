@@ -9,7 +9,6 @@ and server errors with exponential backoff, and maps auth failures to
 from __future__ import annotations
 
 import logging
-import os
 import random
 import threading
 import time
@@ -21,8 +20,9 @@ except ImportError:  # pragma: no cover
     Protocol = object  # type: ignore
 
 from .auth import NeedsReconnect, TransientAuthError, is_invalid_grant
+from .migrate import getenv
 
-log = logging.getLogger("mycontext.gmail")  # status codes and counts only, never content
+log = logging.getLogger("safecontext.gmail")  # status codes and counts only, never content
 
 
 class GmailError(Exception):
@@ -60,7 +60,7 @@ QUOTA_UNITS = {"get": 5, "list": 5, "history": 2, "profile": 1}
 # Gmail's per-user quota is counted per minute. As of late 2026 new projects get
 # 6,000 units/minute/user (100/s), down from the documented 15,000. Run at 80% of
 # that with no bursts: about 16 messages/second, and no per-minute pauses.
-DEFAULT_UNITS_PER_SECOND = float(os.environ.get("MYCONTEXT_GMAIL_UNITS_PER_SEC", "80"))
+DEFAULT_UNITS_PER_SECOND = float(getenv("GMAIL_UNITS_PER_SEC", "80"))
 BATCH_SIZE = 10
 PER_MINUTE_WAIT = 65.0
 _RETRYABLE = {429, 500, 502, 503, 504}

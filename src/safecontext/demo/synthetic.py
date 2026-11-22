@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-from mycontext.scrub import Attachment, RawMessage
+from safecontext.scrub import Attachment, RawMessage
 
 
 def _pad(prefix: str, n: int, fill: str = "Canary0123456789") -> str:

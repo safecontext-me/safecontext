@@ -4,9 +4,9 @@
 All codes and keys below are synthetic."""
 import pytest
 
-from mycontext.scrub import Dropped, ScrubbedMessage, scrub
-from mycontext.scrub.redact import redact
-from mycontext.demo.synthetic import msg
+from safecontext.scrub import Dropped, ScrubbedMessage, scrub
+from safecontext.scrub.redact import redact
+from safecontext.demo.synthetic import msg
 
 # --- automated 2FA mail: dropped whole, even with a bland subject --------
 

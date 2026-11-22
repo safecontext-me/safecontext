@@ -89,7 +89,7 @@ class DemoGrok:
 def demo_backend_kwargs(data_dir: Optional[Path] = None) -> Dict[str, Any]:
     gmail = make_fake_gmail()
     return dict(
-        data_dir=data_dir or Path(tempfile.mkdtemp(prefix="mycontext-demo-")),
+        data_dir=data_dir or Path(tempfile.mkdtemp(prefix="safecontext-demo-")),
         demo=True,
         gmail_factory=lambda account, mode: gmail,
         connect_fn=lambda mode, email: (time.sleep(0.8), DEMO_ACCOUNT)[1],

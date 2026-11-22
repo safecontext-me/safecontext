@@ -1,8 +1,8 @@
 """One test group per redaction rule: things it must catch, things it must leave alone."""
 import pytest
 
-from mycontext.scrub.redact import card_prefix_ok, iban_ok, luhn_ok, redact, ssn_ok
-from mycontext.demo.synthetic import PRIVATE_KEY, _pad
+from safecontext.scrub.redact import card_prefix_ok, iban_ok, luhn_ok, redact, ssn_ok
+from safecontext.demo.synthetic import PRIVATE_KEY, _pad
 
 
 def kinds(text):

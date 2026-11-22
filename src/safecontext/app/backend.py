@@ -23,7 +23,7 @@ from ..store import DEFAULT_DATA_DIR, Store
 from ..sync import SyncResult, Syncer, read_heartbeat
 from ..tools import run_tool
 
-log = logging.getLogger("mycontext.app")
+log = logging.getLogger("safecontext.app")
 
 AUTO_SYNC_SECONDS = 15 * 60
 
@@ -47,7 +47,7 @@ REDACTION_LABELS = {
 
 
 def _in_app_bundle(executable: str) -> bool:
-    """True for a Briefcase .app launcher (…/MyContext.app/Contents/MacOS/MyContext),
+    """True for a Briefcase .app launcher (…/SafeContext.app/Contents/MacOS/SafeContext),
     false for a python interpreter, including a framework build's Python.app."""
     exe = Path(executable)
     return (exe.parent.name == "MacOS" and exe.parent.parent.name == "Contents"
@@ -286,11 +286,7 @@ class Backend:
 
     @_safe
     def clear_xai_key(self) -> Dict[str, Any]:
-        import keyring
-        try:
-            keyring.delete_password(grok.KEYRING_SERVICE, grok.KEYRING_USER)
-        except keyring.errors.KeyringError:
-            pass
+        grok.clear_api_key()
         self._agent = None
         return {}
 
@@ -307,13 +303,13 @@ class Backend:
         args = ["--data-dir", str(self._data_dir), "mcp"]
         if _in_app_bundle(sys.executable):
             # Packaged .app: sys.executable is the app's launcher, which always runs
-            # mycontext and passes its arguments straight through (it doesn't take -m).
+            # safecontext and passes its arguments straight through (it doesn't take -m).
             server = {"command": sys.executable, "args": args}
         else:
             src = str(Path(__file__).resolve().parents[2])
-            server = {"command": sys.executable, "args": ["-m", "mycontext", *args],
+            server = {"command": sys.executable, "args": ["-m", "safecontext", *args],
                       "env": {"PYTHONPATH": src, "PYTHONWARNINGS": "ignore"}}
-        return {"json": json.dumps({"mcpServers": {"mycontext": server}}, indent=2)}
+        return {"json": json.dumps({"mcpServers": {"safecontext": server}}, indent=2)}
 
     def _shutdown(self) -> None:
         self._stop.set()

@@ -1,5 +1,5 @@
 [project]
-name = "mycontext"
+name = "safecontext"
 version = "0.1.0"
 description = "A private context layer for AI: your data is scrubbed on your Mac before any AI can read it. Gmail is the first source."
 requires-python = ">=3.11"
@@ -14,7 +14,8 @@ dependencies = [
 ]
 
 [project.scripts]
-mycontext = "mycontext.cli:main"
+safecontext = "safecontext.cli:main"
+mycontext = "safecontext.cli:legacy_main"  # deprecated alias from before the rename
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
@@ -27,16 +28,16 @@ testpaths = ["tests"]
 # See packaging/README.md. Run Briefcase from Python 3.12 so the bundled
 # runtime is 3.12 (the project needs 3.11+).
 [tool.briefcase]
-project_name = "MyContext"
-bundle = "com.example"            # TODO: your reverse-DNS domain
+project_name = "SafeContext"
+bundle = "me.safecontext"         # bundle ID me.safecontext.safecontext
 version = "0.1.0"
 license = "LicenseRef-Proprietary"
 license-files = ["LICENSE"]
 
-[tool.briefcase.app.mycontext]
-formal_name = "MyContext"
+[tool.briefcase.app.safecontext]
+formal_name = "SafeContext"
 description = "A private context layer for AI. Your data, scrubbed on your Mac."
-sources = ["src/mycontext"]
+sources = ["src/safecontext"]
 requires = [
     "phonenumbers>=8.13",
     "google-auth>=2.30",
@@ -47,12 +48,12 @@ requires = [
     "pywebview>=5.0",
 ]
 
-[tool.briefcase.app.mycontext.macOS]
+[tool.briefcase.app.safecontext.macOS]
 universal_build = true
 # cryptography 49+ ships no Intel Mac wheels; 48.x is the last universal2 build.
 # Drop this pin (and set universal_build = false) once Intel Macs are dropped.
 # No std-nslog: it would redirect stdout to the system log, and the bundled
-# launcher also serves MCP over stdio (`MyContext --data-dir … mcp`).
+# launcher also serves MCP over stdio (`SafeContext --data-dir … mcp`).
 requires = ["cryptography<49"]
 # Universal builds accept wheels only, and pywebview's dependency proxy_tools
 # ships only a source archive. Build its wheel first (see packaging/README.md):

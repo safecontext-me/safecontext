@@ -1,10 +1,10 @@
 import pytest
 
-from mycontext.gmail_api import FULL_MODE_QUERY
-from mycontext.store import Store
-from mycontext.sync import Syncer
-from mycontext.demo.fake_gmail import FakeGmail
-from mycontext.demo.synthetic import all_needles, leak_matrix, mailbox, msg
+from safecontext.gmail_api import FULL_MODE_QUERY
+from safecontext.store import Store
+from safecontext.sync import Syncer
+from safecontext.demo.fake_gmail import FakeGmail
+from safecontext.demo.synthetic import all_needles, leak_matrix, mailbox, msg
 
 
 @pytest.fixture
@@ -172,7 +172,7 @@ def test_scrubber_version_change_refetches(store, gmail):
 
 
 def test_one_bad_message_does_not_stop_sync(store, gmail):
-    from mycontext.scrub import scrub
+    from safecontext.scrub import scrub
 
     def flaky(raw):
         if raw.id == "m0003":

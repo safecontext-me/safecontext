@@ -1,4 +1,5 @@
 import sys
-from .cli import main
 
-sys.exit(main())
+from safecontext.cli import legacy_main
+
+sys.exit(legacy_main())

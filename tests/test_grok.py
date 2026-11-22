@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from mycontext import grok
-from mycontext.grok import GrokError, GrokMailAgent, grok_tools
-from mycontext.scrub import scrub
-from mycontext.store import Store
-from mycontext.demo.synthetic import all_needles, leak_matrix, mailbox
+from safecontext import grok
+from safecontext.grok import GrokError, GrokMailAgent, grok_tools
+from safecontext.scrub import scrub
+from safecontext.store import Store
+from safecontext.demo.synthetic import all_needles, leak_matrix, mailbox
 
 
 class Item(SimpleNamespace):
@@ -178,7 +178,7 @@ def test_nothing_secret_leaves_the_mac(store):
 
 def test_cli_ask_without_key_prints_message(monkeypatch, tmp_path, capsys):
     from keyring.backends.fail import Keyring as FailKeyring
-    from mycontext.cli import main
+    from safecontext.cli import main
     monkeypatch.delenv(grok.KEY_ENV, raising=False)
     old = grok.keyring.get_keyring()
     grok.keyring.set_keyring(FailKeyring())

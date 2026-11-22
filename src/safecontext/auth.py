@@ -21,12 +21,15 @@ from google.auth.exceptions import RefreshError, TransportError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
+from .migrate import getenv, keychain_delete, keychain_get
+
 SCOPE_READONLY = "https://www.googleapis.com/auth/gmail.readonly"
 SCOPE_METADATA = "https://www.googleapis.com/auth/gmail.metadata"
 MODES = {"full": SCOPE_READONLY, "headers": SCOPE_METADATA}
 
-KEYRING_SERVICE = "MyContext Gmail"
-CLIENT_CONFIG_ENV = "MYCONTEXT_OAUTH_CLIENT"
+KEYRING_SERVICE = "SafeContext Gmail"
+LEGACY_KEYRING_SERVICE = "MyContext Gmail"  # before the rename; see migrate.py
+CLIENT_CONFIG_ENV = "SAFECONTEXT_OAUTH_CLIENT"  # MYCONTEXT_OAUTH_CLIENT still works
 BUNDLED_CLIENT_CONFIG = Path(__file__).with_name("oauth_client.json")
 
 RECONNECT_MESSAGE = "Gmail access was revoked or has expired. Click “Reconnect Gmail” to continue syncing."
@@ -52,7 +55,7 @@ class TransientAuthError(Exception):
 # --- client config ---------------------------------------------------------
 
 def load_client_config(path: Optional[Path] = None) -> dict:
-    p = Path(path or os.environ.get(CLIENT_CONFIG_ENV) or BUNDLED_CLIENT_CONFIG)
+    p = Path(path or getenv("OAUTH_CLIENT") or BUNDLED_CLIENT_CONFIG)
     if not p.exists():
         raise NotConfigured(
             f"No Google OAuth client found at {p}. Download the Desktop client JSON from Google Cloud "
@@ -91,8 +94,10 @@ KEYCHAIN_UNAVAILABLE = "Couldn't access the macOS Keychain, where the Gmail sign
 
 
 class TokenStore:
-    def __init__(self, service: str = KEYRING_SERVICE) -> None:
+    def __init__(self, service: str = KEYRING_SERVICE,
+                 legacy_service: Optional[str] = LEGACY_KEYRING_SERVICE) -> None:
         self.service = service
+        self.legacy_service = legacy_service
 
     def save(self, account: str, creds: Credentials) -> None:
         try:
@@ -102,7 +107,7 @@ class TokenStore:
 
     def load(self, account: str) -> Optional[Credentials]:
         try:
-            blob = keyring.get_password(self.service, account)
+            blob = keychain_get(self.service, account, self.legacy_service)
         except keyring.errors.KeyringError:
             raise NotConfigured(KEYCHAIN_UNAVAILABLE) from None
         if not blob:
@@ -111,10 +116,7 @@ class TokenStore:
         return Credentials.from_authorized_user_info(info, scopes=info.get("scopes"))
 
     def delete(self, account: str) -> None:
-        try:
-            keyring.delete_password(self.service, account)
-        except keyring.errors.KeyringError:  # includes "not found"
-            pass
+        keychain_delete(self.service, account, self.legacy_service)
 
 
 # --- connect / refresh / disconnect ---------------------------------------
@@ -128,7 +130,7 @@ def connect(mode: str = "full", login_hint: Optional[str] = None, *, client_conf
     if not required_scope_granted(creds, mode):
         raise NeedsReconnect("scope_not_granted",
                              "Gmail access wasn't granted. On Google's consent screen, tick the box that lets "
-                             "MyContext read your email, then try again.")
+                             "SafeContext read your email, then try again.")
     account = fetch_account_email(creds)
     (tokens or TokenStore()).save(account, creds)
     return creds, account

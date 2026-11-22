@@ -16,9 +16,9 @@ warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src")]
 
-from mycontext.app.backend import Backend  # noqa: E402
-from mycontext.app.demo import demo_backend_kwargs  # noqa: E402
-from mycontext.app.main import build_html  # noqa: E402
+from safecontext.app.backend import Backend  # noqa: E402
+from safecontext.app.demo import demo_backend_kwargs  # noqa: E402
+from safecontext.app.main import build_html  # noqa: E402
 
 backend = Backend(**demo_backend_kwargs(), auto_sync=False)
 PUBLIC = {n for n in dir(backend) if not n.startswith("_")}

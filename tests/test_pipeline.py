@@ -1,8 +1,8 @@
 import dataclasses
 
-from mycontext.scrub import Attachment, Dropped, ScrubbedMessage, SCRUBBER_VERSION, scrub
-from mycontext.scrub.models import RawMessage
-from mycontext.demo.synthetic import mailbox, msg
+from safecontext.scrub import Attachment, Dropped, ScrubbedMessage, SCRUBBER_VERSION, scrub
+from safecontext.scrub.models import RawMessage
+from safecontext.demo.synthetic import mailbox, msg
 
 
 def test_subject_redacted():

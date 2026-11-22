@@ -11,9 +11,10 @@ its own Python runtime (use 3.12) so users don't need Python installed.
    Without it macOS blocks the app with an "unidentified developer" warning.
 3. **The Google OAuth client file.** In Google Cloud Console, create an OAuth client
    of type *Desktop app*, download the JSON, and save it as
-   `src/mycontext/oauth_client.json`. It is bundled into the app. Google treats
+   `src/safecontext/oauth_client.json`. It is bundled into the app. Google treats
    Desktop client secrets as non-confidential, so shipping it is expected.
-4. Set `bundle` in `pyproject.toml` (`[tool.briefcase]`) to your reverse-DNS domain.
+4. `bundle` in `pyproject.toml` is `me.safecontext` (from safecontext.me), so the bundle ID
+   is `me.safecontext.safecontext`. Keep it stable once you ship: macOS ties permissions to it.
 
 ## Build
 
@@ -32,7 +33,7 @@ python3.12 -m venv .venv312 && .venv312/bin/pip install briefcase
 Briefcase asks for an app-specific password for `notarytool`. The result is a
 `.dmg` in `dist/`.
 
-The unsigned app built by `build` is at `build/mycontext/macos/app/MyContext.app`
+The unsigned app built by `build` is at `build/safecontext/macos/app/SafeContext.app`
 (ad-hoc signed, runs on this Mac only). After changing dependencies, run
 `briefcase update macOS -r` before `build`.
 

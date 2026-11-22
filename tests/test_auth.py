@@ -10,8 +10,8 @@ from google.auth.exceptions import RefreshError, TransportError
 from google.oauth2.credentials import Credentials
 from keyring.backend import KeyringBackend
 
-from mycontext import auth
-from mycontext.auth import (NeedsReconnect, NotConfigured, TokenStore, TransientAuthError, build_flow,
+from safecontext import auth
+from safecontext.auth import (NeedsReconnect, NotConfigured, TokenStore, TransientAuthError, build_flow,
                             get_credentials, load_client_config)
 
 CLIENT = {"installed": {
@@ -105,7 +105,7 @@ def test_client_config_from_env(tmp_path, monkeypatch):
 
 def test_tokens_live_in_keychain_not_files(mem_keyring, tmp_path):
     TokenStore().save("alex@example.org", creds())
-    assert ("MyContext Gmail", "alex@example.org") in mem_keyring.items
+    assert ("SafeContext Gmail", "alex@example.org") in mem_keyring.items
     loaded = TokenStore().load("alex@example.org")
     assert loaded.refresh_token == "1//refresh-test" and loaded.scopes == [auth.SCOPE_READONLY]
 
@@ -169,7 +169,7 @@ def test_successful_refresh_is_saved(monkeypatch, mem_keyring):
 
     monkeypatch.setattr(Credentials, "refresh", ok)
     assert get_credentials("a@example.org").token == "ya29.new"
-    assert json.loads(mem_keyring.items[("MyContext Gmail", "a@example.org")])["token"] == "ya29.new"
+    assert json.loads(mem_keyring.items[("SafeContext Gmail", "a@example.org")])["token"] == "ya29.new"
 
 
 def test_valid_creds_not_refreshed(monkeypatch):
@@ -233,7 +233,7 @@ class _Req:
 
 @pytest.fixture
 def client():
-    from mycontext.gmail_api import GoogleGmailAPI
+    from safecontext.gmail_api import GoogleGmailAPI
     return GoogleGmailAPI(creds(), sleep=lambda s: None)
 
 
@@ -260,13 +260,13 @@ def test_insufficient_scope_means_reconnect(client):
 
 
 def test_persistent_failure_is_transient(client):
-    from mycontext.gmail_api import TransientError
+    from safecontext.gmail_api import TransientError
     with pytest.raises(TransientError):
         client._execute(_Req([_http_error(503)] * 10), 5)
 
 
 def test_history_404_is_expired(client, monkeypatch):
-    from mycontext.gmail_api import HistoryExpired
+    from safecontext.gmail_api import HistoryExpired
     monkeypatch.setattr(client, "_execute", lambda req, units: (_ for _ in ()).throw(_http_error(404)))
     with pytest.raises(HistoryExpired):
         client.list_history("1", None)
@@ -298,7 +298,7 @@ class _FakeClock:
 def test_rate_limiter_handles_batches_bigger_than_the_bucket():
     """Regression: a 50-message batch costs 250 units but the bucket holds 200.
     It used to wait forever; it must proceed and repay the debt later."""
-    from mycontext.gmail_api import _TokenBucket
+    from safecontext.gmail_api import _TokenBucket
     clock = _FakeClock()
     b = _TokenBucket(200, 200, clock=clock.now, sleep=clock.sleep)
     for _ in range(4):
@@ -308,7 +308,7 @@ def test_rate_limiter_handles_batches_bigger_than_the_bucket():
 
 
 def test_rate_limiter_keeps_the_average_rate():
-    from mycontext.gmail_api import _TokenBucket
+    from safecontext.gmail_api import _TokenBucket
     clock = _FakeClock()
     b = _TokenBucket(200, 200, clock=clock.now, sleep=clock.sleep)
     for _ in range(100):
@@ -317,13 +317,13 @@ def test_rate_limiter_keeps_the_average_rate():
 
 
 def test_real_client_uses_a_bucket_that_fits_a_batch():
-    from mycontext.gmail_api import QUOTA_UNITS, GoogleGmailAPI
+    from safecontext.gmail_api import QUOTA_UNITS, GoogleGmailAPI
     c = GoogleGmailAPI(creds(), sleep=lambda s: None)
     c._bucket.take(QUOTA_UNITS["get"] * 50)  # returns without hanging
 
 
 def test_per_minute_quota_waits_for_the_window_to_roll_over():
-    from mycontext.gmail_api import PER_MINUTE_WAIT, GoogleGmailAPI
+    from safecontext.gmail_api import PER_MINUTE_WAIT, GoogleGmailAPI
     waits = []
     c = GoogleGmailAPI(creds(), sleep=waits.append)
     quota = _http_error(403, b'{"error":{"code":403,"message":"Quota exceeded for quota metric \'Total Query Cost\' '
@@ -333,7 +333,7 @@ def test_per_minute_quota_waits_for_the_window_to_roll_over():
 
 
 def test_plain_rate_limit_backs_off_more_than_a_second():
-    from mycontext.gmail_api import GoogleGmailAPI
+    from safecontext.gmail_api import GoogleGmailAPI
     waits = []
     c = GoogleGmailAPI(creds(), sleep=waits.append)
     assert c._execute(_Req([_http_error(429), {"ok": 1}]), 5) == {"ok": 1}
@@ -341,7 +341,7 @@ def test_plain_rate_limit_backs_off_more_than_a_second():
 
 
 def test_defaults_are_gentle():
-    from mycontext.gmail_api import BATCH_SIZE, DEFAULT_UNITS_PER_SECOND
+    from safecontext.gmail_api import BATCH_SIZE, DEFAULT_UNITS_PER_SECOND
     assert BATCH_SIZE <= 10 and DEFAULT_UNITS_PER_SECOND <= 85  # under the 6,000 units/min (100/s) per-user quota
 
 
@@ -353,7 +353,7 @@ def _per_minute_error():
 
 
 def test_pace_drops_when_the_per_minute_quota_is_hit():
-    from mycontext.gmail_api import GoogleGmailAPI
+    from safecontext.gmail_api import GoogleGmailAPI
     clock = _FakeClock()
     c = GoogleGmailAPI(creds(), units_per_second=80, sleep=clock.sleep, clock=clock.now)
     c._execute(_Req([_per_minute_error(), {"ok": 1}]), 5)
@@ -364,7 +364,7 @@ def test_pace_drops_when_the_per_minute_quota_is_hit():
 
 
 def test_pace_recovers_slowly_after_clean_minutes_but_never_exceeds_the_cap():
-    from mycontext.gmail_api import GoogleGmailAPI
+    from safecontext.gmail_api import GoogleGmailAPI
     clock = _FakeClock()
     c = GoogleGmailAPI(creds(), units_per_second=80, sleep=clock.sleep, clock=clock.now)
     c._execute(_Req([_per_minute_error(), {"ok": 1}]), 5)

@@ -78,7 +78,7 @@ CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
 END;
 """
 
-DEFAULT_DATA_DIR = Path.home() / "Library" / "Application Support" / "MyContext"
+DEFAULT_DATA_DIR = Path.home() / "Library" / "Application Support" / "SafeContext"
 
 
 # --- result shapes (what Grok / MCP tools return) -------------------------

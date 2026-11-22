@@ -4,10 +4,10 @@ import stat
 
 import pytest
 
-from mycontext.scrub import Dropped, RawMessage, scrub
-from mycontext.scrub.models import ScrubbedMessage
-from mycontext.store import Store, fts_query, gmail_link, to_ms
-from mycontext.demo.synthetic import mailbox, msg
+from safecontext.scrub import Dropped, RawMessage, scrub
+from safecontext.scrub.models import ScrubbedMessage
+from safecontext.store import Store, fts_query, gmail_link, to_ms
+from safecontext.demo.synthetic import mailbox, msg
 
 
 @pytest.fixture

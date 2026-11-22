@@ -35,7 +35,7 @@ from .gmail_parse import history_message_ids, parse_gmail_message
 from .scrub import Dropped, scrub
 from .store import Store
 
-log = logging.getLogger("mycontext.sync")  # ids and counts only, never content
+log = logging.getLogger("safecontext.sync")  # ids and counts only, never content
 
 
 @dataclass
@@ -159,7 +159,7 @@ class Syncer:
         self.result = SyncResult(status="ok")
         if self._lock and not self._lock.acquire():
             self.result.status = "busy"
-            self.result.message = "Another MyContext sync is already running."
+            self.result.message = "Another SafeContext sync is already running."
             return self.result
         self._started_ms = _now_ms()
         self._samples.clear()

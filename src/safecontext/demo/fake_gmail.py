@@ -7,9 +7,9 @@ import base64
 from collections import Counter
 from typing import Callable, Dict, List, Optional
 
-from mycontext.auth import NeedsReconnect
-from mycontext.gmail_api import HistoryExpired, TransientError
-from mycontext.scrub import RawMessage
+from safecontext.auth import NeedsReconnect
+from safecontext.gmail_api import HistoryExpired, TransientError
+from safecontext.scrub import RawMessage
 
 _EXCLUDED_BY_QUERY = {"CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS", "DRAFT", "CHAT"}
 

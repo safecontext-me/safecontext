@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from mycontext import auth
-from mycontext.app.backend import Backend
-from mycontext.app.demo import DEMO_ACCOUNT, DemoGrok, make_fake_gmail
-from mycontext.app.main import build_html
-from mycontext.demo.fake_gmail import FakeGmail
-from mycontext.demo.synthetic import mailbox
+from safecontext import auth
+from safecontext.app.backend import Backend
+from safecontext.app.demo import DEMO_ACCOUNT, DemoGrok, make_fake_gmail
+from safecontext.app.main import build_html
+from safecontext.demo.fake_gmail import FakeGmail
+from safecontext.demo.synthetic import mailbox
 
 
 def wait_sync(b, timeout=20):
@@ -159,34 +159,34 @@ def test_window_cannot_reach_internals(backend):
 
 def test_mcp_config_points_at_this_data(backend):
     import json
-    cfg = json.loads(backend.mcp_config()["json"])["mcpServers"]["mycontext"]
+    cfg = json.loads(backend.mcp_config()["json"])["mcpServers"]["safecontext"]
     assert cfg["args"][-1] == "mcp" and str(backend._data_dir) in cfg["args"]
-    assert cfg["args"][:2] == ["-m", "mycontext"]  # running from a python interpreter
+    assert cfg["args"][:2] == ["-m", "safecontext"]  # running from a python interpreter
 
 
 def test_mcp_config_in_packaged_app_calls_the_launcher_without_dash_m(backend, monkeypatch):
     import json
     import sys
-    exe = "/Applications/MyContext.app/Contents/MacOS/MyContext"
+    exe = "/Applications/SafeContext.app/Contents/MacOS/SafeContext"
     monkeypatch.setattr(sys, "executable", exe)
-    cfg = json.loads(backend.mcp_config()["json"])["mcpServers"]["mycontext"]
+    cfg = json.loads(backend.mcp_config()["json"])["mcpServers"]["safecontext"]
     assert cfg["command"] == exe
     assert cfg["args"] == ["--data-dir", str(backend._data_dir), "mcp"]
     assert "env" not in cfg
 
 
 def test_framework_python_app_is_not_mistaken_for_the_bundle():
-    from mycontext.app.backend import _in_app_bundle
+    from safecontext.app.backend import _in_app_bundle
     assert not _in_app_bundle("/Library/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python")
     assert not _in_app_bundle("/usr/local/bin/python3.12")
-    assert _in_app_bundle("/Applications/MyContext.app/Contents/MacOS/MyContext")
+    assert _in_app_bundle("/Applications/SafeContext.app/Contents/MacOS/SafeContext")
 
 
 def test_html_is_self_contained_and_locked_down():
     html = build_html()
     assert '<link rel="stylesheet"' not in html and '<script src=' not in html
     assert "default-src 'none'" in html and "connect-src 'none'" in html and "img-src data:" in html
-    js = (Path(__file__).resolve().parent.parent / "src/mycontext/app/ui/app.js").read_text()
+    js = (Path(__file__).resolve().parent.parent / "src/safecontext/app/ui/app.js").read_text()
     assert "innerHTML" not in js and "insertAdjacentHTML" not in js and "eval(" not in js
 
 

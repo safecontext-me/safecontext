@@ -8,7 +8,7 @@
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'self';style-src 'unsafe-inline' 'self'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MyContext</title>
+<title>SafeContext</title>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -17,10 +17,10 @@
 <!-- First run: connect Gmail -->
 <section id="onboarding" class="onboarding" hidden>
   <div class="card onboard-card">
-    <div class="brand-lg"><span class="logo" aria-hidden="true"></span> MyContext <span class="muted brand-sub">· your private context layer</span></div>
+    <div class="brand-lg"><span class="logo" aria-hidden="true"></span> SafeContext <span class="muted brand-sub">· your private context layer</span></div>
     <h1>Ask Grok about your email, with the sensitive parts removed first.</h1>
     <ul class="points">
-      <li><b>Stays on this Mac.</b> Your mail is downloaded and stored here. There is no MyContext server; nothing is uploaded except what you ask an AI about.</li>
+      <li><b>Stays on this Mac.</b> Your mail is downloaded and stored here. There is no SafeContext server; nothing is uploaded except what you ask an AI about.</li>
       <li><b>Scrubbed before it's saved.</b> 2FA codes, passwords, card and account numbers, API keys, addresses and more are removed. Security, banking, tax and health email is skipped entirely.</li>
       <li><b>You decide what Grok sees.</b> Only the scrubbed messages Grok searches for are sent to xAI, and only when you ask a question.</li>
     </ul>
@@ -34,7 +34,7 @@
     <label class="field"><span>Gmail address <small>(optional, pre-fills Google's account picker)</small></span>
       <input id="ob-email" type="email" placeholder="you@gmail.com" autocomplete="off"></label>
     <button id="ob-connect" class="btn primary lg">Connect Gmail</button>
-    <p class="hint" id="ob-hint">Google will warn that this app isn't verified. That's expected for a small app like this: click <b>Advanced</b>, then <b>Go to MyContext</b>.</p>
+    <p class="hint" id="ob-hint">Google will warn that this app isn't verified. That's expected for a small app like this: click <b>Advanced</b>, then <b>Go to SafeContext</b>.</p>
     <p class="error" id="ob-error" hidden></p>
   </div>
 </section>
@@ -42,7 +42,7 @@
 <!-- Main app -->
 <div id="shell" class="shell" hidden>
   <aside class="sidebar">
-    <div class="brand"><span class="logo" aria-hidden="true"></span> MyContext <span id="demo-badge" class="tag" hidden>Demo</span></div>
+    <div class="brand"><span class="logo" aria-hidden="true"></span> SafeContext <span id="demo-badge" class="tag" hidden>Demo</span></div>
     <div class="brand-sub muted">Private context layer</div>
     <div class="account" id="account"></div>
     <div class="sync" id="sync">

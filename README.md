@@ -1,9 +1,9 @@
-# MyContext
+# SafeContext
 
-A private context layer for AI. MyContext syncs your Gmail to your Mac, scrubs it
+A private context layer for AI. SafeContext syncs your Gmail to your Mac, scrubs it
 locally, and only then lets an AI read it. Gmail is the first source.
 
-It ships as a command-line tool (`mycontext`), a Mac app (pywebview), an MCP server
+It ships as a command-line tool (`safecontext`), a Mac app (pywebview), an MCP server
 for other AI clients, and an `ask`/`chat` command that answers questions about your
 mail with an xAI Grok model.
 
@@ -53,7 +53,7 @@ Requires Python 3.11 or newer; 3.12 is what the Mac app is built with. macOS's b
 
 ```bash
 python3.12 -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/mycontext --help
+.venv/bin/safecontext --help
 ```
 
 If `python3.12` isn't on your `PATH` (for example, a uv-managed install), use
@@ -65,20 +65,20 @@ tokens and keys are stored in the macOS Keychain and the default data directory 
 
 ## Google OAuth client
 
-The OAuth client file is git-ignored (`src/mycontext/oauth_client.json`, `oauth_client*.json`,
+The OAuth client file is git-ignored (`src/safecontext/oauth_client.json`, `oauth_client*.json`,
 `client_secret*.json`), so you create your own:
 
 1. In Google Cloud Console, enable the Gmail API for a project and configure the OAuth consent screen.
 2. Create an OAuth client of type **Desktop app** and download the JSON (it must contain an `installed` key).
-3. Save it as `src/mycontext/oauth_client.json`, or point `MYCONTEXT_OAUTH_CLIENT` at it.
+3. Save it as `src/safecontext/oauth_client.json`, or point `SAFECONTEXT_OAUTH_CLIENT` at it.
 
 Sign-in uses the loopback redirect with PKCE. For signed Mac builds the file is bundled
 into the app; see [packaging/README.md](packaging/README.md).
 
 ## CLI
 
-Run as `mycontext …` or `python -m mycontext …`. The global option `--data-dir` goes before the
-subcommand and defaults to `~/Library/Application Support/MyContext`.
+Run as `safecontext …` or `python -m safecontext …`. The global option `--data-dir` goes before the
+subcommand and defaults to `~/Library/Application Support/SafeContext`.
 
 | Command | What it does |
 | --- | --- |
@@ -93,16 +93,16 @@ subcommand and defaults to `~/Library/Application Support/MyContext`.
 | `mcp` | Run the MCP server on stdio. |
 | `app [--demo] [--debug]` | Open the Mac app window. |
 
-Running `mycontext` with no arguments opens the app (this is how the packaged `.app` launches).
-`ask`/`chat` use model `grok-4.7` by default, overridable with `--model` or `MYCONTEXT_GROK_MODEL`.
+Running `safecontext` with no arguments opens the app (this is how the packaged `.app` launches).
+`ask`/`chat` use model `grok-4.7` by default, overridable with `--model` or `SAFECONTEXT_GROK_MODEL`.
 The xAI key comes from the `XAI_API_KEY` environment variable or the Keychain.
 
 Typical first run:
 
 ```bash
-mycontext connect
-mycontext sync
-mycontext search "dinner" --after 2025-01-01
+safecontext connect
+safecontext sync
+safecontext search "dinner" --after 2025-01-01
 ```
 
 A data folder belongs to one Google account; run `disconnect --wipe` before connecting a different one.
@@ -111,8 +111,8 @@ Only one sync runs at a time (the app and CLI share a lock).
 ## Mac app
 
 ```bash
-mycontext app            # your real mailbox
-mycontext app --debug    # with the web inspector
+safecontext app            # your real mailbox
+safecontext app --debug    # with the web inspector
 ```
 
 The window lets you connect Gmail, watch sync progress (including syncs started from the CLI),
@@ -123,7 +123,7 @@ For a signed, double-clickable build, see [packaging/README.md](packaging/README
 ## Demo / synthetic mode
 
 ```bash
-mycontext app --demo
+safecontext app --demo
 ```
 
 Opens the app on a synthetic mailbox served by an in-memory fake Gmail, with a local stand-in
@@ -139,7 +139,7 @@ To see exactly what the scrubber does to that synthetic mailbox:
 
 ## MCP server
 
-`mycontext mcp` serves three read-only tools over stdio (newline-delimited JSON-RPC, no extra
+`safecontext mcp` serves three read-only tools over stdio (newline-delimited JSON-RPC, no extra
 dependencies): `search_mail`, `read_thread` and `list_messages`. Results come only from the scrubbed
 store and include date, sender and a Gmail link.
 
@@ -148,9 +148,9 @@ Add it to an MCP client's config, using absolute paths:
 ```json
 {
   "mcpServers": {
-    "mycontext": {
-      "command": "/path/to/mycontext/.venv/bin/python",
-      "args": ["-m", "mycontext", "mcp"]
+    "safecontext": {
+      "command": "/path/to/repo/.venv/bin/python",
+      "args": ["-m", "safecontext", "mcp"]
     }
   }
 }
@@ -163,12 +163,29 @@ and Python path; prefer copying that. Run `connect` and `sync` first so there is
 
 | What | Where |
 | --- | --- |
-| Scrubbed mail, sync state | `~/Library/Application Support/MyContext/mail.db` (SQLite + FTS5). Override with `--data-dir`. Directory is `0700`, files `0600`, and `secure_delete` is on. |
-| Gmail OAuth token | macOS Keychain via `keyring`, service `MyContext Gmail`, one entry per account. Never a plain file. |
-| xAI API key | macOS Keychain, service `MyContext xAI`, or the `XAI_API_KEY` environment variable. |
-| OAuth client file | `src/mycontext/oauth_client.json` or `$MYCONTEXT_OAUTH_CLIENT`. Not committed. |
+| Scrubbed mail, sync state | `~/Library/Application Support/SafeContext/mail.db` (SQLite + FTS5). Override with `--data-dir`. Directory is `0700`, files `0600`, and `secure_delete` is on. |
+| Gmail OAuth token | macOS Keychain via `keyring`, service `SafeContext Gmail`, one entry per account. Never a plain file. |
+| xAI API key | macOS Keychain, service `SafeContext xAI`, or the `XAI_API_KEY` environment variable. |
+| OAuth client file | `src/safecontext/oauth_client.json` or `$SAFECONTEXT_OAUTH_CLIENT`. Not committed. |
 
 `disconnect` removes the token and revokes the grant at Google; `disconnect --wipe` also deletes the local mail.
+
+## Coming from MyContext
+
+This app used to be called MyContext. On first start under the new name it carries your setup over:
+
+- `~/Library/Application Support/MyContext` is renamed to `…/SafeContext` (moved, not copied, so
+  there is one copy of your mail) and a symlink is left at the old path, so configs that pass
+  `--data-dir …/MyContext` keep working. If both folders already hold data, neither is touched and a
+  warning is printed; merge them by hand.
+- The Gmail token and xAI key are copied from the `MyContext Gmail` / `MyContext xAI` Keychain items
+  the first time they're needed. The old items stay until you `disconnect` or clear the key, which
+  removes both.
+- `MYCONTEXT_OAUTH_CLIENT`, `MYCONTEXT_GROK_MODEL` and `MYCONTEXT_GMAIL_UNITS_PER_SEC` still work
+  if the `SAFECONTEXT_` name isn't set.
+- `mycontext` and `python -m mycontext` still work but are deprecated: they print a notice to
+  stderr and run `safecontext`. Update MCP client configs to `-m safecontext` (or copy the new
+  config from Settings); the old name will be removed in a later version.
 
 ## Tests
 

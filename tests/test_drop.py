@@ -1,8 +1,8 @@
 import pytest
 
-from mycontext.scrub import Dropped, ScrubbedMessage, scrub
-from mycontext.scrub.drop import DropConfig
-from mycontext.demo.synthetic import msg
+from safecontext.scrub import Dropped, ScrubbedMessage, scrub
+from safecontext.scrub.drop import DropConfig
+from safecontext.demo.synthetic import msg
 
 
 def reason(m, config=None):
