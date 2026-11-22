@@ -58,22 +58,28 @@ _METADATA_HEADERS = ["From", "To", "Cc", "Subject", "Date", "Message-ID", "List-
 
 
 class _TokenBucket:
-    def __init__(self, rate: float, capacity: float) -> None:
+    def __init__(self, rate: float, capacity: float, clock: Callable[[], float] = time.monotonic,
+                 sleep: Callable[[float], None] = time.sleep) -> None:
         self.rate, self.capacity = rate, capacity
-        self.tokens, self.updated = capacity, time.monotonic()
+        self.clock, self.sleep = clock, sleep
+        self.tokens, self.updated = capacity, clock()
         self.lock = threading.Lock()
 
     def take(self, n: float) -> None:
+        """Wait until the bucket is full enough, then spend n. A request larger than
+        the bucket (e.g. a 50-message batch = 250 units) waits for a full bucket and
+        goes into debt, which later calls repay; otherwise it would wait forever."""
+        need = min(n, self.capacity)
         while True:
             with self.lock:
-                now = time.monotonic()
+                now = self.clock()
                 self.tokens = min(self.capacity, self.tokens + (now - self.updated) * self.rate)
                 self.updated = now
-                if self.tokens >= n:
+                if self.tokens >= need - 1e-9:  # tolerate float rounding
                     self.tokens -= n
                     return
-                wait = (n - self.tokens) / self.rate
-            time.sleep(wait)
+                wait = (need - self.tokens) / self.rate
+            self.sleep(wait)
 
 
 def _status(err: Exception) -> int:

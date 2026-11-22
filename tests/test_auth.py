@@ -273,3 +273,45 @@ def test_keychain_unavailable_is_clear():
     with pytest.raises(NotConfigured, match="Keychain"):
         get_credentials("a@example.org")
     TokenStore().delete("a@example.org")  # must not raise
+
+
+# --- rate limiter ------------------------------------------------------------
+
+class _FakeClock:
+    def __init__(self):
+        self.t = 0.0
+        self.slept = 0.0
+
+    def now(self):
+        return self.t
+
+    def sleep(self, s):
+        self.slept += s
+        self.t += s
+
+
+def test_rate_limiter_handles_batches_bigger_than_the_bucket():
+    """Regression: a 50-message batch costs 250 units but the bucket holds 200.
+    It used to wait forever; it must proceed and repay the debt later."""
+    from mycontext.gmail_api import _TokenBucket
+    clock = _FakeClock()
+    b = _TokenBucket(200, 200, clock=clock.now, sleep=clock.sleep)
+    for _ in range(4):
+        b.take(250)  # must return
+    # 1000 units at 200/s, starting with a full bucket of 200: about 4 seconds of waiting
+    assert 3.5 <= clock.slept <= 4.5
+
+
+def test_rate_limiter_keeps_the_average_rate():
+    from mycontext.gmail_api import _TokenBucket
+    clock = _FakeClock()
+    b = _TokenBucket(200, 200, clock=clock.now, sleep=clock.sleep)
+    for _ in range(100):
+        b.take(5)
+    assert clock.slept == pytest.approx((500 - 200) / 200, rel=0.01)
+
+
+def test_real_client_uses_a_bucket_that_fits_a_batch():
+    from mycontext.gmail_api import QUOTA_UNITS, GoogleGmailAPI
+    c = GoogleGmailAPI(creds(), sleep=lambda s: None)
+    c._bucket.take(QUOTA_UNITS["get"] * 50)  # returns without hanging
