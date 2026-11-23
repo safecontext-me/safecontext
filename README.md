@@ -116,6 +116,9 @@ Only one sync runs at a time (the app and CLI share a lock).
 
 ## Mac app
 
+Requires a Mac with Apple silicon (M1 or later). The bundled app is arm64 only and
+needs macOS 11 or later.
+
 ```bash
 safecontext app            # your real mailbox
 safecontext app --debug    # with the web inspector

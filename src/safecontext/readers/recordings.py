@@ -64,29 +64,24 @@ Transcript files (any of the above, or a watched folder)
 Transcription
 =============
 
-Engine comparison (Nov 2026; the app is a universal Briefcase build, which takes
-wheels only and merges the arm64 and x86_64 wheels of the same version):
+Engine comparison (Nov 2026; the app is an arm64-only Briefcase build for Apple
+silicon, which installs wheels only):
 
 * whisper.cpp via ``pywhispercpp`` (chosen). Same Whisper models, so the same
-  accuracy as the others. Metal on Apple Silicon, AVX/Accelerate on Intel.
-  Measured on an M5 Pro: a 5.6 s clip in 0.35 s with ``base.en`` after a ~8 s
+  accuracy as the others. Runs on Metal. Measured on an M5 Pro: a 5.6 s clip in 0.35 s with ``base.en`` after a ~8 s
   first load (Metal shader compile). Wheel ~4 MB (+ numpy, which pywhispercpp
-  imports). Catch: 1.5.x ships arm64 wheels only; the last x86_64/universal2
-  wheel is 1.2.0. For the universal app, build a 1.5.x x86_64 wheel into
-  packaging/wheels (like proxy_tools) or pin ``pywhispercpp==1.2.0``. It
-  needs ffmpeg for anything but WAV, so this module decodes with macOS's own
-  ``afconvert`` instead. Models are single ggml files from Hugging Face.
-* ``mlx-whisper``: fastest on Apple Silicon, but MLX has no Intel wheels at all,
-  so a universal build cannot include it; pulls mlx + mlx-metal + numpy and
-  wants ffmpeg. Would suit an Apple-Silicon-only build.
+  imports); 1.5.x ships arm64 wheels. It needs ffmpeg for anything but WAV,
+  so this module decodes with macOS's own ``afconvert`` instead. Models are
+  single ggml files from Hugging Face.
+* ``mlx-whisper``: fastest on Apple Silicon; pulls mlx + mlx-metal + numpy and
+  wants ffmpeg. A candidate now that the app is Apple-silicon-only.
 * ``faster-whisper``: CTranslate2, CPU only on macOS (no Metal), so several times
-  slower than whisper.cpp on Apple Silicon. Wheels exist for both arches, but
-  the stack (ctranslate2, av with its bundled ffmpeg, onnxruntime for VAD,
-  tokenizers, huggingface_hub) is ~60 MB of wheels per arch, ~130 MB+ merged.
+  slower than whisper.cpp on Apple Silicon, and the stack (ctranslate2, av with
+  its bundled ffmpeg, onnxruntime for VAD, tokenizers, huggingface_hub) is
+  ~60 MB of wheels.
 * Apple's Speech framework via pyobjc (``SFSpeechRecognizer`` with
   ``requiresOnDeviceRecognition``): nothing to download or bundle (beyond
-  pyobjc-framework-Speech) and runs on both arches, but accuracy and punctuation
-  trail Whisper on long, multi-speaker calls, it needs the Speech Recognition
+  pyobjc-framework-Speech), but accuracy and punctuation trail Whisper on long, multi-speaker calls, it needs the Speech Recognition
   permission (``NSSpeechRecognitionUsageDescription`` in Info.plist plus a TCC
   prompt) and on-device language assets the user may not have. macOS 26's better
   ``SpeechAnalyzer``/``SpeechTranscriber`` is Swift-only, out of pyobjc's reach.
@@ -95,9 +90,8 @@ wheels only and merges the arm64 and x86_64 wheels of the same version):
 Models are downloaded on first use, with progress, into
 ``~/Library/Application Support/SafeContext/models/whisper`` and checked against
 a pinned SHA-256; they are never bundled. The download fetches a public model
-file and sends nothing about the user. Defaults: ``large-v3-turbo-q5_0`` (547 MB,
-near large-v3 accuracy) on Apple Silicon, ``base`` (148 MB) on Intel, where the
-large model runs slower than real time.
+file and sends nothing about the user. Default: ``large-v3-turbo-q5_0`` (547 MB,
+near large-v3 accuracy).
 
 Speaker labels: kept whenever the source has them (VTT voice tags, ``Name:``
 lines, Zoom's per-participant tracks, which are transcribed one by one and
@@ -123,7 +117,6 @@ import hashlib
 import html
 import json
 import os
-import platform
 import re
 import shutil
 import sqlite3
@@ -1016,7 +1009,7 @@ WHISPER_MODELS = {
 
 
 def default_model_name() -> str:
-    return "large-v3-turbo-q5_0" if platform.machine() == "arm64" else "base"
+    return "large-v3-turbo-q5_0"
 
 
 def download_file(url: str, dest: Path, *, expected_size: int = 0, sha256: Optional[str] = None,
@@ -1063,7 +1056,7 @@ def decode_to_wav(src: Path, dest: Path) -> Path:
 
 
 class WhisperCppEngine:
-    """whisper.cpp through pywhispercpp; Metal on Apple Silicon, CPU on Intel."""
+    """whisper.cpp through pywhispercpp, on Metal."""
 
     name = "whisper.cpp"
 
