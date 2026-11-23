@@ -88,7 +88,8 @@ silicon, which installs wheels only):
   A reasonable zero-download fallback later; it fits behind the same interface.
 
 Models are downloaded on first use, with progress, into
-``~/Library/Application Support/SafeContext/models/whisper`` and checked against
+``~/Library/Application Support/SafeContext/models/whisper`` (``SafeContext-Dev`` from a
+source checkout) and checked against
 a pinned SHA-256; they are never bundled. The download fetches a public model
 file and sends nothing about the user. Default: ``large-v3-turbo-q5_0`` (547 MB,
 near large-v3 accuracy).
@@ -158,7 +159,8 @@ def default_voice_memos_dirs() -> list[Path]:
 
 
 def default_models_dir() -> Path:
-    return Path.home() / "Library" / "Application Support" / "SafeContext" / "models" / "whisper"
+    from ..env import default_data_dir
+    return default_data_dir() / "models" / "whisper"
 
 
 # --------------------------------------------------------------------------- data

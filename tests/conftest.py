@@ -10,7 +10,7 @@ import keyring.errors
 import pytest
 from keyring.backend import KeyringBackend
 
-from safecontext import migrate, store
+from safecontext import env, migrate, store
 from safecontext.app import backend
 
 
@@ -41,8 +41,9 @@ def _sandbox(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring")
     monkeypatch.setattr(migrate, "APP_SUPPORT", app_support)
     monkeypatch.setattr(migrate, "LEGACY_DATA_DIR", app_support / "MyContext")
-    monkeypatch.setattr(store, "DEFAULT_DATA_DIR", app_support / "SafeContext")
-    monkeypatch.setattr(backend, "DEFAULT_DATA_DIR", app_support / "SafeContext")
+    data_dir = app_support / env.data_dir_name()  # SafeContext-Dev: tests run from a checkout
+    monkeypatch.setattr(store, "DEFAULT_DATA_DIR", data_dir)
+    monkeypatch.setattr(backend, "DEFAULT_DATA_DIR", data_dir)
     old = keyring.get_keyring()
     kr = MemoryKeyring()
     keyring.set_keyring(kr)

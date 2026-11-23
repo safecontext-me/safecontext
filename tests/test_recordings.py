@@ -439,7 +439,7 @@ def test_engine_model_paths_and_defaults(tmp_path, monkeypatch):
     e = rec.WhisperCppEngine("small", models_dir=tmp_path)
     assert e.model_path == tmp_path / "ggml-small.bin"
     assert not e.model_ready() and e.model_download_size() == 487_601_967
-    assert rec.default_models_dir() == Path.home() / "Library" / "Application Support" / "SafeContext" / "models" / "whisper"
+    assert rec.default_models_dir() == Path.home() / "Library" / "Application Support" / "SafeContext-Dev" / "models" / "whisper"
     assert rec.default_model_name() == "large-v3-turbo-q5_0"
 
 

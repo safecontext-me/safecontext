@@ -39,7 +39,7 @@ def account_in(d: Path) -> str:
 def test_sandbox_is_not_the_real_home(paths):
     real = Path(os.path.expanduser("~"))  # HOME is patched, so this is the fake one
     assert all(str(p).startswith(str(real)) for p in paths)
-    assert "Library/Application Support/SafeContext" in str(paths[0])
+    assert str(paths[0]).endswith("Library/Application Support/SafeContext-Dev")
 
 
 def test_moves_old_folder_and_links_the_old_path(paths):
@@ -140,22 +140,22 @@ def test_gmail_token_is_copied_from_old_name(fake_keyring):
     fake_keyring.items[("MyContext Gmail", "a@example.org")] = blob
     creds = auth.TokenStore().load("a@example.org")
     assert creds.refresh_token == "1//r"
-    assert fake_keyring.items[("SafeContext Gmail", "a@example.org")] == blob
+    assert fake_keyring.items[(auth.KEYRING_SERVICE, "a@example.org")] == blob
     assert ("MyContext Gmail", "a@example.org") in fake_keyring.items  # kept for older checkouts
     auth.TokenStore().load("a@example.org")  # idempotent
-    assert fake_keyring.items[("SafeContext Gmail", "a@example.org")] == blob
+    assert fake_keyring.items[(auth.KEYRING_SERVICE, "a@example.org")] == blob
 
 
 def test_new_token_wins_over_old(fake_keyring):
     fake_keyring.items[("MyContext Gmail", "a@example.org")] = "old"
-    fake_keyring.items[("SafeContext Gmail", "a@example.org")] = "new"
-    assert migrate.keychain_get("SafeContext Gmail", "a@example.org", "MyContext Gmail") == "new"
+    fake_keyring.items[(auth.KEYRING_SERVICE, "a@example.org")] = "new"
+    assert migrate.keychain_get(auth.KEYRING_SERVICE, "a@example.org", "MyContext Gmail") == "new"
     assert fake_keyring.items[("MyContext Gmail", "a@example.org")] == "old"
 
 
 def test_forgetting_a_token_removes_both_names(fake_keyring):
     fake_keyring.items[("MyContext Gmail", "a@example.org")] = "old"
-    fake_keyring.items[("SafeContext Gmail", "a@example.org")] = "new"
+    fake_keyring.items[(auth.KEYRING_SERVICE, "a@example.org")] = "new"
     auth.TokenStore().delete("a@example.org")
     assert fake_keyring.items == {}
 
@@ -163,17 +163,28 @@ def test_forgetting_a_token_removes_both_names(fake_keyring):
 def test_leftover_xai_key_is_deleted_once(fake_keyring, tmp_path):
     """Ask (which sent questions to xAI's API) was removed; its saved key goes on first run."""
     from safecontext.store import Store
-    fake_keyring.items[("SafeContext xAI", "api_key")] = "xai-new-key-0123456789"
+    fake_keyring.items[("SafeContext xAI (Dev)", "api_key")] = "xai-new-key-0123456789"  # tests are a checkout
     fake_keyring.items[("MyContext xAI", "api_key")] = "xai-old-key-0123456789"
-    fake_keyring.items[("SafeContext Gmail", "a@example.org")] = "token"
+    fake_keyring.items[(auth.KEYRING_SERVICE, "a@example.org")] = "token"
     store = Store(tmp_path / "mail.db")
     store.set_meta("grok_model", "grok-x")
     assert migrate.remove_ask_leftovers(store) is True
-    assert fake_keyring.items == {("SafeContext Gmail", "a@example.org"): "token"}  # Gmail untouched
+    assert fake_keyring.items == {(auth.KEYRING_SERVICE, "a@example.org"): "token"}  # Gmail untouched
     assert store.get_meta("grok_model") is None
-    fake_keyring.items[("SafeContext xAI", "api_key")] = "xai-again-0123456789"
+    fake_keyring.items[("SafeContext xAI (Dev)", "api_key")] = "xai-again-0123456789"
     assert migrate.remove_ask_leftovers(store) is False   # only once per data folder
-    assert ("SafeContext xAI", "api_key") in fake_keyring.items
+    assert ("SafeContext xAI (Dev)", "api_key") in fake_keyring.items
+
+
+def test_packaged_app_deletes_only_its_own_xai_key(fake_keyring, tmp_path, monkeypatch):
+    from safecontext import env
+    from safecontext.store import Store
+    monkeypatch.setattr(env, "CURRENT", env.APP)
+    monkeypatch.setattr(migrate, "MIGRATE_LEGACY", False)
+    for svc in ("SafeContext xAI", "SafeContext xAI (Dev)", "MyContext xAI"):
+        fake_keyring.items[(svc, "api_key")] = "xai-0123456789abcdef"
+    migrate.remove_ask_leftovers(Store(tmp_path / "mail.db"))
+    assert set(fake_keyring.items) == {("SafeContext xAI (Dev)", "api_key"), ("MyContext xAI", "api_key")}
 
 
 def test_leftover_cleanup_survives_a_locked_keychain(fake_keyring, tmp_path, monkeypatch):
@@ -188,7 +199,7 @@ def test_leftover_cleanup_survives_a_locked_keychain(fake_keyring, tmp_path, mon
 
 
 def test_no_old_secret_means_none(fake_keyring):
-    assert migrate.keychain_get("SafeContext xAI", "api_key", "MyContext xAI") is None
+    assert migrate.keychain_get(auth.KEYRING_SERVICE, "a@example.org", "MyContext Gmail") is None
     assert fake_keyring.items == {}
 
 

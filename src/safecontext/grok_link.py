@@ -45,6 +45,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .env import keychain_service
 from .mcp_server import SUPPORTED_VERSIONS, MCPServer, _err
 from .migrate import getenv
 from .store import Store
@@ -54,7 +55,7 @@ log = logging.getLogger("safecontext.grok")
 
 DEFAULT_RELAY_URL = "https://relay.safecontext.me"
 GROK_CONNECTORS_URL = "https://grok.com/connectors"
-KEYRING_SERVICE = "SafeContext Grok"
+KEYRING_SERVICE = keychain_service("SafeContext Grok")  # "SafeContext Grok (Dev)" in a checkout
 KEYRING_USER = "relay-link"
 
 GROK_TOOLS = PRIMARY_TOOLS  # search, read, list_items, list_sources (all read-only)

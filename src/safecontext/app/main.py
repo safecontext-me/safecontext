@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from ..env import label
 from .backend import Backend
 
 UI_DIR = Path(__file__).with_name("ui")
@@ -33,7 +34,7 @@ def run(demo: bool = False, data_dir: Optional[Path] = None, debug: bool = False
         backend = Backend(**demo_backend_kwargs(data_dir))
     else:
         backend = Backend(data_dir)
-    title = "SafeContext (demo)" if demo else "SafeContext"
+    title = ("SafeContext (demo)" if demo else "SafeContext") + label()
     webview.create_window(title, html=build_html(), js_api=backend, width=1180, height=780,
                           min_size=(860, 560), text_select=True)
     try:

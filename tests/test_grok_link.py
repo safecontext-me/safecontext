@@ -201,7 +201,8 @@ def test_off_by_default(link):
 
 def test_enable_connects_and_answers_grok(link, relay, fake_keyring):
     url = link.enable()
-    ids = json.loads(fake_keyring.items[("SafeContext Grok", "relay-link")])  # in the (fake) Keychain
+    assert grok_link.KEYRING_SERVICE == "SafeContext Grok (Dev)"  # tests run from a checkout
+    ids = json.loads(fake_keyring.items[(grok_link.KEYRING_SERVICE, "relay-link")])  # in the (fake) Keychain
     assert url == f"{relay.url}/g/{ids['link_id']}/mcp" and len(ids["link_id"]) == 43
     assert ids["device_secret"] != ids["link_id"]
     wait(lambda: link.status()["state"] == "waiting")
@@ -348,7 +349,7 @@ def test_keep_awake_uses_caffeinate_on_power_only(monkeypatch):
 @pytest.fixture
 def backend(tmp_path, relay, fake_keyring):
     gmail = make_fake_gmail()
-    fake_keyring.items[("SafeContext xAI", "api_key")] = "xai-left-over-0123456789"
+    fake_keyring.items[("SafeContext xAI (Dev)", "api_key")] = "xai-left-over-0123456789"
     b = Backend(tmp_path / "data", gmail_factory=lambda account, mode: gmail,
                 connect_fn=lambda mode, email: DEMO_ACCOUNT, auto_sync=False,
                 grok_link=lambda st, d: GrokLink(st, d, base_url=relay.url, keep_awake_runner=lambda: None))
@@ -357,7 +358,7 @@ def backend(tmp_path, relay, fake_keyring):
 
 
 def test_backend_removes_old_xai_key(backend, fake_keyring):
-    assert ("SafeContext xAI", "api_key") not in fake_keyring.items
+    assert ("SafeContext xAI (Dev)", "api_key") not in fake_keyring.items
 
 
 def test_backend_grok_flow(backend, relay, monkeypatch):
