@@ -20,3 +20,9 @@ h2 { font-size: 20px; margin: 32px 0 8px; }
 a { color: var(--accent); }
 li { margin-bottom: 8px; }
 code { font: 14px ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
+.download { margin: 24px 0 8px; }
+.download p { margin: 8px 0 0; font-size: 14px; }
+.button { display: inline-block; background: var(--accent); color: #fff; font-weight: 600; text-decoration: none;
+          padding: 12px 22px; border-radius: 8px; }
+.button:hover, .button:focus-visible { filter: brightness(1.08); }
+@media (prefers-color-scheme: dark) { .button { color: #10131c; } }

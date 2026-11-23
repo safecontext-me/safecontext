@@ -1,0 +1,3 @@
+# Stable download link. Points at the newest GitHub release of the public
+# releases repo; change only this line to move where the DMG is hosted.
+/download  https://github.com/ckarbass/safecontext-releases/releases/latest/download/SafeContext.dmg  302

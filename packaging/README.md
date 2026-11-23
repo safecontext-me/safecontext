@@ -96,3 +96,19 @@ CNAME it shows. Optionally add `www.safecontext.me` too.
 3. Google Cloud Console → **Google Auth Platform → Branding**: app name **SafeContext**,
    home page `https://safecontext.me/`, privacy policy `https://safecontext.me/privacy`,
    and add `safecontext.me` under **Authorized domains**.
+
+## Download link
+
+The home page's **Download for Mac** button points at `/download`, which `site/_redirects`
+sends (302) to the newest release of the public repo `ckarbass/safecontext-releases`:
+`https://github.com/ckarbass/safecontext-releases/releases/latest/download/SafeContext.dmg`.
+This repo is private, so its own release assets can't be downloaded anonymously; the
+releases repo holds only DMGs. Always upload the asset as **`SafeContext.dmg`** (no version
+in the name) so the `latest` URL keeps working, and update the version and size shown on
+`site/index.html` for each release.
+
+To ship a new version (needs the GitHub CLI, `brew install gh`, then `gh auth login`):
+
+```bash
+cp dist/SafeContext-X.Y.Z.dmg /tmp/SafeContext.dmg && gh release create vX.Y.Z /tmp/SafeContext.dmg --repo ckarbass/safecontext-releases --title "SafeContext X.Y.Z" --notes "macOS 11+, Apple silicon."
+```
