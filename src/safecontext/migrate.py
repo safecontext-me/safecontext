@@ -3,7 +3,7 @@
 Three kinds of state had the old name in it:
 
 * The data directory, ~/Library/Application Support/MyContext. `migrate_data_dir`
-  renames it to …/SafeContext (an atomic rename, so the mail is never copied and
+  renames it to the default data folder (an atomic rename, so the mail is never copied and
   there is never a second copy of it on disk) and leaves a symlink at the old
   path. The symlink keeps MCP client configs that pass
   `--data-dir …/MyContext` working, as well as anything still running the old
@@ -18,6 +18,14 @@ Three kinds of state had the old name in it:
 
 * Environment variables. `getenv("OAUTH_CLIENT")` reads SAFECONTEXT_OAUTH_CLIENT
   and falls back to MYCONTEXT_OAUTH_CLIENT.
+
+Only a development checkout migrates. MyContext only ever ran from source, so
+its folder and Keychain items were made by the checkout's Python. The packaged
+app (see env.py) would have no MyContext state of its own, and reading Keychain
+items another program created makes macOS ask for the keychain password, so it
+never looks at them. A checkout carries them into its own dev names
+(…/SafeContext-Dev, "SafeContext Gmail (Dev)"), which the packaged app never
+reads either: neither build pulls the other's data or secrets.
 """
 from __future__ import annotations
 
@@ -29,11 +37,15 @@ from typing import Optional
 import keyring
 import keyring.errors
 
+from . import env
+
 log = logging.getLogger("safecontext.migrate")
 
 LEGACY_NAME = "MyContext"
 APP_SUPPORT = Path.home() / "Library" / "Application Support"
 LEGACY_DATA_DIR = APP_SUPPORT / LEGACY_NAME
+# Whether this build carries MyContext state over at all; see the module docstring.
+MIGRATE_LEGACY = env.is_dev()
 
 # Files a fresh, never-used data directory may hold; anything else means it has real data.
 _DISPOSABLE = {"sync.lock", ".DS_Store"}
@@ -42,6 +54,11 @@ _DISPOSABLE = {"sync.lock", ".DS_Store"}
 def getenv(name: str, default: Optional[str] = None) -> Optional[str]:
     """SAFECONTEXT_<name>, else the old MYCONTEXT_<name>, else default."""
     return os.environ.get(f"SAFECONTEXT_{name}") or os.environ.get(f"MYCONTEXT_{name}") or default
+
+
+def legacy_service(name: str) -> Optional[str]:
+    """The old Keychain service name to fall back to, or None when this build doesn't migrate."""
+    return name if MIGRATE_LEGACY else None
 
 
 def _is_unused(d: Path) -> bool:
@@ -53,8 +70,11 @@ def migrate_data_dir(new: Optional[Path] = None, old: Optional[Path] = None) -> 
     """Move the old data directory to the new one and leave a symlink behind.
 
     Returns what happened: "moved", "already" (old path is already our symlink),
-    "none" (no old data), or "conflict" (both hold data; nothing is touched).
+    "none" (no old data, or this build doesn't migrate), or "conflict" (both hold
+    data; nothing is touched).
     """
+    if not MIGRATE_LEGACY and old is None:
+        return "none"
     if new is None:
         from .store import DEFAULT_DATA_DIR
         new = DEFAULT_DATA_DIR

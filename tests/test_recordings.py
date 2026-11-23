@@ -439,7 +439,7 @@ def test_engine_model_paths_and_defaults(tmp_path, monkeypatch):
     e = rec.WhisperCppEngine("small", models_dir=tmp_path)
     assert e.model_path == tmp_path / "ggml-small.bin"
     assert not e.model_ready() and e.model_download_size() == 487_601_967
-    assert rec.default_models_dir() == Path.home() / "Library" / "Application Support" / "SafeContext" / "models" / "whisper"
+    assert rec.default_models_dir() == Path.home() / "Library" / "Application Support" / "SafeContext-Dev" / "models" / "whisper"
     monkeypatch.setattr(rec.platform, "machine", lambda: "x86_64")
     assert rec.default_model_name() == "base"
     monkeypatch.setattr(rec.platform, "machine", lambda: "arm64")

@@ -18,7 +18,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from .. import auth, grok
+from .. import auth, env, grok
 from ..sources import Sources, default_sources
 from ..store import DEFAULT_DATA_DIR, GMAIL, Store
 from ..sync import SyncResult, read_heartbeat
@@ -48,12 +48,7 @@ REDACTION_LABELS = {
 }
 
 
-def _in_app_bundle(executable: str) -> bool:
-    """True for a Briefcase .app launcher (…/SafeContext.app/Contents/MacOS/SafeContext),
-    false for a python interpreter, including a framework build's Python.app."""
-    exe = Path(executable)
-    return (exe.parent.name == "MacOS" and exe.parent.parent.name == "Contents"
-            and not exe.name.lower().startswith("python"))
+_in_app_bundle = env.is_app_launcher
 
 
 def _safe(fn: Callable) -> Callable:
@@ -145,6 +140,7 @@ class Backend:
             "has_xai_key": bool(self._grok_client_factory) or bool(grok.get_api_key()),
             "model": s.get_meta("grok_model") or grok.DEFAULT_MODEL,
             "data_dir": str(self._data_dir),
+            "environment": env.CURRENT,
         }
 
     def _source_statuses(self):
@@ -361,7 +357,8 @@ class Backend:
             src = str(Path(__file__).resolve().parents[2])
             server = {"command": sys.executable, "args": ["-m", "safecontext", *args],
                       "env": {"PYTHONPATH": src, "PYTHONWARNINGS": "ignore"}}
-        return {"json": json.dumps({"mcpServers": {"safecontext": server}}, indent=2)}
+        # "safecontext-dev" from a checkout, so both can be added to one MCP client.
+        return {"json": json.dumps({"mcpServers": {env.mcp_server_name(): server}}, indent=2)}
 
     def _shutdown(self) -> None:
         self._stop.set()

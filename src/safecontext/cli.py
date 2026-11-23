@@ -201,7 +201,7 @@ def main(argv=None) -> int:
     from .store import DEFAULT_DATA_DIR
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     p = argparse.ArgumentParser(prog="safecontext")
-    p.add_argument("--data-dir", help="defaults to ~/Library/Application Support/SafeContext")
+    p.add_argument("--data-dir", help=f"defaults to {DEFAULT_DATA_DIR}")
     sub = p.add_subparsers(dest="cmd")
     source_ids = ["gmail", "gcal"]
     c = sub.add_parser("connect")
