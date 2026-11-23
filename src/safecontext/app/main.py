@@ -18,10 +18,11 @@ UI_DIR = Path(__file__).with_name("ui")
 def build_html() -> str:
     """Inline the CSS and JS into one page so the window needs no local web server."""
     html = (UI_DIR / "index.html").read_text()
-    css = (UI_DIR / "app.css").read_text()
-    js = (UI_DIR / "app.js").read_text()
-    html = html.replace('<link rel="stylesheet" href="app.css">', f"<style>\n{css}\n</style>")
-    html = html.replace('<script src="app.js"></script>', f"<script>\n{js}\n</script>")
+    for name in ("app", "mail"):
+        css = (UI_DIR / f"{name}.css").read_text()
+        js = (UI_DIR / f"{name}.js").read_text()
+        html = html.replace(f'<link rel="stylesheet" href="{name}.css">', f"<style>\n{css}\n</style>")
+        html = html.replace(f'<script src="{name}.js"></script>', f"<script>\n{js}\n</script>")
     return html
 
 

@@ -26,6 +26,7 @@ from ..sources import Sources, default_sources
 from ..store import DEFAULT_DATA_DIR, GMAIL, Store
 from ..sync import SyncResult, read_heartbeat
 from ..tools import run_tool
+from .mail import MailView
 
 log = logging.getLogger("safecontext.app")
 
@@ -96,6 +97,7 @@ class Backend:
         if not demo:
             migrate.remove_ask_leftovers(self._store)  # the old Ask feature's xAI key, once
         self._grok = (grok_link or GrokLink)(self._store, self._data_dir)
+        self._mail = MailView(self._store, self._sources, REASON_LABELS)
         self._threads: Dict[str, threading.Thread] = {}
         self._sync_lock = threading.Lock()
         self._progress: Dict[str, SyncResult] = {}
@@ -288,6 +290,33 @@ class Backend:
         if not isinstance(url, str) or not url.startswith("https://mail.google.com/mail/"):
             return {"ok": False, "error": "Only Gmail links can be opened."}
         return self.open_link.__wrapped__(self, url)
+
+    # --- Mail view (browse synced mail, see what isn't synced) ---------------------
+    @_safe
+    def mail_folders(self) -> Dict[str, Any]:
+        return self._mail.folders()
+
+    @_safe
+    def mail_list(self, view: str = "all", source: str = "", query: str = "", reasons: Optional[list] = None,
+                  cursor: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
+        return self._mail.list(view, source, query, reasons or None, cursor, limit)
+
+    @_safe
+    def mail_thread(self, source: str, thread_id: str) -> Dict[str, Any]:
+        return self._mail.thread(source, thread_id)
+
+    @_safe
+    def mail_reasons(self, source: str = "") -> Dict[str, Any]:
+        return {"reasons": self._mail.reasons(source)}
+
+    @_safe
+    def mail_coverage(self, source: str = "") -> Dict[str, Any]:
+        live = {}
+        for sid in list(self._threads):  # a local sync starting up, before its first heartbeat
+            p = self._progress.get(sid)
+            if self._is_syncing(sid) and p:
+                live[sid] = {"phase": p.phase, "fetched": p.fetched, "kept": p.kept, "dropped": p.dropped}
+        return {"sources": self._mail.coverage(source, live)}
 
     # --- privacy report --------------------------------------------------------
     @_safe

@@ -27,7 +27,7 @@ from urllib.parse import quote
 from . import env as _env
 from .scrub import SCRUBBER_VERSION, Attachment, Dropped, ScrubbedItem, ScrubbedMessage
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Schema v2: every source's items in one table, tagged by source.
 #   source   the connected source ("gmail", "gcal", later "imessage", ...)
@@ -102,6 +102,16 @@ CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
     INSERT INTO items_fts(items_fts, rowid, {_FTS_COLUMNS})
     VALUES ('delete', old.rowid, old.title, old.body, old.sender, old.participants, old.attachment_names, old.extra);
 END;
+"""
+
+# Schema v3 adds only indexes, for browsing (the Mail view): dropped rows by
+# date, source, thread and reason. They're created after the v1 migration,
+# because a v1 `dropped` table has no source column yet.
+_BROWSE_INDEXES = """
+CREATE INDEX IF NOT EXISTS ix_dropped_date   ON dropped(date_ms);
+CREATE INDEX IF NOT EXISTS ix_dropped_source ON dropped(source, date_ms);
+CREATE INDEX IF NOT EXISTS ix_dropped_thread ON dropped(source, thread_id);
+CREATE INDEX IF NOT EXISTS ix_dropped_reason ON dropped(reason, date_ms);
 """
 
 GMAIL = "gmail"
@@ -270,7 +280,9 @@ class Store:
         self._db.executescript(_SCHEMA + _FTS_TRIGGERS)
         if self._has_table("messages"):
             self._migrate_v1()
-        if self.get_meta("schema_version") is None:
+        self._db.executescript(_BROWSE_INDEXES)  # v2 -> v3: indexes only, idempotent
+        version = self.get_meta("schema_version")
+        if version is None or (version.isdigit() and int(version) < SCHEMA_VERSION):
             self.set_meta("schema_version", str(SCHEMA_VERSION))
         os.chmod(self.path, 0o600)
         self._account = account
@@ -647,3 +659,194 @@ class Store:
                       before: DateLike = None, limit: int = 50) -> List[Hit]:
         """Gmail only (the v1 call)."""
         return self.list_items(source=GMAIL, sender=sender, after=after, before=before, limit=limit)
+
+    # browsing (the Mail view) ---------------------------------------------------
+    #
+    # Lists are keyset-paged, newest first, so a page costs the same at the top of
+    # a 50,000-message mailbox as at the bottom. A page is a list of rows: one per
+    # thread for kept items (its newest item stands for it), one per dropped item.
+    # Rows are ordered by (date_ms, t, rowid) descending, where t is 1 for kept
+    # threads and 0 for dropped items; the cursor is the last row's key.
+
+    _SNIPPET_CHARS = 240
+    _THREAD_COLS = (
+        "m.rowid AS rid, m.source, m.id, m.thread_id, m.kind, m.date_ms, m.end_ms, m.sender, m.title, "
+        "m.redactions, m.attachment_names, "
+        "(SELECT count(*) FROM items c WHERE c.source = m.source AND c.thread_id = m.thread_id) AS n_items, "
+        "(SELECT count(*) FROM dropped d WHERE d.source = m.source AND d.thread_id = m.thread_id) AS n_dropped, "
+        "(SELECT coalesce(sum(j.value), 0) FROM items c, json_each(c.redactions) j "
+        " WHERE c.source = m.source AND c.thread_id = m.thread_id) AS n_redacted")
+
+    @staticmethod
+    def parse_cursor(cursor: Optional[str]):
+        """'date.t.rowid' -> (date_ms, t, rowid), or None for the first page."""
+        if not cursor:
+            return None
+        try:
+            d, t, r = (int(x) for x in str(cursor).split("."))
+        except ValueError:
+            raise ValueError("bad cursor") from None
+        return d, (1 if t else 0), r
+
+    @staticmethod
+    def _after(alias: str, t: int, cur) -> tuple:
+        """SQL condition (and args) for rows of kind `t` that come after `cur` in the order."""
+        if cur is None:
+            return "", []
+        d, ct, r = cur
+        if t == ct:  # same table: plain keyset on (date_ms, rowid)
+            return f"AND {alias}.date_ms <= ? AND ({alias}.date_ms < ? OR {alias}.rowid < ?) ", [d, d, r]
+        if t > ct:  # kept rows sort before dropped rows of the same date: those were all shown
+            return f"AND {alias}.date_ms < ? ", [d]
+        return f"AND {alias}.date_ms <= ? ", [d]  # dropped after a kept row of the same date: all still to come
+
+    @staticmethod
+    def _marks(values: Sequence) -> str:
+        return ",".join("?" * len(values))
+
+    def _thread_row(self, r: sqlite3.Row, snippet: Optional[str] = None) -> Dict[str, object]:
+        return {"type": "thread", "source": r["source"], "id": r["id"], "thread_id": r["thread_id"],
+                "kind": r["kind"], "date": _iso(r["date_ms"]), "end": _iso_or_none(r["end_ms"]),
+                "sender": r["sender"], "title": r["title"],
+                "snippet": snippet if snippet is not None else r["snip"],
+                "count": r["n_items"], "dropped_in_thread": r["n_dropped"], "redacted": r["n_redacted"],
+                "has_attachments": bool(r["attachment_names"]),
+                "cursor": f"{r['date_ms']}.1.{r['rid']}"}
+
+    def _dropped_row(self, r: sqlite3.Row) -> Dict[str, object]:
+        """A dropped item: only what the dropped table keeps (no content), plus the subject
+        of its thread when another message of that thread was kept (already scrubbed)."""
+        return {"type": "dropped", "source": r["source"], "id": r["id"], "thread_id": r["thread_id"],
+                "date": _iso(r["date_ms"]) if r["date_ms"] else None, "reason": r["reason"],
+                "thread_title": r["thread_title"] or "",
+                "link": gmail_link(self.account, "", r["thread_id"]) if r["source"] == GMAIL else "",
+                "cursor": f"{r['date_ms']}.0.{r['rid']}"}
+
+    def _kept_threads(self, sources: Sequence[str], cur, limit: int) -> List[sqlite3.Row]:
+        after, args = self._after("m", 1, cur)
+        sql = (f"SELECT {self._THREAD_COLS}, substr(m.body, 1, {self._SNIPPET_CHARS}) AS snip FROM items m "
+               f"WHERE m.source IN ({self._marks(sources)}) {after}"
+               "AND NOT EXISTS (SELECT 1 FROM items x WHERE x.source = m.source AND x.thread_id = m.thread_id "
+               "  AND (x.date_ms > m.date_ms OR (x.date_ms = m.date_ms AND x.rowid > m.rowid))) "
+               "ORDER BY m.date_ms DESC, m.rowid DESC LIMIT ?")
+        with self._lock:
+            return self._db.execute(sql, [*sources, *args, limit]).fetchall()
+
+    def _dropped_items(self, sources: Sequence[str], reasons: Optional[Sequence[str]], cur,
+                       limit: int) -> List[sqlite3.Row]:
+        after, args = self._after("d", 0, cur)
+        where = f"d.source IN ({self._marks(sources)}) "
+        params: List[object] = list(sources)
+        if reasons is not None:
+            where += f"AND d.reason IN ({self._marks(reasons)}) "
+            params += list(reasons)
+        sql = ("SELECT d.rowid AS rid, d.source, d.id, d.thread_id, d.date_ms, d.reason, "
+               "(SELECT i.title FROM items i WHERE i.source = d.source AND i.thread_id = d.thread_id "
+               " ORDER BY i.date_ms LIMIT 1) AS thread_title "
+               f"FROM dropped d WHERE {where}{after}ORDER BY d.date_ms DESC, d.rowid DESC LIMIT ?")
+        with self._lock:
+            return self._db.execute(sql, [*params, *args, limit]).fetchall()
+
+    def browse(self, sources: Sequence[str], *, view: str = "all", reasons: Optional[Sequence[str]] = None,
+               cursor: Optional[str] = None, limit: int = 100) -> Dict[str, object]:
+        """One page of the Mail view's list. view: 'all' (kept threads and dropped items,
+        interleaved by date), 'synced' (kept threads) or 'not_synced' (dropped items,
+        optionally only these reason codes). Returns {"rows": [...], "next": cursor | None}."""
+        if view not in ("all", "synced", "not_synced"):
+            raise ValueError(f"unknown view {view!r}")
+        limit = max(1, min(int(limit), 500))
+        sources = list(sources)
+        if not sources or (reasons is not None and not reasons):
+            return {"rows": [], "next": None}
+        cur = self.parse_cursor(cursor)
+        merged: List[tuple] = []
+        full = False
+        if view in ("all", "synced"):
+            kept = self._kept_threads(sources, cur, limit)
+            full |= len(kept) == limit
+            merged += [((r["date_ms"], 1, r["rid"]), self._thread_row(r)) for r in kept]
+        if view in ("all", "not_synced"):
+            dropped = self._dropped_items(sources, reasons if view == "not_synced" else None, cur, limit)
+            full |= len(dropped) == limit
+            merged += [((r["date_ms"], 0, r["rid"]), self._dropped_row(r)) for r in dropped]
+        merged.sort(key=lambda kv: kv[0], reverse=True)
+        more = full or len(merged) > limit
+        rows = [row for _, row in merged[:limit]]
+        return {"rows": rows, "next": rows[-1]["cursor"] if more and rows else None}
+
+    def search_threads(self, query: str, sources: Sequence[str], *, offset: int = 0,
+                       limit: int = 100) -> Dict[str, object]:
+        """Threads with an item matching `query` (FTS), newest first; each row shows the
+        thread's newest matching item with a highlighted snippet. Offset-paged."""
+        q = fts_query(query)
+        sources = list(sources)
+        limit, offset = max(1, min(int(limit), 500)), max(0, int(offset))
+        if not q or not sources:
+            return {"rows": [], "next": None}
+        # A bare column next to max() takes its value from the row holding the max (SQLite).
+        sql = ("SELECT m.rowid AS rid, max(m.date_ms) AS last FROM items_fts JOIN items m ON m.rowid = items_fts.rowid "
+               f"WHERE items_fts MATCH ? AND m.source IN ({self._marks(sources)}) "
+               "GROUP BY m.source, m.thread_id ORDER BY last DESC, rid DESC LIMIT ? OFFSET ?")
+        with self._lock:
+            rids = [r["rid"] for r in self._db.execute(sql, [q, *sources, limit, offset])]
+            if not rids:
+                return {"rows": [], "next": None}
+            rows = self._db.execute(
+                f"SELECT {self._THREAD_COLS}, snippet(items_fts, 1, '«', '»', ' … ', 24) AS snip "
+                "FROM items_fts JOIN items m ON m.rowid = items_fts.rowid "
+                f"WHERE items_fts MATCH ? AND items_fts.rowid IN ({self._marks(rids)})", [q, *rids]).fetchall()
+        order = {rid: n for n, rid in enumerate(rids)}
+        out = [self._thread_row(r) for r in sorted(rows, key=lambda r: order[r["rid"]])]
+        return {"rows": out, "next": str(offset + limit) if len(rids) == limit else None}
+
+    def thread_detail(self, source: str, thread_id: str) -> Dict[str, object]:
+        """A thread for the reader: every kept item in full and every dropped item's
+        reason and date, oldest first."""
+        with self._lock:
+            items = self._db.execute("SELECT * FROM items WHERE source=? AND thread_id=? ORDER BY date_ms, rowid",
+                                     (source, thread_id)).fetchall()
+            dropped = self._db.execute(
+                "SELECT rowid AS rid, source, id, thread_id, date_ms, reason, '' AS thread_title "
+                "FROM dropped WHERE source=? AND thread_id=? ORDER BY date_ms, rowid", (source, thread_id)).fetchall()
+        entries: List[tuple] = []
+        for r in items:
+            v = self._view(r)
+            entries.append((r["date_ms"], {
+                "type": "item", "id": v.id, "kind": v.kind, "source": v.source, "date": v.citation.date,
+                "end": v.end, "sender": v.citation.sender, "participants": v.participants, "title": v.title,
+                "body": v.body, "attachments": [dataclasses.asdict(a) for a in v.attachments],
+                "redactions": v.redactions, "link": v.citation.link, "details": v.extra}))
+        for r in dropped:
+            entries.append((r["date_ms"], self._dropped_row(r)))
+        entries.sort(key=lambda kv: kv[0])
+        return {"source": source, "thread_id": thread_id, "entries": [e for _, e in entries]}
+
+    def coverage(self, source: str) -> Dict[str, object]:
+        """What's on this Mac for one source: counts, dropped reasons, date range, and how
+        many items are queued for re-scrubbing after a rule change."""
+        with self._lock:
+            db = self._db
+            kept = db.execute("SELECT count(*) FROM items WHERE source=?", (source,)).fetchone()[0]
+            reasons = dict(db.execute("SELECT reason, count(*) FROM dropped WHERE source=? GROUP BY reason "
+                                      "ORDER BY 2 DESC", (source,)).fetchall())
+            lo, hi = db.execute(
+                "SELECT min(lo), max(hi) FROM ("
+                " SELECT min(date_ms) AS lo, max(date_ms) AS hi FROM items WHERE source=?"
+                " UNION ALL SELECT min(date_ms), max(date_ms) FROM dropped WHERE source=? AND date_ms > 0)",
+                (source, source)).fetchone()
+            stale = db.execute(
+                "SELECT (SELECT count(*) FROM items WHERE source=? AND scrubber_version != ?)"
+                " + (SELECT count(*) FROM dropped WHERE source=? AND scrubber_version != ?)",
+                (source, SCRUBBER_VERSION, source, SCRUBBER_VERSION)).fetchone()[0]
+        return {"kept": kept, "dropped": sum(reasons.values()), "dropped_by_reason": reasons,
+                "oldest_ms": lo, "newest_ms": hi, "stale": stale}
+
+    def dropped_reasons(self, sources: Sequence[str]) -> Dict[str, int]:
+        """Dropped counts by reason code across these sources."""
+        sources = list(sources)
+        if not sources:
+            return {}
+        with self._lock:
+            return dict(self._db.execute(
+                f"SELECT reason, count(*) FROM dropped WHERE source IN ({self._marks(sources)}) GROUP BY reason",
+                sources).fetchall())

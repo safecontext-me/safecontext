@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 from ..demo.fake_calendar import make_fake_calendar
 from ..demo.fake_gmail import FakeGmail
-from ..demo.synthetic import mailbox, msg
+from ..demo.synthetic import demo_mailbox, mailbox, msg
 from ..grok_link import demo_link
 
 DEMO_ACCOUNT = "alex@example.org"
@@ -38,8 +38,8 @@ class SlowFakeGmail(FakeGmail):
 
 
 def make_fake_gmail() -> FakeGmail:
-    g = SlowFakeGmail(page_size=5, email=DEMO_ACCOUNT)
-    for m in mailbox() + _extra_mail():
+    g = SlowFakeGmail(page_size=25, email=DEMO_ACCOUNT)
+    for m in mailbox() + _extra_mail() + demo_mailbox():
         g.add(m, record=False)
     return g
 

@@ -96,7 +96,7 @@ def v1(tmp_path):
 def test_rows_survive_and_move_to_gmail_source(v1):
     p, kept, dropped = v1
     s = Store(p)
-    assert s.get_meta("schema_version") == str(SCHEMA_VERSION) == "2"
+    assert s.get_meta("schema_version") == str(SCHEMA_VERSION) == "3"
     assert s.counts("gmail") == (kept, dropped) == s.counts()
     assert {"messages", "messages_fts", "sync_seen"} & tables(s) == set()
     row = s._db.execute("SELECT source, kind, account FROM items LIMIT 1").fetchone()

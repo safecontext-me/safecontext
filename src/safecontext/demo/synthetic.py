@@ -2,7 +2,7 @@
 example keys, 555-01xx phone numbers, fictional addresses, example domains."""
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from safecontext.scrub import Attachment, RawMessage
 
@@ -199,3 +199,127 @@ def mailbox() -> List[RawMessage]:
         msg(16, frm="Lab Portal <results@citylabhealth.example>", subject="New message",
             text="A new message is waiting in your portal."),
     ]
+
+
+# --- a bigger demo mailbox, for browsing ------------------------------------------
+#
+# Deterministic (seeded) so screenshots and tests are stable. Enough threads,
+# drops and redactions to exercise the Mail view: multi-message threads, mail
+# Alex sent, a dropped message inside a kept thread, newsletters, security
+# codes, bank and health senders. Every value is fake (555-01xx numbers,
+# test card numbers, example domains).
+
+ME = "Alex Kim <alex@example.org>"
+_PEOPLE = [
+    "Jamie Rivera <jamie@example.com>", "Taylor Wu <taylor@example.org>", "Sam Patel <sam@example.dev>",
+    "Morgan Lee <morgan@example.net>", "Pat Doe <pat@example.com>", "Riley Chen <riley@example.co>",
+    "Jordan Park <jordan@example.io>", "Casey Brooks <casey@example.com>", "Avery Singh <avery@example.org>",
+    "Quinn Ortiz <quinn@example.net>",
+]
+_TOPICS = [
+    ("Dinner Saturday?", "Are we still on for Saturday? I can pick you up around 7."),
+    ("Q3 planning doc", "Draft is ready for review. The main open question is hiring two engineers now or after the "
+                        "budget review."),
+    ("Weekend hike", "Thinking Mt. Tam on Sunday, leaving at 8. Bring layers, it gets windy up top."),
+    ("Apartment viewing", "The landlord can show the place Thursday at 6. It's the unit at 88 Harbor Way, "
+                          "Oakland, CA 94607."),
+    ("Book club: next pick", "I vote for the new Ishiguro. We can meet at mine on the 14th."),
+    ("Offsite logistics", "Hotel block is held until Friday. Shuttle leaves the office at 9:30."),
+    ("Re: design review", "Left comments on the onboarding flow. The empty states need another pass."),
+    ("Birthday surprise for Pat", "Let's do the back room at Nopa. I'll collect money, it's $40 each."),
+    ("Car share", "Can I borrow the car next Tuesday? I'll fill it up."),
+    ("Conference talk", "Your talk got accepted! Slides are due two weeks before."),
+    ("Moving boxes", "I have about twenty boxes left over if you want them."),
+    ("Recipe you asked for", "Roast the squash at 220C for 35 minutes, then blend with stock and miso."),
+    ("Intro: Riley <> Alex", "Riley is hiring for a staff role and I think you'd get along."),
+    ("Quarterly numbers", "Revenue is up 12% on last quarter; churn is flat. Full deck attached."),
+    ("Wedding RSVP", "We'd love to have you there. RSVP by the end of the month."),
+    ("Bug in the export", "Exports over 10k rows time out. I can reproduce it locally."),
+    ("Coffee next week?", "Free Wednesday or Thursday morning?"),
+    ("Volunteering Saturday", "The food bank needs four more people for the morning shift."),
+]
+_REPLIES = [
+    "Sounds good to me.", "Works for me, see you then.", "Can we push it by an hour?",
+    "Thanks! I'll take a look tonight.", "Great, I'm in.", "Let me check and get back to you.",
+    "Perfect. I'll bring snacks.", "Agreed. Let's lock it in.",
+]
+# Sensitive bits sprinkled into kept mail; each becomes a redaction chip.
+_SPICE = [
+    "Call me at (415) 555-0132 if anything changes.",
+    "My cell is +1 212-555-0187.",
+    "Send it to 742 Evergreen Terrace, Springfield, IL 62704.",
+    "You can just put it on my card, 4111 1111 1111 1111.",
+    "Staging key is AKIAIOSFODNN7EXAMPLE, rotate it after.",
+    "The wifi password: Hunter2!Canary",
+    "For the form: DOB: 03/14/1985.",
+    "Wire it to IBAN: DE89370400440532013000.",
+    "Text me at (415) 555-0144 when you're outside.",
+]
+_DROPS = [  # (from, subject, body, extra headers)
+    ("The Weekly <editor@newsletter.example>", "This week in tech", "Top stories this week...",
+     {"List-Unsubscribe": "<mailto:unsub@newsletter.example>"}),
+    ("Product Digest <digest@product.example>", "Your monthly digest", "What's new this month.",
+     {"List-Unsubscribe": "<https://product.example/unsub>"}),
+    ("Shop <no-reply@shop.example>", "Your order has shipped", "Your package is on its way.", {}),
+    ("Rides <noreply@rides.example>", "Your Tuesday evening trip", "Thanks for riding.", {}),
+    ("Accounts <security@example-app.com>", "Your verification code", "Your verification code is 771204.", {}),
+    ("Example Cloud <accounts@cloud.example>", "New sign-in to your account", "We noticed a new sign-in.", {}),
+    ("Example App <support@example-app.com>", "Reset your password", "Click the link to reset your password.", {}),
+    ("Chase <alerts@chase.com>", "Your statement is ready", "Your statement is available.", {}),
+    ("Fidelity <service@fidelity.com>", "Trade confirmation", "Your trade has been executed.", {}),
+    ("City Clinic <care@cityclinichealth.example>", "Appointment reminder", "See you on Monday.", {}),
+    ("HR <hr@acme-corp.example>", "Your W-2 is available", "Log in to download your W-2.", {}),
+    ("Lab Portal <results@citylabhealth.example>", "New message", "A new message is waiting in your portal.", {}),
+]
+
+def demo_mailbox(threads: int = 260, seed: int = 7, now_ms: Optional[int] = None) -> List[RawMessage]:
+    """About 730 messages over two years, ending at `now_ms` (default: now). The
+    content is the same for a given seed; only the dates move with `now_ms`."""
+    import random
+    import time
+
+    rnd = random.Random(seed)
+    DEMO_NOW_MS = int(now_ms if now_ms is not None else time.time() * 1000)
+    out: List[RawMessage] = []
+    span = 730 * 86400000
+    n = 5000
+
+    def add(frm, subject, text, when, thread, labels=("INBOX",), headers=None, attachments=()):
+        nonlocal n
+        n += 1
+        m = msg(n, frm=frm, subject=subject, text=text, labels=labels, extra_headers=headers,
+                attachments=attachments)
+        m.thread_id, m.internal_date_ms = thread, int(when)
+        if frm == ME:
+            m.headers["to"] = rnd.choice(_PEOPLE)
+            m.label_ids = ["SENT"]
+        out.append(m)
+
+    for t in range(threads):
+        who = rnd.choice(_PEOPLE)
+        subject, opening = rnd.choice(_TOPICS)
+        start = DEMO_NOW_MS - rnd.random() ** 1.6 * span  # more recent mail than old mail
+        thread = f"dt{t:04d}"
+        first = who.split()[0]
+        body = f"Hi Alex,\n\n{opening}\n\n" + (rnd.choice(_SPICE) + "\n\n" if rnd.random() < 0.35 else "") + first
+        atts = [Attachment(rnd.choice(["notes.pdf", "plan_v2.docx", "photo.jpg", "deck.key"]), "application/pdf",
+                           rnd.randint(20_000, 900_000))] if rnd.random() < 0.15 else []
+        add(who, subject, body, start, thread, attachments=atts)
+        when = start
+        for k in range(rnd.choice([0, 0, 0, 1, 1, 2, 3, 4])):
+            when += rnd.randint(20, 60 * 30) * 60000
+            if when > DEMO_NOW_MS:
+                break
+            frm = ME if k % 2 == 0 else who
+            text = rnd.choice(_REPLIES) + ("\n\n" + rnd.choice(_SPICE) if rnd.random() < 0.2 else "")
+            text += f"\n\nOn an earlier day, {who} wrote:\n> {opening}"
+            add(frm, "Re: " + subject.removeprefix("Re: "), text, when, thread)
+        if t % 37 == 5:  # a security code mailed into an ongoing thread: dropped, the rest kept
+            add(who, "Re: " + subject.removeprefix("Re: "), "Here's the code the site sent me: "
+                "Your verification code is 593017. Can you log in for me?", min(when + 600000, DEMO_NOW_MS), thread)
+    for d in range(140):
+        frm, subject, text, headers = _DROPS[d % len(_DROPS)]
+        when = DEMO_NOW_MS - rnd.random() ** 1.3 * span
+        add(frm, subject, text, when, f"dd{d:04d}", headers=dict(headers))
+    out.sort(key=lambda m: m.internal_date_ms)
+    return out

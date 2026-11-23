@@ -20,6 +20,7 @@ Gmail's state lives in source_state('gmail'):
   account, sync_mode ('full'|'headers'),
   backfill_start_history_id, backfill_page_token, resync (in progress),
   history_id (set once backfill completes), auth_state, last_sync_ms,
+  mailbox_total (Gmail's message count when the backfill started),
   sync_heartbeat (JSON progress of a running sync, readable by any process)
 """
 from __future__ import annotations
@@ -269,6 +270,8 @@ class Syncer(BaseSyncer):
             if not st.get("account"):
                 st.set("account", profile["emailAddress"].lower())
             start = str(profile["historyId"])
+            # Gmail's own count (it includes categories we never list); shown as an estimate.
+            st.set("mailbox_total", str(profile["messagesTotal"]) if profile.get("messagesTotal") else None)
             s.clear_seen(GMAIL)
             st.set("backfill_start_history_id", start)
             st.set("backfill_page_token", None)

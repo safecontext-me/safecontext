@@ -86,7 +86,7 @@ def test_reopen_is_idempotent(tmp_path):
     Store(p).put(_kept(1, text="persist me"))
     s2 = Store(p)
     assert s2.search("persist")[0].id == "m0001"
-    assert s2.get_meta("schema_version") == "2"
+    assert s2.get_meta("schema_version") == "3"
 
 
 def test_wipe(store):

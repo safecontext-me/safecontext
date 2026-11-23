@@ -10,6 +10,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SafeContext</title>
 <link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="mail.css">
 </head>
 <body>
 <div id="loading" class="loading">Loading…</div>
@@ -61,6 +62,7 @@
     </div>
     <nav class="nav">
       <button data-view="search" class="active">Search</button>
+      <button data-view="mail">Mail</button>
       <button data-view="sources">Sources</button>
       <button data-view="removed">What was removed</button>
       <button data-view="settings">Settings</button>
@@ -196,6 +198,30 @@
         <button class="btn small" id="mcp-copy">Copy</button>
       </div>
     </section>
+    <!-- Mail: browse what's synced, see what isn't (mail.js) -->
+    <section id="view-mail" class="view" hidden>
+      <div class="mail-shell">
+        <nav class="mail-folders" id="mail-folders" aria-label="Mailboxes"></nav>
+        <div class="mail-main">
+          <div class="mail-top">
+            <select id="mail-folder-select" class="mail-folder-select" aria-label="Mailbox"></select>
+            <input id="mail-q" type="search" placeholder="Search synced mail" aria-label="Search mail" autocomplete="off">
+            <span class="mail-keys muted" title="Keyboard: j / k or arrows to move, Enter to open, Esc to go back, / to search"><kbd>j</kbd><kbd>k</kbd> move · <kbd>/</kbd> search</span>
+          </div>
+          <div class="coverage" id="mail-coverage"></div>
+          <div class="reason-chips" id="mail-reasons" hidden></div>
+          <div class="mail-panes">
+            <div class="mail-list-wrap">
+              <div class="mail-list-head" id="mail-list-head"></div>
+              <div class="mail-list" id="mail-list" tabindex="0" role="listbox" aria-label="Messages">
+                <div class="mail-spacer" id="mail-spacer"></div>
+              </div>
+            </div>
+            <div class="mail-reader" id="mail-reader" tabindex="-1"><div class="empty">Select a conversation to read it.</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -224,5 +250,6 @@
 
 <div id="toast" class="toast" hidden></div>
 <script src="app.js"></script>
+<script src="mail.js"></script>
 </body>
 </html>
