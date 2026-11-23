@@ -224,8 +224,8 @@ Which one is running is decided by where the code lives: inside a `.app` bundle 
 bundle's launcher) is the packaged app; anything else is development. It doesn't depend on an
 environment variable, because MCP clients and Finder start SafeContext without your shell's
 variables. To force one or the other, set `SAFECONTEXT_ENV=dev` or `SAFECONTEXT_ENV=app`.
-`--data-dir` still overrides the data folder in both. A checkout has to connect its sources and save
-an xAI key separately from the app.
+`--data-dir` still overrides the data folder in both. A checkout has to connect its sources and turn
+on Use in Grok separately from the app (each gets its own Grok link).
 
 Keeping the Keychain items apart also matters because macOS ties each item to the program that
 created it: the app reading an item the checkout's Python made (or the other way round) would ask
