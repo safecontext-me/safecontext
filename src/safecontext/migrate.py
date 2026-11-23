@@ -45,7 +45,8 @@ def getenv(name: str, default: Optional[str] = None) -> Optional[str]:
 
 
 def _is_unused(d: Path) -> bool:
-    return all(p.name in _DISPOSABLE for p in d.iterdir())
+    return all(p.name in _DISPOSABLE or (p.name.startswith("sync-") and p.name.endswith(".lock"))
+               for p in d.iterdir())
 
 
 def migrate_data_dir(new: Optional[Path] = None, old: Optional[Path] = None) -> str:

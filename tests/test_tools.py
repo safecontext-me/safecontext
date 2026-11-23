@@ -10,7 +10,7 @@ from safecontext.demo.synthetic import mailbox, msg
 def store(tmp_path):
     s = Store(tmp_path / "mail.db", account="alex@example.org")
     s.put_many(scrub(m) for m in mailbox())
-    s.set_meta("history_id", "1")
+    s.set_state("gmail", "history_id", "1")
     yield s
     s.close()
 
@@ -80,18 +80,19 @@ def test_bad_calls_return_errors_not_exceptions(store, name, args, fragment):
 
 
 def test_reconnect_notice(store):
-    store.set_meta("auth_state", "needs_reconnect")
+    store.set_state("gmail", "auth_state", "needs_reconnect")
     r = run_tool(store, "search_mail", {"query": "rent"})
     assert "Reconnect Gmail" in r["notice"] and r["count"] == 1  # still serves local mail
 
 
 def test_syncing_notice(store):
-    store.set_meta("history_id", None)
-    store.set_meta("account_email", "alex@example.org")
+    store.set_state("gmail", "history_id", None)
+    store.set_state("gmail", "account", "alex@example.org")
     assert "still running" in run_tool(store, "list_messages", {})["notice"]
 
 
 def test_citations_helper(store):
     r = run_tool(store, "read_thread", {"thread_id": "t0001"})
     (c,) = citations(r)
-    assert set(c) == {"date", "sender", "subject", "gmail_link"}
+    assert {"date", "sender", "subject", "gmail_link", "link", "source"} <= set(c)
+    assert c["source"] == "gmail" and c["link"] == c["gmail_link"]

@@ -1,5 +1,5 @@
-// SafeContext window. All mail content is inserted with textContent / text nodes,
-// never parsed as HTML, so nothing in an email can run code or load resources.
+// SafeContext window. All mail, event and chat content is inserted with textContent /
+// text nodes, never parsed as HTML, so nothing in an item can run code or load resources.
 "use strict";
 
 const REDACTION_NAMES = {
@@ -9,6 +9,15 @@ const REDACTION_NAMES = {
   BANK_ACCOUNT: "account no.", DATE_OF_BIRTH: "birth date", PHONE: "phone", STREET_ADDRESS: "address",
   HEALTH: "health detail", LEGAL: "legal detail", PERSONAL: "personal detail",
 };
+
+const SOURCE_ICONS = { gmail: "✉️", gcal: "📅", imessage: "💬", whatsapp: "🟢", recordings: "🎙️" };
+const OPEN_LABELS = { gmail: "Open in Gmail", gcal: "Open in Calendar" };
+const STATE_LABELS = {
+  connected: ["Connected", "ok"], syncing: ["Syncing…", "busy"], needs_reconnect: ["Needs reconnecting", "warn"],
+  needs_permission: ["Needs permission", "warn"], error: ["Will retry", "warn"], not_connected: ["Not connected", ""],
+  coming_soon: ["Coming soon", ""],
+};
+const REQ_KINDS = { oauth_scope: "Google permission", macos_permission: "Mac permission", file: "File", folder: "Folder" };
 
 const $ = (id) => document.getElementById(id);
 const api = () => window.pywebview.api;
@@ -33,7 +42,7 @@ function el(tag, attrs = {}, ...children) {
 // and (optionally) Gmail links made clickable. Everything else stays plain text.
 function richText(text, { links = false } = {}) {
   const frag = document.createDocumentFragment();
-  const re = /\[REDACTED:([A-Z_]+)\]|«([^»]*)»|(https:\/\/mail\.google\.com\/mail\/[^\s)\]]+)/g;
+  const re = /\[REDACTED:([A-Z_]+)\]|«([^»]*)»|(https:\/\/(?:mail\.google\.com\/mail\/|www\.google\.com\/calendar\/)[^\s)\]]+)/g;
   let last = 0, m;
   while ((m = re.exec(text))) {
     frag.append(document.createTextNode(text.slice(last, m.index)));
@@ -44,7 +53,7 @@ function richText(text, { links = false } = {}) {
       frag.append(el("mark", {}, m[2]));
     } else if (links) {
       const url = m[3];
-      frag.append(el("a", { onclick: () => openGmail(url) }, "Open in Gmail"));
+      frag.append(el("a", { onclick: () => openLink(url) }, url.includes("/calendar/") ? "Open in Calendar" : "Open in Gmail"));
     } else {
       frag.append(document.createTextNode(m[3]));
     }
@@ -103,9 +112,24 @@ function confirmDialog(text, okLabel) {
   });
 }
 
-async function openGmail(url) {
-  const r = await api().open_in_gmail(url);
+async function openLink(url) {
+  const r = await api().open_link(url);
   if (!r.ok) toast(r.error);
+}
+
+function sourceName(id) {
+  const st = state.status && (state.status.sources || []).find((x) => x.id === id);
+  return st ? st.name : id;
+}
+
+function fmtRange(start, end, allDay) {
+  if (!start) return "";
+  if (allDay) return fmtDate(start) + " · all day";
+  const s = fmtDate(start, true);
+  if (!end) return s;
+  const sd = new Date(start), ed = new Date(end);
+  const sameDay = sd.toDateString() === ed.toDateString();
+  return `${s} – ${sameDay ? ed.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : fmtDate(end, true)}`;
 }
 
 function monthYear(ms) {
@@ -124,13 +148,16 @@ async function refreshStatus() {
   const first = state.status === null;
   state.status = r;
   $("loading").hidden = true;
-  const connected = !!r.account;
+  const connected = !!r.account || r.any_connected;
   $("onboarding").hidden = connected;
   $("shell").hidden = !connected;
   if (!connected) return;
 
   $("demo-badge").hidden = !r.demo;
-  $("account").textContent = r.account;
+  const accounts = [...new Set((r.sources || []).filter((x) => x.account).map((x) => x.account))];
+  $("account").textContent = r.account || accounts.join(", ");
+  fillSourceFilter(r.sources || []);
+  if (state.view === "sources") renderSources(r.sources || []);
   $("banner").hidden = !r.needs_reconnect;
   $("banner-text").textContent = r.reconnect_message;
 
@@ -159,6 +186,12 @@ async function refreshStatus() {
       $("sync-note").hidden = false;
       $("sync-note").textContent = "Running from the command line. It pauses while your Mac sleeps.";
     }
+  } else if (!r.account) {
+    const others = (r.sources || []).filter((x) => x.available && x.account);
+    const busy = others.some((x) => x.syncing);
+    dot.className = "dot" + (busy ? " busy" : others.some((x) => ["error", "needs_reconnect", "needs_permission"].includes(x.state)) ? " warn" : "");
+    $("sync-text").textContent = busy ? "Syncing…" : "Up to date";
+    $("sync-sub").textContent = `${n(r.total_items)} items · ${others.map((x) => x.name).join(", ")}`;
   } else if (r.needs_reconnect) {
     $("sync-text").textContent = "Paused";
     $("sync-sub").textContent = "Gmail needs reconnecting";
@@ -170,12 +203,14 @@ async function refreshStatus() {
     $("sync-sub").textContent = `${n(r.kept)} messages so far${r.oldest_ms ? " · back to " + monthYear(r.oldest_ms) : ""}. Sync now to continue.`;
   } else {
     $("sync-text").textContent = "Up to date";
-    $("sync-sub").textContent = `${n(r.kept)} messages · ${r.last_sync_ms ? ago(r.last_sync_ms) : "never synced"}`;
+    const extra = r.total_items > r.kept ? ` · ${n(r.total_items - r.kept)} other items` : "";
+    $("sync-sub").textContent = `${n(r.kept)} messages${extra} · ${r.last_sync_ms ? ago(r.last_sync_ms) : "never synced"}`;
   }
-  $("sync-now").disabled = r.syncing || r.needs_reconnect;
+  const anySyncing = (r.sources || []).some((x) => x.syncing);
+  $("sync-now").disabled = anySyncing || (!!r.account && r.needs_reconnect && !(r.sources || []).some((x) => x.id !== "gmail" && x.account));
   $("no-key").hidden = r.has_xai_key;
 
-  $("s-account").textContent = r.account;
+  $("s-account").textContent = r.account || "Not connected";
   $("s-mode").textContent = r.mode === "headers" ? "Headers only (no message text)" : "Full messages, scrubbed";
   $("s-dir").textContent = r.data_dir;
   $("s-key").textContent = r.demo ? "Not needed in demo mode" : r.has_xai_key ? "Saved in Keychain" : "Not set";
@@ -184,9 +219,9 @@ async function refreshStatus() {
   // Refresh the list while a sync fills the store, and once more when it finishes.
   const browsingRecent = state.view === "search" && !$("q").value;
   if (first) loadRecent();
-  else if (browsingRecent && r.syncing) loadRecentThrottled();
-  else if (browsingRecent && state.wasSyncing && !r.syncing) loadRecent();
-  state.wasSyncing = r.syncing;
+  else if (browsingRecent && anySyncing) loadRecentThrottled();
+  else if (browsingRecent && state.wasSyncing && !anySyncing) loadRecent();
+  state.wasSyncing = anySyncing;
 }
 
 let lastRecent = 0;
@@ -197,7 +232,8 @@ function loadRecentThrottled() {
 function show(view) {
   state.view = view;
   for (const b of document.querySelectorAll(".nav button")) b.classList.toggle("active", b.dataset.view === view);
-  for (const v of ["search", "ask", "removed", "settings"]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["search", "ask", "sources", "removed", "settings"]) $(`view-${v}`).hidden = v !== view;
+  if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "removed") loadRemoved();
   if (view === "settings") loadMcp();
   if (view === "ask") $("ask-input").focus();
@@ -205,7 +241,18 @@ function show(view) {
 
 // ---------- search ----------
 function filters() {
-  return [$("f-from").value.trim(), $("f-after").value, $("f-before").value];
+  return [$("f-from").value.trim(), $("f-after").value, $("f-before").value, $("f-source").value];
+}
+
+function fillSourceFilter(sources) {
+  const sel = $("f-source");
+  const want = sources.filter((x) => x.available && (x.account || x.item_count)).map((x) => x.id);
+  const have = [...sel.options].slice(1).map((o) => o.value);
+  if (want.join() === have.join()) return;
+  const keep = sel.value;
+  sel.replaceChildren(el("option", { value: "" }, "All sources"),
+    ...want.map((id) => el("option", { value: id }, sourceName(id))));
+  sel.value = want.includes(keep) ? keep : "";
 }
 
 async function loadRecent() {
@@ -230,18 +277,22 @@ function renderResults(r, heading) {
   list.append(el("div", { class: "list-head" }, `${heading} · ${rows.length}`, r.notice ? ` · ${r.notice}` : ""));
   if (!rows.length) {
     list.append(el("div", { class: "empty" },
-      state.status && !state.status.first_sync_done ? "Your mail is still being downloaded and scrubbed…" : "Nothing found."));
+      state.status && state.status.account && !state.status.first_sync_done ? "Your mail is still being downloaded and scrubbed…" : "Nothing found."));
     return;
   }
   for (const h of rows) {
+    const isEvent = h.kind === "event";
     const item = el("div", { class: "item" + (h.thread_id === state.activeId ? " active" : ""), role: "listitem", tabindex: "0" },
-      el("div", { class: "item-top" }, el("span", { class: "item-from" }, senderName(h.sender)), el("span", {}, fmtDate(h.date))),
-      el("div", { class: "item-subj" }, richText(h.subject || "(no subject)")),
+      el("div", { class: "item-top" },
+        el("span", { class: "item-from" }, el("span", { class: "src-tag", title: sourceName(h.source) }, SOURCE_ICONS[h.source] || "•"),
+          isEvent ? sourceName(h.source) : senderName(h.sender)),
+        el("span", {}, isEvent ? fmtDate(h.date, true) : fmtDate(h.date))),
+      el("div", { class: "item-subj" }, richText(h.title || h.subject || "(no subject)")),
       el("div", { class: "item-snip" }, richText((h.snippet || "").replace(/\s+/g, " "))));
     const open = () => {
       for (const x of list.querySelectorAll(".item.active")) x.classList.remove("active");
       item.classList.add("active");
-      openThread(h.thread_id);
+      openThread(h.thread_id, h.source);
     };
     item.addEventListener("click", open);
     item.addEventListener("keydown", (e) => e.key === "Enter" && open());
@@ -249,30 +300,120 @@ function renderResults(r, heading) {
   }
 }
 
-async function openThread(id) {
+async function openThread(id, source = "") {
   state.activeId = id;
   const reader = $("reader");
-  const r = await api().read_thread(id);
+  const r = await api().read_thread(id, source);
   reader.replaceChildren();
   if (!r.ok) { reader.append(el("div", { class: "empty" }, r.error)); return; }
   if (!r.messages.length) { reader.append(el("div", { class: "empty" }, r.note || "Nothing stored for this thread.")); return; }
-  reader.append(el("h2", { class: "thread-subj" }, richText(r.messages[0].subject || "(no subject)")));
-  if (r.older_messages_omitted) reader.append(el("p", { class: "muted" }, `${r.older_messages_omitted} older messages not shown.`));
-  for (const m of r.messages) {
-    const atts = (m.attachments || []).map((a) =>
-      el("span", { class: "att", title: "Attachment contents are never downloaded" },
-        "📎 ", richText(a.filename), " · ", a.mime_type, a.size ? ` · ${fmtSize(a.size)}` : ""));
-    reader.append(el("article", { class: "msg" },
-      el("div", { class: "msg-head" },
-        el("div", {},
-          el("div", { class: "msg-from" }, m.sender),
-          el("div", { class: "msg-meta" }, fmtDate(m.date, true), m.recipients ? ` · to ${m.recipients}` : "")),
-        el("button", { class: "btn small", onclick: () => openGmail(m.gmail_link) }, "Open in Gmail")),
-      el("div", { class: "msg-body" }, m.body ? richText(m.body) : el("span", { class: "muted" },
-        state.status && state.status.mode === "headers" ? "Headers-only mode: no message text is stored." : "(empty)")),
-      m.body_truncated ? el("p", { class: "muted" }, "Long message shortened. Open in Gmail for the rest.") : null,
-      atts.length ? el("div", { class: "atts" }, atts) : null));
+  const first = r.messages[0];
+  reader.append(el("h2", { class: "thread-subj" }, richText(first.title || first.subject || "(no subject)")));
+  if (r.older_messages_omitted) reader.append(el("p", { class: "muted" }, `${r.older_messages_omitted} older items not shown.`));
+  for (const m of r.messages) reader.append(m.kind === "event" ? eventCard(m) : messageCard(m));
+}
+
+function openButton(m) {
+  if (!m.link) return null;
+  return el("button", { class: "btn small", onclick: () => openLink(m.link) }, OPEN_LABELS[m.source] || "Open original");
+}
+
+function messageCard(m) {
+  const atts = (m.attachments || []).map((a) =>
+    el("span", { class: "att", title: "Attachment contents are never downloaded" },
+      "📎 ", richText(a.filename), " · ", a.mime_type, a.size ? ` · ${fmtSize(a.size)}` : ""));
+  const to = m.recipients || m.participants;
+  return el("article", { class: "msg" },
+    el("div", { class: "msg-head" },
+      el("div", {},
+        el("div", { class: "msg-from" }, m.sender),
+        el("div", { class: "msg-meta" }, fmtDate(m.date, true), to ? ` · to ${to}` : "")),
+      openButton(m)),
+    el("div", { class: "msg-body" }, m.body ? richText(m.body) : el("span", { class: "muted" },
+      m.source === "gmail" && state.status && state.status.mode === "headers" ? "Headers-only mode: no message text is stored." : "(empty)")),
+    m.body_truncated ? el("p", { class: "muted" }, "Long item shortened. Open the original for the rest.") : null,
+    atts.length ? el("div", { class: "atts" }, atts) : null);
+}
+
+function eventCard(m) {
+  const d = Object.assign({}, m.details || {});
+  const allDay = d.When === "All day";
+  delete d.When;
+  const rows = [["When", fmtRange(m.date, m.end, allDay)]];
+  if (m.sender) rows.push(["Organizer", m.sender]);
+  if (m.participants) rows.push(["Guests", m.participants]);
+  for (const [k, v] of Object.entries(d)) rows.push([k, v]);
+  return el("article", { class: "msg" },
+    el("div", { class: "msg-head" },
+      el("div", { class: "msg-meta" }, "📅 ", sourceName(m.source)),
+      openButton(m)),
+    el("dl", { class: "details" }, rows.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, richText(String(v)))])),
+    m.body ? el("div", { class: "msg-body" }, richText(m.body)) : null,
+    m.body_truncated ? el("p", { class: "muted" }, "Long description shortened. Open the original for the rest.") : null);
+}
+
+// ---------- sources ----------
+function renderSources(list) {
+  const grid = $("source-grid");
+  if (state.sourcesBusy) return;  // don't redraw under a pending click
+  grid.replaceChildren(...list.map(sourceCard));
+}
+
+function sourceCard(x) {
+  const [label, tone] = STATE_LABELS[x.state] || [x.state, ""];
+  const soon = x.state === "coming_soon";
+  const connected = !!x.account && !soon;
+  const card = el("div", { class: "card src-card" + (soon ? " soon" : "") },
+    el("div", { class: "src-head" },
+      el("div", { class: "src-name" }, el("span", { class: "src-icon", "aria-hidden": "true" }, SOURCE_ICONS[x.id] || "•"), x.name),
+      el("span", { class: `pill ${tone}` }, label)),
+    el("p", { class: "src-desc" }, x.description),
+    x.message ? el("div", { class: "src-msg" }, x.message) : null,
+    el("div", { class: "needs-k" }, "Access it needs"),
+    el("ul", { class: "needs" }, (x.requirements || []).map((q) =>
+      el("li", {}, el("b", {}, q.label), el("span", { class: "muted" }, REQ_KINDS[q.kind] || ""), el("span", { class: "why" }, q.why)))));
+  if (connected) {
+    card.append(el("div", { class: "src-stats" },
+      el("div", {}, el("b", {}, n(x.item_count)), el("span", {}, "kept")),
+      el("div", {}, el("b", {}, n(x.dropped_count)), el("span", {}, "skipped")),
+      el("div", {}, el("b", {}, x.syncing ? "now" : x.last_sync_ms ? ago(x.last_sync_ms) : "—"), el("span", {}, "last sync"))),
+      el("div", { class: "muted", style: "font-size:12px" }, x.account));
   }
+  const actions = el("div", { class: "actions" });
+  if (soon) {
+    actions.append(el("button", { class: "btn", disabled: "" }, "Coming soon"));
+  } else if (!connected) {
+    actions.append(el("button", { class: "btn primary", onclick: (e) => connectSource(x, e.target) }, `Connect ${x.name}`));
+  } else {
+    if (x.state === "needs_reconnect" || x.state === "needs_permission")
+      actions.append(el("button", { class: "btn primary", onclick: (e) => connectSource(x, e.target) }, "Reconnect"));
+    const sync = el("button", { class: "btn", onclick: async () => { await api().sync_source(x.id); refreshStatus(); } }, "Sync now");
+    if (x.syncing || x.state === "needs_reconnect" || x.state === "needs_permission") sync.disabled = true;
+    actions.append(sync, el("button", { class: "btn danger", onclick: () => disconnectSource(x) }, "Disconnect"));
+  }
+  card.append(actions);
+  return card;
+}
+
+async function connectSource(x, btn) {
+  state.sourcesBusy = true;
+  btn.disabled = true;
+  btn.textContent = x.requirements.some((q) => q.kind === "oauth_scope") ? "Waiting for Google sign-in…" : "Connecting…";
+  const opts = x.id === "gmail" ? { mode: (state.status && state.status.mode) || "full" } : {};
+  const r = await api().connect_source(x.id, opts);
+  state.sourcesBusy = false;
+  toast(r.ok ? `Connected ${x.name}` : r.error);
+  refreshStatus();
+}
+
+async function disconnectSource(x) {
+  const ok = await confirmDialog(
+    `Disconnect ${x.name} and delete its ${n(x.item_count)} scrubbed items from this Mac? This can't be undone.`, "Disconnect");
+  if (!ok) return;
+  const r = await api().disconnect_source(x.id, true);
+  toast(r.ok ? `${x.name} disconnected and its data deleted.` : r.error);
+  if (x.id === "gmail") state.status = null;
+  refreshStatus();
 }
 
 // ---------- ask grok ----------
@@ -292,7 +433,7 @@ async function ask(e) {
   $("ask-send").disabled = true;
   $("ask-input").value = "";
   addBubble("user", q);
-  const pending = addBubble("bot", el("span", { class: "thinking" }, "Searching your scrubbed mail…"));
+  const pending = addBubble("bot", el("span", { class: "thinking" }, "Searching your scrubbed data…"));
   const r = await api().ask(q);
   pending.replaceChildren();
   if (!r.ok) {
@@ -306,8 +447,9 @@ async function ask(e) {
       pending.append(el("div", { class: "sources" },
         el("div", { class: "muted" }, "Sources"),
         r.sources.slice(0, 8).map((s) => el("div", { class: "source" },
-          el("span", {}, el("b", {}, richText(s.subject || "(no subject)")), ` · ${senderName(s.sender)} · ${fmtDate(s.date)}`),
-          el("button", { class: "btn small", onclick: () => openGmail(s.gmail_link) }, "Open in Gmail")))));
+          el("span", {}, el("span", { class: "src-tag", title: s.source_name }, SOURCE_ICONS[s.source] || "•"),
+            el("b", {}, richText(s.title || s.subject || "(no subject)")), ` · ${senderName(s.sender)} · ${fmtDate(s.date)}`),
+          s.link ? el("button", { class: "btn small", onclick: () => openLink(s.link) }, OPEN_LABELS[s.source] || "Open") : null))));
     }
   }
   pending.scrollIntoView({ block: "end", behavior: "smooth" });
@@ -338,6 +480,10 @@ async function loadRemoved() {
   $("t-redacted").textContent = n(Object.values(r.redacted).reduce((a, b) => a + b, 0));
   bars($("dropped-bars"), r.dropped);
   bars($("redacted-bars"), r.redacted);
+  const by = {};
+  for (const x of r.by_source || []) by[`${x.name} · kept`] = x.kept;
+  for (const x of r.by_source || []) if (x.dropped) by[`${x.name} · skipped`] = x.dropped;
+  bars($("by-source"), by);
 }
 
 // ---------- settings ----------
@@ -356,7 +502,7 @@ async function disconnect(wipe) {
   toast(r.ok ? (wipe ? "Disconnected and deleted." : "Disconnected.") : r.error);
   state.status = null;
   $("results").replaceChildren();
-  $("reader").replaceChildren(el("div", { class: "empty" }, "Select a message to read it."));
+  $("reader").replaceChildren(el("div", { class: "empty" }, "Select an item to read it."));
   refreshStatus();
 }
 
@@ -383,7 +529,8 @@ async function connect(btn, errEl) {
 // ---------- wiring ----------
 function wire() {
   for (const b of document.querySelectorAll(".nav button")) b.addEventListener("click", () => show(b.dataset.view));
-  for (const b of document.querySelectorAll("[data-goto]")) b.addEventListener("click", () => show(b.dataset.goto));
+  for (const b of document.querySelectorAll("[data-goto]")) b.addEventListener("click", (e) => { e.preventDefault(); show(b.dataset.goto); });
+  $("f-source").addEventListener("change", () => doSearch());
   $("search-form").addEventListener("submit", doSearch);
   $("q").addEventListener("search", () => !$("q").value && loadRecent());
   $("ask-form").addEventListener("submit", ask);

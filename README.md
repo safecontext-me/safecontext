@@ -1,7 +1,8 @@
 # SafeContext
 
-A private context layer for AI. SafeContext syncs your Gmail to your Mac, scrubs it
-locally, and only then lets an AI read it. Gmail is the first source.
+A private context layer for AI. SafeContext syncs your Gmail and Google Calendar to your
+Mac, scrubs them locally, and only then lets an AI read them. iMessage, WhatsApp and call
+recordings are next.
 
 It ships as a command-line tool (`safecontext`), a Mac app (pywebview), an MCP server
 for other AI clients, and an `ask`/`chat` command that answers questions about your
@@ -13,7 +14,10 @@ Mail is fetched from Gmail, parsed and scrubbed **in memory**, and only the scru
 result is written to a local SQLite database. Unscrubbed mail is never stored or logged.
 Everything up to that point runs on your Mac; Gmail is read with the read-only
 `gmail.readonly` scope (or `gmail.metadata` with `connect --headers-only`, which
-fetches no message bodies).
+fetches no message bodies). Google Calendar, if you connect it, is read with the read-only
+`calendar.readonly` scope, requested separately only when you connect Calendar. Calendar
+events go through the same scrubber (dial-in PINs and meeting passcodes are never read);
+email-only rules such as `List-Unsubscribe` don't apply to them.
 
 **Dropped entirely** (only the message id and a reason are kept, so sync doesn't refetch it):
 
@@ -38,7 +42,7 @@ not a guarantee, so review the output (see the demo section) before trusting it 
 
 **What leaves the Mac:**
 
-- Gmail API traffic to sync, and Google's OAuth sign-in.
+- Gmail and Google Calendar API traffic to sync, and Google's OAuth sign-in.
 - With `ask`/`chat` or the app's Ask view: your question, the conversation so far, and the
   results of the search/read tools Grok calls (scrubbed text only), sent to xAI's API with
   `store=False`.
@@ -68,7 +72,8 @@ tokens and keys are stored in the macOS Keychain and the default data directory 
 The OAuth client file is git-ignored (`src/safecontext/oauth_client.json`, `oauth_client*.json`,
 `client_secret*.json`), so you create your own:
 
-1. In Google Cloud Console, enable the Gmail API for a project and configure the OAuth consent screen.
+1. In Google Cloud Console, enable the Gmail API and the Google Calendar API for a project and configure
+   the OAuth consent screen with the `gmail.readonly`, `gmail.metadata` and `calendar.readonly` scopes.
 2. Create an OAuth client of type **Desktop app** and download the JSON (it must contain an `installed` key).
 3. Save it as `src/safecontext/oauth_client.json`, or point `SAFECONTEXT_OAUTH_CLIENT` at it.
 
@@ -82,11 +87,12 @@ subcommand and defaults to `~/Library/Application Support/SafeContext`.
 
 | Command | What it does |
 | --- | --- |
-| `connect [--headers-only] [--email ADDR]` | Google sign-in. `--headers-only` uses the metadata scope (no bodies); `--email` pre-fills the account chooser. |
-| `sync` | Backfill the mailbox, then incremental updates. Resumable. |
+| `connect [--source gmail\|gcal] [--headers-only] [--email ADDR]` | Google sign-in for Gmail (default) or Google Calendar. `--headers-only` uses Gmail's metadata scope (no bodies); `--email` pre-fills the account chooser. |
+| `sync [--source gmail\|gcal]` | Sync every connected source (or one): backfill, then incremental updates. Resumable. |
+| `sources` | List sources, their status, item counts and the access each needs. |
 | `status` | Print account, sync mode, auth state, counts and whether a sync is running (JSON). |
-| `search QUERY [--from SENDER] [--after DATE] [--before DATE] [--limit N]` | Full-text search of the scrubbed store (default limit 10). |
-| `disconnect [--wipe]` | Revoke the Google grant and forget the token; `--wipe` also deletes all local mail. |
+| `search QUERY [--source ID] [--from SENDER] [--after DATE] [--before DATE] [--limit N]` | Full-text search of the scrubbed store (default limit 10). |
+| `disconnect [--source gmail\|gcal] [--wipe]` | Forget the source's token (revoking the Google grant once no other Google source uses it); `--wipe` also deletes that source's local data. |
 | `set-xai-key` | Prompt for an xAI API key and save it to the Keychain. |
 | `ask QUESTION [--model ID]` | Ask Grok a question about your mail. |
 | `chat [--model ID]` | Interactive version of `ask`. |
@@ -139,9 +145,10 @@ To see exactly what the scrubber does to that synthetic mailbox:
 
 ## MCP server
 
-`safecontext mcp` serves three read-only tools over stdio (newline-delimited JSON-RPC, no extra
-dependencies): `search_mail`, `read_thread` and `list_messages`. Results come only from the scrubbed
-store and include date, sender and a Gmail link.
+`safecontext mcp` serves read-only tools over stdio (newline-delimited JSON-RPC, no extra
+dependencies): `search`, `read`, `list_items` and `list_sources`, across every connected source with an
+optional `source` filter. The v1 Gmail tools `search_mail`, `read_thread` and `list_messages` still work.
+Results come only from the scrubbed store and include date, sender, source and a link to the original.
 
 Add it to an MCP client's config, using absolute paths:
 

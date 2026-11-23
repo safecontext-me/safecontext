@@ -34,7 +34,7 @@ def test_counts(store):
 
 def test_dropped_rows_hold_no_content(store):
     cols = [r[1] for r in store._db.execute("PRAGMA table_info(dropped)")]
-    assert cols == ["id", "thread_id", "date_ms", "reason", "scrubber_version"]
+    assert cols == ["source", "id", "thread_id", "date_ms", "reason", "scrubber_version"]
 
 
 def test_refuses_raw_message(store):
@@ -69,16 +69,16 @@ def test_delete(store):
 def test_known_and_stale_ids_follow_scrubber_version(store):
     assert store.known_ids(["m0001", "m0007", "nope"]) == {"m0001", "m0007"}
     assert store.known_ids(["m0001"], version="999") == set()
-    store._db.execute("UPDATE messages SET scrubber_version='0' WHERE id='m0002'")
+    store._db.execute("UPDATE items SET scrubber_version='0' WHERE id='m0002'")
     assert store.stale_ids() == ["m0002"]
 
 
 def test_meta(store):
-    assert store.get_meta("history_id") is None
-    store.set_meta("history_id", "12345")
-    assert store.get_meta("history_id") == "12345"
-    store.set_meta("history_id", None)
-    assert store.get_meta("history_id") is None
+    assert store.get_state("gmail", "history_id") is None
+    store.set_state("gmail", "history_id", "12345")
+    assert store.get_state("gmail", "history_id") == "12345"
+    store.set_state("gmail", "history_id", None)
+    assert store.get_state("gmail", "history_id") is None
 
 
 def test_reopen_is_idempotent(tmp_path):
@@ -86,13 +86,13 @@ def test_reopen_is_idempotent(tmp_path):
     Store(p).put(_kept(1, text="persist me"))
     s2 = Store(p)
     assert s2.search("persist")[0].id == "m0001"
-    assert s2.get_meta("schema_version") == "1"
+    assert s2.get_meta("schema_version") == "2"
 
 
 def test_wipe(store):
-    store.set_meta("history_id", "1")
+    store.set_state("gmail", "history_id", "1")
     store.wipe()
-    assert store.stats()["kept"] == 0 and store.get_meta("history_id") is None
+    assert store.stats()["kept"] == 0 and store.get_state("gmail", "history_id") is None
 
 
 # --- on-disk privacy ------------------------------------------------------

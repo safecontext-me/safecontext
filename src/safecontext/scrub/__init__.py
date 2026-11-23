@@ -1,4 +1,5 @@
-from .models import Attachment, Dropped, RawMessage, ScrubbedMessage
-from .pipeline import SCRUBBER_VERSION, scrub
+from .models import KINDS, Attachment, Dropped, RawItem, RawMessage, ScrubbedItem, ScrubbedMessage
+from .pipeline import SCRUBBER_VERSION, scrub, scrub_item
 
-__all__ = ["Attachment", "Dropped", "RawMessage", "ScrubbedMessage", "SCRUBBER_VERSION", "scrub"]
+__all__ = ["Attachment", "Dropped", "KINDS", "RawItem", "RawMessage", "ScrubbedItem", "ScrubbedMessage",
+           "SCRUBBER_VERSION", "scrub", "scrub_item"]

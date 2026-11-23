@@ -19,8 +19,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .. import auth, grok
-from ..store import DEFAULT_DATA_DIR, Store
-from ..sync import SyncResult, Syncer, read_heartbeat
+from ..sources import Sources, default_sources
+from ..store import DEFAULT_DATA_DIR, GMAIL, Store
+from ..sync import SyncResult, read_heartbeat
 from ..tools import run_tool
 
 log = logging.getLogger("safecontext.app")
@@ -34,8 +35,9 @@ REASON_LABELS = {
     "bulk:no_reply_sender": "No-reply senders",
     "security:subject": "Security & 2FA codes", "security:body": "Security & 2FA codes",
     "sensitive:sender_domain": "Banks, tax & health senders", "sensitive:sender_keyword": "Banks, tax & health senders",
-    "sensitive:subject": "Statements, tax & medical subjects",
+    "sensitive:subject": "Statements, tax & medical subjects or titles",
 }
+
 REDACTION_LABELS = {
     "ONE_TIME_CODE": "2FA / one-time codes", "TOTP_SECRET": "Authenticator keys", "BACKUP_CODE": "Backup codes",
     "CREDIT_CARD": "Card numbers", "CVV": "Card security codes", "SSN": "Social Security numbers",
@@ -70,6 +72,9 @@ def _safe(fn: Callable) -> Callable:
     return wrapper
 
 
+_NOOP_REVOKE = lambda account, revoke=True: None  # noqa: E731  (demo mode: no Google to revoke at)
+
+
 class Backend:
     """Public methods are callable from the window. Everything else is underscore-prefixed
     because pywebview exposes public attributes, including methods of nested objects."""
@@ -77,159 +82,193 @@ class Backend:
     def __init__(self, data_dir: Optional[Path] = None, *, demo: bool = False,
                  gmail_factory: Optional[Callable[[str, str], Any]] = None,
                  connect_fn: Optional[Callable[[str, Optional[str]], str]] = None,
+                 calendar_factory: Optional[Callable[[str], Any]] = None,
+                 calendar_connect_fn: Optional[Callable[[Optional[str]], str]] = None,
                  grok_client_factory: Optional[Callable[[], Any]] = None,
                  auto_sync: bool = True) -> None:
         self._demo = demo
         self._data_dir = Path(data_dir or DEFAULT_DATA_DIR)
         self._store = Store(self._data_dir / "mail.db")
-        self._gmail_factory = gmail_factory or self._real_gmail
-        self._connect_fn = connect_fn or self._real_connect
+        self._connect_fn = connect_fn  # None: the real Google sign-in
+        self._sources: Sources = default_sources(
+            self._store, gmail_factory=gmail_factory,
+            gmail_connect=lambda mode, email: (self._connect_fn or _real_gmail_connect)(mode, email),
+            calendar_factory=calendar_factory, calendar_connect=calendar_connect_fn,
+            revoke_fn=_NOOP_REVOKE if demo else None)
         self._grok_client_factory = grok_client_factory
         self._agent: Optional[grok.GrokMailAgent] = None
-        self._sync_thread: Optional[threading.Thread] = None
+        self._threads: Dict[str, threading.Thread] = {}
         self._sync_lock = threading.Lock()
-        self._progress = SyncResult(status="idle")
-        self._last_result: Optional[SyncResult] = None
+        self._progress: Dict[str, SyncResult] = {}
+        self._last_result: Dict[str, SyncResult] = {}
         self._stop = threading.Event()
         if auto_sync:
             threading.Thread(target=self._auto_sync_loop, daemon=True, name="auto-sync").start()
 
-    # --- wiring for real Gmail / Google sign-in ---------------------------
-    @staticmethod
-    def _real_connect(mode: str, email: Optional[str]) -> str:
-        _, account = auth.connect(mode, login_hint=email or None)
-        return account
-
-    @staticmethod
-    def _real_gmail(account: str, mode: str):
-        from ..gmail_api import GoogleGmailAPI
-        return GoogleGmailAPI(auth.get_credentials(account, mode))
-
     # --- status ------------------------------------------------------------
     @_safe
     def status(self) -> Dict[str, Any]:
+        """Gmail's status at the top level (the sidebar), every source under "sources"."""
         s = self._store
-        p = self._progress
-        last = s.get_meta("last_sync_ms")
-        kept, dropped = s.counts()
-        hb = read_heartbeat(s)
-        if self._is_syncing() and hb is None:  # local thread starting up, before its first beat
+        g = s.state(GMAIL)
+        p = self._progress.get(GMAIL) or SyncResult(status="idle")
+        last = g.get("last_sync_ms")
+        kept, dropped = s.counts(GMAIL)
+        hb = read_heartbeat(s, GMAIL)
+        if self._is_syncing(GMAIL) and hb is None:  # local thread starting up, before its first beat
             hb = {"phase": p.phase, "fetched": p.fetched, "kept": p.kept, "dropped": p.dropped}
-        oldest, newest = s.date_range()
+        oldest, newest = s.date_range(GMAIL)
+        last_result = self._last_result.get(GMAIL)
+        sources = self._source_statuses()
         return {
             "demo": self._demo,
-            "account": s.get_meta("account_email"),
-            "mode": s.get_meta("sync_mode") or "full",
-            "needs_reconnect": s.get_meta("auth_state") == "needs_reconnect",
+            "account": g.get("account"),
+            "mode": g.get("sync_mode") or "full",
+            "needs_reconnect": g.get("auth_state") == "needs_reconnect",
             "reconnect_message": auth.RECONNECT_MESSAGE,
-            "first_sync_done": s.get_meta("history_id") is not None,
+            "first_sync_done": g.get("history_id") is not None,
             "syncing": hb is not None,
             "progress": None if hb is None else {
                 "phase": hb.get("phase") or "", "fetched": hb.get("fetched", 0), "kept": hb.get("kept", 0),
                 "dropped": hb.get("dropped", 0), "started_ms": hb.get("started_ms"),
                 "per_min": hb.get("per_min"), "waiting_until_ms": hb.get("waiting_until_ms"),
                 "elsewhere": hb.get("pid") not in (None, os.getpid()),
-                "backfill": s.get_meta("history_id") is None},
+                "backfill": g.get("history_id") is None},
             "oldest_ms": oldest, "newest_ms": newest,
-            "last_result": None if not self._last_result else {
-                "status": self._last_result.status, "message": self._last_result.message},
+            "last_result": None if not last_result else {
+                "status": last_result.status, "message": last_result.message},
             "last_sync_ms": int(last) if last else None,
             "kept": kept, "dropped": dropped,
+            "sources": sources,
+            "any_connected": any(x["account"] for x in sources if x["available"]),
+            "total_items": s.counts()[0],
             "has_xai_key": bool(self._grok_client_factory) or bool(grok.get_api_key()),
             "model": s.get_meta("grok_model") or grok.DEFAULT_MODEL,
             "data_dir": str(self._data_dir),
         }
 
-    def _is_syncing(self) -> bool:
-        return bool(self._sync_thread and self._sync_thread.is_alive())
+    def _source_statuses(self):
+        out = self._sources.statuses()
+        for x in out:
+            if self._is_syncing(x["id"]):
+                x["syncing"] = True
+                if x["state"] not in ("coming_soon", "not_connected"):
+                    x["state"] = "syncing"
+            res = self._last_result.get(x["id"])
+            x["last_result"] = None if not res else {"status": res.status, "message": res.message}
+        return out
 
-    # --- connect / sync / disconnect ----------------------------------------
+    def _is_syncing(self, source_id: str) -> bool:
+        t = self._threads.get(source_id)
+        return bool(t and t.is_alive())
+
+    # --- sources -------------------------------------------------------------
+    @_safe
+    def sources(self) -> Dict[str, Any]:
+        return {"sources": self._source_statuses()}
+
+    @_safe
+    def connect_source(self, source_id: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        src = self._sources.get(source_id)
+        opts = {k: v for k, v in (options or {}).items() if k in ("mode", "email")}
+        account = src.connect(**opts)
+        self._start_sync(source_id)
+        return {"account": account}
+
+    @_safe
+    def sync_source(self, source_id: str) -> Dict[str, Any]:
+        self._sources.get(source_id)
+        return {"started": self._start_sync(source_id)}
+
+    @_safe
+    def disconnect_source(self, source_id: str, wipe: bool = True) -> Dict[str, Any]:
+        self._sources.get(source_id)
+        if wipe:
+            t = self._threads.get(source_id)
+            if t:
+                t.join(timeout=30)
+        self._sources.disconnect(source_id, wipe=bool(wipe))
+        self._last_result.pop(source_id, None)
+        self._agent = None
+        return {"wiped": bool(wipe)}
+
+    # --- Gmail (the v1 calls the onboarding screen and Settings use) -----------
     @_safe
     def connect(self, mode: str = "full", email: Optional[str] = None) -> Dict[str, Any]:
         if mode not in auth.MODES:
             return {"ok": False, "error": "Unknown mode."}
-        account = self._connect_fn(mode, email)
-        previous = self._store.get_meta("account_email")
-        if previous and previous != account:
-            raise auth.NotConfigured(f"This Mac already holds mail for {previous}. Disconnect and delete it first "
-                                     "to switch accounts.")
-        self._store.set_meta("account_email", account)
-        self._store.set_meta("sync_mode", mode)
-        self._store.set_meta("auth_state", "ok")
-        self._start_sync()
+        account = self._sources.get(GMAIL).connect(mode=mode, email=email)
+        self._start_sync(GMAIL)
         return {"account": account}
 
     @_safe
     def sync_now(self) -> Dict[str, Any]:
-        return {"started": self._start_sync()}
+        """Sync every connected source, each on its own."""
+        started = [self._start_sync(s.id) for s in self._sources.connected()]
+        return {"started": any(started)}
 
-    def _start_sync(self) -> bool:
+    def _start_sync(self, source_id: str) -> bool:
+        src = self._sources.get(source_id)
         with self._sync_lock:
-            if (self._is_syncing() or read_heartbeat(self._store) is not None
-                    or not self._store.get_meta("account_email")):
+            if (self._is_syncing(source_id) or read_heartbeat(self._store, source_id) is not None
+                    or not src.connected):
                 return False
-            self._sync_thread = threading.Thread(target=self._run_sync, daemon=True, name="sync")
-            self._sync_thread.start()
+            t = threading.Thread(target=self._run_sync, args=(source_id,), daemon=True, name=f"sync-{source_id}")
+            self._threads[source_id] = t
+            t.start()
             return True
 
-    def _run_sync(self) -> None:
-        account = self._store.get_meta("account_email") or ""
-        mode = self._store.get_meta("sync_mode") or "full"
-        self._progress = SyncResult(status="running", phase="starting")
+    def _run_sync(self, source_id: str) -> None:
+        self._progress[source_id] = SyncResult(status="running", phase="starting")
         try:
-            api = self._gmail_factory(account, mode)
-            result = Syncer(self._store, api, mode=mode, progress=self._on_progress).run()
-        except auth.NeedsReconnect as e:
-            self._store.set_meta("auth_state", "needs_reconnect")
-            result = SyncResult(status="needs_reconnect", message=e.message)
-        except (auth.TransientAuthError, auth.NotConfigured) as e:
-            result = SyncResult(status="retry_later", message=str(e) or "Couldn't reach Google.")
-        except Exception as e:
-            log.exception("sync crashed")
+            result = self._sources.get(source_id).sync(progress=lambda r: self._on_progress(source_id, r))
+        except Exception as e:  # Source.sync shouldn't raise; if it does, it stays this source's problem
+            log.exception("%s sync crashed", source_id)
             result = SyncResult(status="retry_later", message=f"Sync stopped unexpectedly ({type(e).__name__}).")
         if result.status != "busy":
-            self._last_result = result
-        self._progress = result
+            self._last_result[source_id] = result
+        self._progress[source_id] = result
 
-    def _on_progress(self, r: SyncResult) -> None:
-        self._progress = SyncResult(status="running", phase=r.phase, fetched=r.fetched, kept=r.kept,
-                                    dropped=r.dropped, deleted=r.deleted)
+    def _on_progress(self, source_id: str, r: SyncResult) -> None:
+        self._progress[source_id] = SyncResult(status="running", phase=r.phase, fetched=r.fetched, kept=r.kept,
+                                               dropped=r.dropped, deleted=r.deleted)
 
     def _auto_sync_loop(self) -> None:
         while not self._stop.wait(AUTO_SYNC_SECONDS):
-            if self._store.get_meta("auth_state") != "needs_reconnect":
-                self._start_sync()
+            for src in self._sources.connected():  # each source on its own thread; one failing never blocks another
+                if src.state.get("auth_state") not in ("needs_reconnect", "needs_permission"):
+                    try:
+                        self._start_sync(src.id)
+                    except Exception:
+                        log.exception("couldn't start %s sync", src.id)
 
     @_safe
     def disconnect(self, wipe: bool = False) -> Dict[str, Any]:
-        account = self._store.get_meta("account_email") or ""
-        if account and not self._demo:
-            auth.disconnect(account)
-        if wipe:
-            if self._sync_thread:
-                self._sync_thread.join(timeout=30)
-            self._store.wipe()
-        else:
-            self._store.set_meta("auth_state", "needs_reconnect")
-        self._agent = None
-        return {"wiped": bool(wipe)}
+        """Gmail. wipe=False keeps the local mail (the source shows "needs reconnect")."""
+        return self.disconnect_source.__wrapped__(self, GMAIL, wipe)
 
     # --- browsing mail ---------------------------------------------------------
     @_safe
-    def search(self, query: str, sender: str = "", after: str = "", before: str = "") -> Dict[str, Any]:
+    def search(self, query: str, sender: str = "", after: str = "", before: str = "",
+               source: str = "") -> Dict[str, Any]:
         args = {"query": query, "limit": 50}
-        args.update({k: v for k, v in (("sender", sender), ("after", after), ("before", before)) if v})
-        return self._tool("search_mail", args)
+        args.update({k: v for k, v in (("sender", sender), ("after", after), ("before", before),
+                                       ("source", source)) if v})
+        return self._tool("search", args)
 
     @_safe
-    def recent(self, sender: str = "", after: str = "", before: str = "") -> Dict[str, Any]:
+    def recent(self, sender: str = "", after: str = "", before: str = "", source: str = "") -> Dict[str, Any]:
         args: Dict[str, Any] = {"limit": 50}
-        args.update({k: v for k, v in (("sender", sender), ("after", after), ("before", before)) if v})
-        return self._tool("list_messages", args)
+        args.update({k: v for k, v in (("sender", sender), ("after", after), ("before", before),
+                                       ("source", source)) if v})
+        return self._tool("list_items", args)
 
     @_safe
-    def read_thread(self, thread_id: str) -> Dict[str, Any]:
-        return self._tool("read_thread", {"thread_id": thread_id})
+    def read_thread(self, thread_id: str, source: str = "") -> Dict[str, Any]:
+        args = {"thread_id": thread_id}
+        if source:
+            args["source"] = source
+        return self._tool("read", args)
 
     def _tool(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         out = run_tool(self._store, name, args)
@@ -238,12 +277,19 @@ class Backend:
         return out
 
     @_safe
-    def open_in_gmail(self, url: str) -> Dict[str, Any]:
-        # Only ever open Gmail links we generated, never a URL taken from email content.
-        if not isinstance(url, str) or not url.startswith("https://mail.google.com/mail/"):
-            return {"ok": False, "error": "Only Gmail links can be opened."}
+    def open_link(self, url: str) -> Dict[str, Any]:
+        # Only ever open the kinds of deep link our sources generate (Gmail, Google Calendar...),
+        # never a URL taken from the content of a message or event.
+        if not self._sources.link_allowed(url):
+            return {"ok": False, "error": "Only links back to the original (Gmail, Google Calendar) can be opened."}
         webbrowser.open(url)
         return {}
+
+    @_safe
+    def open_in_gmail(self, url: str) -> Dict[str, Any]:
+        if not isinstance(url, str) or not url.startswith("https://mail.google.com/mail/"):
+            return {"ok": False, "error": "Only Gmail links can be opened."}
+        return self.open_link.__wrapped__(self, url)
 
     # --- privacy report --------------------------------------------------------
     @_safe
@@ -255,8 +301,14 @@ class Backend:
             dropped[label] = dropped.get(label, 0) + n
         redacted = {REDACTION_LABELS.get(k, k): v for k, v in
                     sorted(st["redactions"].items(), key=lambda kv: -kv[1])}
+        by_source = []
+        for x in self._sources:
+            kept, skipped = self._store.counts(x.id)
+            if kept or skipped:
+                by_source.append({"id": x.id, "name": x.name, "kept": kept, "dropped": skipped})
         return {"kept": st["kept"], "dropped_total": st["dropped"],
-                "dropped": dict(sorted(dropped.items(), key=lambda kv: -kv[1])), "redacted": redacted}
+                "dropped": dict(sorted(dropped.items(), key=lambda kv: -kv[1])), "redacted": redacted,
+                "by_source": by_source}
 
     # --- Grok ----------------------------------------------------------------------
     @_safe
@@ -314,3 +366,8 @@ class Backend:
     def _shutdown(self) -> None:
         self._stop.set()
 
+
+
+def _real_gmail_connect(mode: str, email: Optional[str]) -> str:
+    _, account = auth.connect(mode, login_hint=email or None)
+    return account

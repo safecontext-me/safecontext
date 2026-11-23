@@ -21,7 +21,7 @@ def paths():
 
 def make_old_data(old: Path, account="alex@example.org"):
     s = Store(old / "mail.db")
-    s.set_meta("account_email", account)
+    s.set_state("gmail", "account", account)
     s.close()
     (old / "sync.lock").touch()
 
@@ -29,7 +29,7 @@ def make_old_data(old: Path, account="alex@example.org"):
 def account_in(d: Path) -> str:
     s = Store(d / "mail.db")
     try:
-        return s.get_meta("account_email")
+        return s.get_state("gmail", "account")
     finally:
         s.close()
 

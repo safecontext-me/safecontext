@@ -38,15 +38,19 @@ to this website, <a href="https://safecontext.me/">safecontext.me</a>.</p>
   <li><code>https://www.googleapis.com/auth/gmail.readonly</code> (full mode): to read your messages and their labels so they can be scrubbed and searched on your Mac.</li>
   <li><code>https://www.googleapis.com/auth/gmail.metadata</code> (headers-only mode): to read message headers such as sender, recipients, subject and date, without message bodies.</li>
 </ul>
+<p>If you also choose to connect Google Calendar, SafeContext asks separately, at that moment, for one more read-only permission:</p>
+<ul>
+  <li><code>https://www.googleapis.com/auth/calendar.readonly</code>: to read your calendars and events (title, time, organizer, attendees, description, location and video-call link) so they can be scrubbed and searched on your Mac. SafeContext cannot create, change or delete events, and it never reads dial-in PINs or meeting passcodes.</li>
+</ul>
 <p>SafeContext also learns the email address of the Google account you connect, so it can show which account is connected.
 It never downloads the contents of attachments; it records only each attachment's file name, type and size.</p>
 
 <h2>How SafeContext uses your Google data</h2>
-<p>SafeContext uses Gmail data only to provide the features you see in the app:</p>
+<p>SafeContext uses Gmail and Google Calendar data only to provide the features you see in the app:</p>
 <ul>
   <li>building a scrubbed, searchable copy of your mail on your Mac;</li>
   <li>letting you browse and search that copy;</li>
-  <li>answering questions you ask about your mail, with links back to the original messages in Gmail; and</li>
+  <li>answering questions you ask about your mail and calendar, with links back to the original messages in Gmail and events in Google Calendar; and</li>
   <li>letting AI apps that you connect search that copy on your behalf.</li>
 </ul>
 

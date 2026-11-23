@@ -1,10 +1,12 @@
 """Command-line entry point (the Mac app will call the same functions).
 
-    python -m safecontext connect [--headers-only] [--email you@gmail.com]
-    python -m safecontext sync
+    python -m safecontext connect [--headers-only] [--email you@gmail.com]   # Gmail
+    python -m safecontext connect --source gcal [--email you@gmail.com]      # Google Calendar
+    python -m safecontext sync [--source gcal]       # every connected source, or one
     python -m safecontext status
-    python -m safecontext search "rent transfer" [--from @example.com] [--after 2025-01-01]
-    python -m safecontext disconnect [--wipe]
+    python -m safecontext sources
+    python -m safecontext search "rent transfer" [--source gmail] [--from @example.com] [--after 2025-01-01]
+    python -m safecontext disconnect [--source gcal] [--wipe]
     python -m safecontext set-xai-key
     python -m safecontext ask "when is the dinner with Jamie?"
     python -m safecontext chat
@@ -29,91 +31,100 @@ def _print_progress(r) -> None:
     sys.stdout.flush()
 
 
+def _sources(store):
+    from .sources import default_sources
+    return default_sources(store)
+
+
 def cmd_connect(args) -> int:
     from . import auth
-    mode = "headers" if args.headers_only else "full"
     store = _store(args)
+    src = _sources(store).get(args.source)
+    opts = {"email": args.email}
+    if args.source == "gmail":
+        opts["mode"] = "headers" if args.headers_only else "full"
     try:
-        _, account = auth.connect(mode, login_hint=args.email)
+        account = src.connect(**opts)
     except auth.NotConfigured as e:
         print(e)
-        return 2
+        return 2 if "already holds" not in str(e) else 1
     except auth.NeedsReconnect as e:
         print(e.message)
         return 1
-    previous = store.get_meta("account_email")
-    if previous and previous != account:
-        print(f"This data folder belongs to {previous}. Run `disconnect --wipe` first to switch accounts.")
-        auth.TokenStore().delete(account)
-        return 1
-    store.set_meta("account_email", account)
-    store.set_meta("sync_mode", mode)
-    store.set_meta("auth_state", "ok")
-    print(f"Connected {account} ({'headers only' if mode == 'headers' else 'full messages'}). Run `sync` next.")
+    what = ""
+    if args.source == "gmail":
+        what = " (headers only)" if opts["mode"] == "headers" else " (full messages)"
+    print(f"Connected {src.name}: {account}{what}. Run `sync` next.")
     return 0
 
 
 def cmd_sync(args) -> int:
-    from . import auth
-    from .gmail_api import GoogleGmailAPI
-    from .sync import sync_account
-
     store = _store(args)
-    account = store.get_meta("account_email") or ""
-    mode = store.get_meta("sync_mode") or "full"
-    try:
-        creds = auth.get_credentials(account, mode)
-    except auth.NeedsReconnect as e:
-        store.set_meta("auth_state", "needs_reconnect")
-        print(e.message)
+    sources = _sources(store)
+    targets = [sources.get(args.source)] if args.source else sources.connected()
+    if not targets:
+        print("Nothing is connected yet. Run `connect` first.")
         return 1
-    except auth.TransientAuthError:
-        print("Couldn't reach Google. Check your connection and try again.")
-        return 1
-    except auth.NotConfigured as e:
-        print(e)
-        return 1
-    result = sync_account(store, GoogleGmailAPI(creds), mode, progress=_print_progress)
-    print()
-    print(result.message or f"Done: {result.kept} kept, {result.dropped} dropped, {result.deleted} removed.")
-    return 0 if result.status == "ok" else 1
+    ok = True
+    for src in targets:  # one after another; a failing source doesn't stop the next
+        print(f"{src.name}:")
+        result = src.sync(progress=_print_progress)
+        print()
+        print(result.message or f"Done: {result.kept} kept, {result.dropped} dropped, {result.deleted} removed.")
+        ok = ok and result.status == "ok"
+    return 0 if ok else 1
 
 
 def cmd_status(args) -> int:
+    from .sync import read_heartbeat
     store = _store(args)
-    info = {k: store.get_meta(k) for k in ("account_email", "sync_mode", "auth_state", "history_id",
-                                           "backfill_page_token", "last_sync_ms")}
+    g = store.state("gmail")
+    info = {"account_email": g.get("account"), **{k: g.get(k) for k in ("sync_mode", "auth_state", "history_id",
+                                                                       "backfill_page_token", "last_sync_ms")}}
     info["backfill_in_progress"] = bool(info.pop("backfill_page_token")) or info["history_id"] is None
     info.update(store.stats())
-    from .sync import read_heartbeat
     info["sync_running"] = read_heartbeat(store)
     if info.get("auth_state") == "needs_reconnect":
         from .auth import RECONNECT_MESSAGE
         info["action"] = RECONNECT_MESSAGE
+    info["sources"] = [{k: v for k, v in st.items() if k not in ("requirements", "description", "progress")}
+                       for st in _sources(store).statuses() if st["available"]]
     print(json.dumps(info, indent=2))
     return 0
 
 
+def cmd_sources(args) -> int:
+    for st in _sources(_store(args)).statuses():
+        line = f"{st['name']:<17} {st['state']:<16} {st['item_count']:>7} items"
+        if st["account"]:
+            line += f"  {st['account']}"
+        print(line)
+        if st["message"]:
+            print(f"{'':<17} {st['message']}")
+        for r in st["requirements"]:
+            print(f"{'':<17} needs {r['label']}: {r['why']}")
+    return 0
+
+
 def cmd_search(args) -> int:
+    from .tools import source_name
     store = _store(args)
-    for h in store.search(args.query, sender=args.sender, after=args.after, before=args.before, limit=args.limit):
+    for h in store.search(args.query, source=args.source, sender=args.sender, after=args.after,
+                          before=args.before, limit=args.limit):
         c = h.citation
-        print(f"{c.date[:10]}  {c.sender}\n  {h.subject}\n  {h.snippet}\n  {c.link}\n")
+        print(f"{c.date[:10]}  {source_name(h.source)}  {c.sender}\n  {h.title}\n  {h.snippet}\n  {c.link}\n")
     return 0
 
 
 def cmd_disconnect(args) -> int:
-    from . import auth
     store = _store(args)
-    account = store.get_meta("account_email") or ""
-    if account:
-        auth.disconnect(account)
+    sources = _sources(store)
+    src = sources.get(args.source)
+    sources.disconnect(args.source, wipe=args.wipe)
     if args.wipe:
-        store.wipe()
-        print("Disconnected and deleted all local mail.")
+        print(f"Disconnected {src.name} and deleted its data from this Mac.")
     else:
-        store.set_meta("auth_state", "needs_reconnect")
-        print("Disconnected. Local scrubbed mail was kept (use --wipe to delete it).")
+        print(f"Disconnected {src.name}. Its local scrubbed data was kept (use --wipe to delete it).")
     return 0
 
 
@@ -192,18 +203,24 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="safecontext")
     p.add_argument("--data-dir", help="defaults to ~/Library/Application Support/SafeContext")
     sub = p.add_subparsers(dest="cmd")
+    source_ids = ["gmail", "gcal"]
     c = sub.add_parser("connect")
-    c.add_argument("--headers-only", action="store_true", help="use gmail.metadata: no message bodies")
+    c.add_argument("--source", choices=source_ids, default="gmail")
+    c.add_argument("--headers-only", action="store_true", help="Gmail: use gmail.metadata, no message bodies")
     c.add_argument("--email", help="pre-fill the Google account chooser")
-    sub.add_parser("sync")
+    sy = sub.add_parser("sync")
+    sy.add_argument("--source", choices=source_ids, help="default: every connected source")
     sub.add_parser("status")
+    sub.add_parser("sources")
     s = sub.add_parser("search")
     s.add_argument("query")
+    s.add_argument("--source", choices=source_ids)
     s.add_argument("--from", dest="sender")
     s.add_argument("--after")
     s.add_argument("--before")
     s.add_argument("--limit", type=int, default=10)
     d = sub.add_parser("disconnect")
+    d.add_argument("--source", choices=source_ids, default="gmail")
     d.add_argument("--wipe", action="store_true")
     sub.add_parser("set-xai-key")
     a = sub.add_parser("ask")
@@ -225,7 +242,7 @@ def main(argv=None) -> int:
         print(f"Couldn't move your data from {migrate.LEGACY_DATA_DIR} to {DEFAULT_DATA_DIR}: {e}",
               file=sys.stderr)
         return 1
-    return {"connect": cmd_connect, "sync": cmd_sync, "status": cmd_status, "search": cmd_search,
+    return {"connect": cmd_connect, "sync": cmd_sync, "status": cmd_status, "sources": cmd_sources, "search": cmd_search,
             "disconnect": cmd_disconnect, "set-xai-key": cmd_set_xai_key, "ask": cmd_ask, "chat": cmd_chat,
             "mcp": cmd_mcp, "app": cmd_app}[args.cmd](args)
 
