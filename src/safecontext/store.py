@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Set, Union
 from urllib.parse import quote
 
+from . import env as _env
 from .scrub import SCRUBBER_VERSION, Attachment, Dropped, ScrubbedItem, ScrubbedMessage
 
 SCHEMA_VERSION = 2
@@ -109,7 +110,8 @@ _V1_GMAIL_META = {"account_email": "account", "sync_mode": "sync_mode", "auth_st
                   "history_id": "history_id", "backfill_start_history_id": "backfill_start_history_id",
                   "backfill_page_token": "backfill_page_token", "resync": "resync", "last_sync_ms": "last_sync_ms"}
 
-DEFAULT_DATA_DIR = Path.home() / "Library" / "Application Support" / "SafeContext"
+# …/SafeContext for the packaged app, …/SafeContext-Dev for a source checkout (see env.py).
+DEFAULT_DATA_DIR = _env.default_data_dir()
 
 
 # --- result shapes (what Grok / MCP tools return) -------------------------

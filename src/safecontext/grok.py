@@ -18,7 +18,8 @@ from typing import Any, Dict, List, Optional
 import keyring
 import keyring.errors
 
-from .migrate import getenv, keychain_delete, keychain_get
+from .env import keychain_service
+from .migrate import getenv, keychain_delete, keychain_get, legacy_service
 from .store import Store
 from .tools import PRIMARY_TOOLS, citations, run_tool
 
@@ -26,8 +27,8 @@ XAI_BASE_URL = "https://api.x.ai/v1"
 DEFAULT_MODEL = "grok-4.7"
 MODEL_ENV = "SAFECONTEXT_GROK_MODEL"  # MYCONTEXT_GROK_MODEL still works
 KEY_ENV = "XAI_API_KEY"
-KEYRING_SERVICE = "SafeContext xAI"
-LEGACY_KEYRING_SERVICE = "MyContext xAI"  # before the rename; see migrate.py
+KEYRING_SERVICE = keychain_service("SafeContext xAI")  # "… (Dev)" in a source checkout; see env.py
+LEGACY_KEYRING_SERVICE = legacy_service("MyContext xAI")  # before the rename; see migrate.py
 KEYRING_USER = "api_key"
 MAX_ROUNDS = 8
 

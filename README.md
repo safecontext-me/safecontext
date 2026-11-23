@@ -83,7 +83,8 @@ into the app; see [packaging/README.md](packaging/README.md).
 ## CLI
 
 Run as `safecontext …` or `python -m safecontext …`. The global option `--data-dir` goes before the
-subcommand and defaults to `~/Library/Application Support/SafeContext`.
+subcommand and defaults to `~/Library/Application Support/SafeContext-Dev` when run from a checkout
+(see [Development and packaged app side by side](#development-and-packaged-app-side-by-side)).
 
 | Command | What it does |
 | --- | --- |
@@ -170,23 +171,52 @@ and Python path; prefer copying that. Run `connect` and `sync` first so there is
 
 | What | Where |
 | --- | --- |
-| Scrubbed mail, sync state | `~/Library/Application Support/SafeContext/mail.db` (SQLite + FTS5). Override with `--data-dir`. Directory is `0700`, files `0600`, and `secure_delete` is on. |
+| Scrubbed mail, sync state, sync locks | `~/Library/Application Support/SafeContext/mail.db` (SQLite + FTS5). Override with `--data-dir`. Directory is `0700`, files `0600`, and `secure_delete` is on. |
 | Gmail OAuth token | macOS Keychain via `keyring`, service `SafeContext Gmail`, one entry per account. Never a plain file. |
+| Google Calendar token | macOS Keychain, service `SafeContext Google Calendar`, one entry per account. |
 | xAI API key | macOS Keychain, service `SafeContext xAI`, or the `XAI_API_KEY` environment variable. |
+| Transcription models | `~/Library/Application Support/SafeContext/models/whisper`. |
 | OAuth client file | `src/safecontext/oauth_client.json` or `$SAFECONTEXT_OAUTH_CLIENT`. Not committed. |
 
 `disconnect` removes the token and revokes the grant at Google; `disconnect --wipe` also deletes the local mail.
 
+These are the packaged app's locations. A development checkout uses its own; see below.
+
+## Development and packaged app side by side
+
+Running from the repo (`.venv/bin/safecontext …`, `python -m safecontext …`) and running the
+installed `SafeContext.app` never share state, so both can be open at once:
+
+| | Packaged app | Development checkout |
+| --- | --- | --- |
+| Data folder (mail, sync locks, models) | `…/Application Support/SafeContext` | `…/Application Support/SafeContext-Dev` |
+| Keychain services | `SafeContext Gmail`, `SafeContext Google Calendar`, `SafeContext xAI` | the same with ` (Dev)` appended |
+| MCP server name in Settings | `safecontext` | `safecontext-dev` |
+| Window title | `SafeContext` | `SafeContext (Dev)` |
+
+Which one is running is decided by where the code lives: inside a `.app` bundle (or started by the
+bundle's launcher) is the packaged app; anything else is development. It doesn't depend on an
+environment variable, because MCP clients and Finder start SafeContext without your shell's
+variables. To force one or the other, set `SAFECONTEXT_ENV=dev` or `SAFECONTEXT_ENV=app`.
+`--data-dir` still overrides the data folder in both. A checkout has to connect its sources and save
+an xAI key separately from the app.
+
+Keeping the Keychain items apart also matters because macOS ties each item to the program that
+created it: the app reading an item the checkout's Python made (or the other way round) would ask
+for your login keychain password.
+
 ## Coming from MyContext
 
-This app used to be called MyContext. On first start under the new name it carries your setup over:
+This app used to be called MyContext, which only ever ran from a source checkout. So a checkout
+carries that setup into its development names on first start; the packaged app leaves MyContext
+state alone and starts fresh:
 
-- `~/Library/Application Support/MyContext` is renamed to `…/SafeContext` (moved, not copied, so
+- `~/Library/Application Support/MyContext` is renamed to `…/SafeContext-Dev` (moved, not copied, so
   there is one copy of your mail) and a symlink is left at the old path, so configs that pass
   `--data-dir …/MyContext` keep working. If both folders already hold data, neither is touched and a
   warning is printed; merge them by hand.
 - The Gmail token and xAI key are copied from the `MyContext Gmail` / `MyContext xAI` Keychain items
-  the first time they're needed. The old items stay until you `disconnect` or clear the key, which
+  to `SafeContext Gmail (Dev)` / `SafeContext xAI (Dev)` the first time they're needed. The old items stay until you `disconnect` or clear the key, which
   removes both.
 - `MYCONTEXT_OAUTH_CLIENT`, `MYCONTEXT_GROK_MODEL` and `MYCONTEXT_GMAIL_UNITS_PER_SEC` still work
   if the `SAFECONTEXT_` name isn't set.

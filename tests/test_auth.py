@@ -105,7 +105,7 @@ def test_client_config_from_env(tmp_path, monkeypatch):
 
 def test_tokens_live_in_keychain_not_files(mem_keyring, tmp_path):
     TokenStore().save("alex@example.org", creds())
-    assert ("SafeContext Gmail", "alex@example.org") in mem_keyring.items
+    assert (auth.KEYRING_SERVICE, "alex@example.org") in mem_keyring.items
     loaded = TokenStore().load("alex@example.org")
     assert loaded.refresh_token == "1//refresh-test" and loaded.scopes == [auth.SCOPE_READONLY]
 
@@ -169,7 +169,7 @@ def test_successful_refresh_is_saved(monkeypatch, mem_keyring):
 
     monkeypatch.setattr(Credentials, "refresh", ok)
     assert get_credentials("a@example.org").token == "ya29.new"
-    assert json.loads(mem_keyring.items[("SafeContext Gmail", "a@example.org")])["token"] == "ya29.new"
+    assert json.loads(mem_keyring.items[(auth.KEYRING_SERVICE, "a@example.org")])["token"] == "ya29.new"
 
 
 def test_valid_creds_not_refreshed(monkeypatch):

@@ -27,16 +27,19 @@ from google.auth.exceptions import RefreshError, TransportError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
-from .migrate import getenv, keychain_delete, keychain_get
+from .env import keychain_service
+from .migrate import getenv, keychain_delete, keychain_get, legacy_service
 
 SCOPE_READONLY = "https://www.googleapis.com/auth/gmail.readonly"
 SCOPE_METADATA = "https://www.googleapis.com/auth/gmail.metadata"
 SCOPE_CALENDAR = "https://www.googleapis.com/auth/calendar.readonly"
 MODES = {"full": SCOPE_READONLY, "headers": SCOPE_METADATA}
 
-KEYRING_SERVICE = "SafeContext Gmail"
-LEGACY_KEYRING_SERVICE = "MyContext Gmail"  # before the rename; see migrate.py
-CALENDAR_KEYRING_SERVICE = "SafeContext Google Calendar"
+# Development checkouts use "… (Dev)" names so they never read the packaged app's items
+# (or vice versa); see env.py.
+KEYRING_SERVICE = keychain_service("SafeContext Gmail")
+LEGACY_KEYRING_SERVICE = legacy_service("MyContext Gmail")  # before the rename; see migrate.py
+CALENDAR_KEYRING_SERVICE = keychain_service("SafeContext Google Calendar")
 CLIENT_CONFIG_ENV = "SAFECONTEXT_OAUTH_CLIENT"  # MYCONTEXT_OAUTH_CLIENT still works
 BUNDLED_CLIENT_CONFIG = Path(__file__).with_name("oauth_client.json")
 
