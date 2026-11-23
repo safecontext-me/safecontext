@@ -1,18 +1,17 @@
-"""Demo wiring: a fake Gmail, a fake Google Calendar and a local stand-in for Grok, so the app can be
-tried without a Google client, a Gmail account, or an xAI key.
+"""Demo wiring: a fake Gmail, a fake Google Calendar and a stand-in for the Grok relay, so the app
+can be tried without a Google client or a Gmail account.
 Nothing in demo mode touches the network."""
 from __future__ import annotations
 
-import json
 import tempfile
 import time
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from ..demo.fake_calendar import make_fake_calendar
 from ..demo.fake_gmail import FakeGmail
 from ..demo.synthetic import mailbox, msg
+from ..grok_link import demo_link
 
 DEMO_ACCOUNT = "alex@example.org"
 
@@ -45,49 +44,6 @@ def make_fake_gmail() -> FakeGmail:
     return g
 
 
-class _Item(SimpleNamespace):
-    def model_dump(self, exclude_none=True):
-        return {k: v for k, v in vars(self).items() if v is not None}
-
-
-class DemoGrok:
-    """Stands in for the xAI client: searches with the question's words, then
-    answers by listing what it found. Nothing is sent anywhere."""
-
-    def __init__(self) -> None:
-        self.responses = SimpleNamespace(create=self._create)
-
-    _STOP = {"what", "when", "where", "who", "which", "does", "have", "this", "that", "with", "from", "about",
-             "tell", "info", "recent", "recently", "mail", "email", "emails", "sent", "send", "anything", "there",
-             "their", "they", "them", "were", "would", "could", "should", "summarize", "show", "find", "asked"}
-
-    def _keywords(self, question: str) -> List[str]:
-        words = [w.strip("?,.!\"'“”").lower() for w in question.split()]
-        words = [w for w in words if len(w) > 3 and w not in self._STOP]
-        return sorted(dict.fromkeys(words), key=len, reverse=True)[:3] or [question]
-
-    def _create(self, *, input: List[Dict[str, Any]], **_: Any):
-        last_user = max(n for n, i in enumerate(input) if i.get("role") == "user")
-        question = input[last_user]["content"]
-        answered = [i for i in input[last_user:] if i.get("type") == "function_call_output"]
-        keywords = self._keywords(question)
-        found = json.loads(answered[-1]["output"]).get("results", []) if answered else []
-        if not found and len(answered) < len(keywords):  # try the next keyword
-            call = _Item(type="function_call", name="search", call_id=f"demo{len(answered)}",
-                         arguments=json.dumps({"query": keywords[len(answered)]}))
-            return SimpleNamespace(output=[call], output_text="")
-        if found:
-            lines = [f"• {r['title']} — {r['sender']}, {r['date'][:10]} ({r['citation'].rsplit(' · ', 1)[-1]})"
-                     for r in found[:5]]
-            text = ("Demo mode: this answer is generated locally, not by Grok. Matching items:\n"
-                    + "\n".join(lines))
-        else:
-            text = ("Demo mode: this answer is generated locally, not by Grok. I didn't find matching mail; "
-                    "try words like “dinner”, “rent” or “planning”.")
-        return SimpleNamespace(output=[_Item(type="message", role="assistant",
-                                             content=[{"type": "output_text", "text": text}])], output_text=text)
-
-
 def demo_backend_kwargs(data_dir: Optional[Path] = None) -> Dict[str, Any]:
     gmail = make_fake_gmail()
     calendar = make_fake_calendar(DEMO_ACCOUNT)
@@ -98,5 +54,5 @@ def demo_backend_kwargs(data_dir: Optional[Path] = None) -> Dict[str, Any]:
         connect_fn=lambda mode, email: (time.sleep(0.8), DEMO_ACCOUNT)[1],
         calendar_factory=lambda account: calendar,
         calendar_connect_fn=lambda email: (time.sleep(0.8), DEMO_ACCOUNT)[1],
-        grok_client_factory=DemoGrok,
+        grok_link=demo_link,
     )

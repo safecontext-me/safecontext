@@ -21,7 +21,7 @@ const REQ_KINDS = { oauth_scope: "Google permission", macos_permission: "Mac per
 
 const $ = (id) => document.getElementById(id);
 const api = () => window.pywebview.api;
-let state = { status: null, view: "search", activeId: null, asking: false };
+let state = { status: null, view: "search", activeId: null, grok: null, grokBusy: false };
 
 // ---------- DOM helpers ----------
 function el(tag, attrs = {}, ...children) {
@@ -208,13 +208,10 @@ async function refreshStatus() {
   }
   const anySyncing = (r.sources || []).some((x) => x.syncing);
   $("sync-now").disabled = anySyncing || (!!r.account && r.needs_reconnect && !(r.sources || []).some((x) => x.id !== "gmail" && x.account));
-  $("no-key").hidden = r.has_xai_key;
 
   $("s-account").textContent = r.account || "Not connected";
   $("s-mode").textContent = r.mode === "headers" ? "Headers only (no message text)" : "Full messages, scrubbed";
   $("s-dir").textContent = r.data_dir;
-  $("s-key").textContent = r.demo ? "Not needed in demo mode" : r.has_xai_key ? "Saved in Keychain" : "Not set";
-  if (document.activeElement !== $("model-input")) $("model-input").value = r.model;
 
   // Refresh the list while a sync fills the store, and once more when it finishes.
   const browsingRecent = state.view === "search" && !$("q").value;
@@ -232,11 +229,10 @@ function loadRecentThrottled() {
 function show(view) {
   state.view = view;
   for (const b of document.querySelectorAll(".nav button")) b.classList.toggle("active", b.dataset.view === view);
-  for (const v of ["search", "ask", "sources", "removed", "settings"]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["search", "sources", "removed", "settings"]) $(`view-${v}`).hidden = v !== view;
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "removed") loadRemoved();
   if (view === "settings") loadMcp();
-  if (view === "ask") $("ask-input").focus();
 }
 
 // ---------- search ----------
@@ -416,46 +412,106 @@ async function disconnectSource(x) {
   refreshStatus();
 }
 
-// ---------- ask grok ----------
-function addBubble(kind, content) {
-  $("suggestions").hidden = true;
-  const b = el("div", { class: `bubble ${kind}` }, content);
-  $("transcript").append(b);
-  b.scrollIntoView({ block: "end", behavior: "smooth" });
-  return b;
+// ---------- use in grok ----------
+const GROK_STATES = {
+  off: ["Off", ""], connecting: ["Connecting…", "busy"], waiting: ["Waiting for Grok", "busy"],
+  connected: ["Grok connected", "ok"], offline: ["Can't reach the relay. Retrying…", "warn"],
+  rejected: ["Link not accepted. Regenerate it.", "warn"],
+};
+
+async function refreshGrok() {
+  const r = await api().grok_status();
+  if (r.ok) renderGrok(r);
 }
 
-async function ask(e) {
-  e && e.preventDefault();
-  const q = $("ask-input").value.trim();
-  if (!q || state.asking) return;
-  state.asking = true;
-  $("ask-send").disabled = true;
-  $("ask-input").value = "";
-  addBubble("user", q);
-  const pending = addBubble("bot", el("span", { class: "thinking" }, "Searching your scrubbed data…"));
-  const r = await api().ask(q);
-  pending.replaceChildren();
-  if (!r.ok) {
-    pending.classList.add("err");
-    pending.append(r.error);
-  } else {
-    // Strip the auto-added plain-text footer; sources are shown as cards instead.
-    const body = r.text.replace(/\n\nSources:\n[\s\S]*$/, "");
-    pending.append(richText(body, { links: true }));
-    if (r.sources && r.sources.length) {
-      pending.append(el("div", { class: "sources" },
-        el("div", { class: "muted" }, "Sources"),
-        r.sources.slice(0, 8).map((s) => el("div", { class: "source" },
-          el("span", {}, el("span", { class: "src-tag", title: s.source_name }, SOURCE_ICONS[s.source] || "•"),
-            el("b", {}, richText(s.title || s.subject || "(no subject)")), ` · ${senderName(s.sender)} · ${fmtDate(s.date)}`),
-          s.link ? el("button", { class: "btn small", onclick: () => openLink(s.link) }, OPEN_LABELS[s.source] || "Open") : null))));
-    }
+function renderGrok(g) {
+  state.grok = g;
+  const on = g.enabled;
+  if (!state.grokBusy) $("grok-toggle").checked = on;
+  const [label, tone] = GROK_STATES[g.state] || [g.state, ""];
+  let text = label;
+  if (g.state === "connected" && g.last_used_ms) text += ` · last used ${ago(g.last_used_ms)}`;
+  $("grok-status-text").textContent = text;
+  $("grok-dot").className = "dot" + (tone === "ok" ? " on" : tone === "busy" ? " busy" : tone === "warn" ? " warn" : " off");
+  $("grok-card").classList.toggle("is-on", on);
+  $("grok-actions").hidden = !on;
+  $("grok-on").hidden = !on;
+  $("grok-pitch").hidden = on;
+  // The three steps stay up until Grok has connected once.
+  $("grok-steps").hidden = !on || g.state === "connected";
+  $("grok-url").textContent = g.url || "";
+  $("grok-awake").checked = !!g.keep_awake;
+  $("grok-link-only").checked = !!g.link_only;
+  $("grok-auth-url").textContent = (g.oauth && g.oauth.authorize) || "";
+  $("grok-token-url").textContent = (g.oauth && g.oauth.token) || "";
+  renderGrokActivity(g.activity || []);
+  const d = $("grok-approve");
+  if (g.approval && state.approvalId !== g.approval.id) {
+    state.approvalId = g.approval.id;
+    $("ga-code").textContent = g.approval.code;
+    $("ga-client").textContent = g.approval.client || "Grok";
+    if (!d.open) d.showModal();
+  } else if (!g.approval && d.open) {
+    d.close();
+    state.approvalId = null;
   }
-  pending.scrollIntoView({ block: "end", behavior: "smooth" });
-  state.asking = false;
-  $("ask-send").disabled = false;
-  $("ask-input").focus();
+}
+
+function renderGrokActivity(rows) {
+  const list = $("grok-activity-list");
+  list.replaceChildren(...(rows.length ? rows.map((a) => el("li", {},
+    el("span", { class: "act-time" }, ago(a.ts_ms)),
+    el("span", { class: "act-q" }, a.query),
+    el("span", { class: "act-n" }, a.error ? "error" : a.results == null ? "" : `${n(a.results)} result${a.results === 1 ? "" : "s"}`)))
+    : [el("li", { class: "muted" }, "Nothing yet.")]));
+}
+
+async function copyText(text, copied) {
+  if (copied) return true;
+  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+}
+
+async function grokToggle() {
+  const want = $("grok-toggle").checked;
+  state.grokBusy = true;
+  if (want) {
+    const r = await api().grok_enable();
+    state.grokBusy = false;
+    if (!r.ok) { $("grok-toggle").checked = false; toast(r.error); return; }
+    const copied = await copyText(r.url, r.copied);
+    toast(copied ? "Link copied. Paste it into Grok." : "Copy the link below and paste it into Grok.");
+    api().open_grok_connectors();
+    renderGrok(r);
+  } else {
+    const r = await api().grok_disable();
+    state.grokBusy = false;
+    if (r.ok) { renderGrok(r); toast("Grok can't reach your data now."); }
+  }
+}
+
+async function grokCopy() {
+  const r = await api().grok_copy_link();
+  if (!r.ok) return toast(r.error);
+  toast((await copyText(r.url, r.copied)) ? "Link copied." : "Select the link and copy it with ⌘C.");
+}
+
+async function grokRegenerate() {
+  const ok = await confirmDialog("Make a new link? Grok loses access right away. Then add the new link in Grok (it's copied for you).", "Regenerate");
+  if (!ok) return;
+  const r = await api().grok_regenerate();
+  if (!r.ok) return toast(r.error);
+  const copied = await copyText(r.url, r.copied);
+  toast(copied ? "New link copied. The old one no longer works." : "New link made. The old one no longer works.");
+  renderGrok(r);
+}
+
+async function grokAnswer(ok) {
+  const id = state.approvalId;
+  $("grok-approve").close();
+  const r = await api().grok_approve(id, ok);
+  if (!r.ok) toast(r.error);
+  else toast(ok ? "Approved. Grok can now search your scrubbed data." : "Denied.");
+  refreshGrok();
 }
 
 // ---------- removed ----------
@@ -533,33 +589,26 @@ function wire() {
   $("f-source").addEventListener("change", () => doSearch());
   $("search-form").addEventListener("submit", doSearch);
   $("q").addEventListener("search", () => !$("q").value && loadRecent());
-  $("ask-form").addEventListener("submit", ask);
-  $("ask-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) ask(e); });
-  for (const s of document.querySelectorAll("#suggestions .chip-btn"))
-    s.addEventListener("click", () => { $("ask-input").value = s.textContent; ask(); });
-  $("new-chat").addEventListener("click", async () => {
-    await api().new_chat();
-    $("transcript").replaceChildren($("suggestions"));
-    $("suggestions").hidden = false;
-  });
   $("sync-now").addEventListener("click", async () => { await api().sync_now(); refreshStatus(); });
   $("ob-connect").addEventListener("click", () => connect($("ob-connect"), $("ob-error")));
   $("reconnect").addEventListener("click", () => connect($("reconnect"), null));
   $("s-disconnect").addEventListener("click", () => disconnect(false));
   $("s-wipe").addEventListener("click", () => disconnect(true));
-  $("key-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const r = await api().set_xai_key($("key-input").value);
-    $("key-error").hidden = r.ok;
-    $("key-error").textContent = r.ok ? "" : r.error;
-    if (r.ok) { $("key-input").value = ""; toast("Key saved to Keychain."); refreshStatus(); }
+  $("grok-toggle").addEventListener("change", grokToggle);
+  $("grok-copy").addEventListener("click", grokCopy);
+  $("grok-open").addEventListener("click", () => api().open_grok_connectors());
+  $("grok-regen").addEventListener("click", grokRegenerate);
+  $("grok-awake").addEventListener("change", async (e) => {
+    const r = await api().grok_set_keep_awake(e.target.checked);
+    if (r.ok) toast(e.target.checked ? "Your Mac will stay awake while plugged in and Grok is on." : "Your Mac can sleep as usual.");
   });
-  $("key-clear").addEventListener("click", async () => { await api().clear_xai_key(); toast("Key removed."); refreshStatus(); });
-  $("model-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const r = await api().set_model($("model-input").value);
-    toast(r.ok ? `Using ${r.model}` : r.error);
-  });
+  $("grok-link-only").addEventListener("change", (e) => api().grok_set_link_only(e.target.checked));
+  $("grok-activity-btn").addEventListener("click", () => { $("grok-activity").hidden = !$("grok-activity").hidden; });
+  $("grok-help-btn").addEventListener("click", () => { $("grok-help").hidden = !$("grok-help").hidden; });
+  $("grok-clear").addEventListener("click", async () => { await api().grok_clear_activity(); refreshGrok(); });
+  $("ga-ok").addEventListener("click", () => grokAnswer(true));
+  $("ga-deny").addEventListener("click", () => grokAnswer(false));
+  $("grok-approve").addEventListener("cancel", (e) => e.preventDefault());
   $("mcp-copy").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText($("mcp-json").textContent); toast("Copied."); }
     catch { toast("Select the text and copy it with ⌘C."); }
@@ -569,7 +618,9 @@ function wire() {
 function start() {
   wire();
   refreshStatus();
+  refreshGrok();
   setInterval(refreshStatus, 1500);
+  setInterval(refreshGrok, 1500);
 }
 
 if (window.pywebview && window.pywebview.api) start();

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Dict, Optional, TextIO
+from typing import Any, Callable, Dict, List, Optional, TextIO
 
 from . import __version__
 from .store import Store
@@ -37,8 +37,14 @@ def _err(id_: Any, code: int, message: str) -> Dict[str, Any]:
 
 
 class MCPServer:
-    def __init__(self, store: Store) -> None:
+    """`tools` limits which tools are listed and callable (the Grok relay serves only the
+    primary read-only ones). `on_call(name, args, result)` is told about every tool call."""
+
+    def __init__(self, store: Store, tools: Optional[List[Dict[str, Any]]] = None,
+                 on_call: Optional[Callable[[str, Dict[str, Any], Dict[str, Any]], None]] = None) -> None:
         self.store = store
+        self.tools = tools if tools is not None else TOOLS
+        self.on_call = on_call
         self.protocol_version: Optional[str] = None
 
     def handle(self, msg: Any) -> Optional[Dict[str, Any]]:
@@ -68,12 +74,15 @@ class MCPServer:
                 {"name": t["name"], "title": t["name"].replace("_", " ").capitalize(),
                  "description": t["description"], "inputSchema": t["parameters"],
                  "annotations": {"readOnlyHint": True, "openWorldHint": False}}
-                for t in TOOLS]})
+                for t in self.tools]})
         if method == "tools/call":
             name = params.get("name")
-            if name not in {t["name"] for t in TOOLS}:
+            if name not in {t["name"] for t in self.tools}:
                 return _err(id_, -32602, f"Unknown tool: {name}")
-            result = run_tool(self.store, name, params.get("arguments") or {})
+            args = params.get("arguments") or {}
+            result = run_tool(self.store, name, args)
+            if self.on_call:
+                self.on_call(name, args, result)
             text = json.dumps(result, ensure_ascii=False, indent=1)
             out: Dict[str, Any] = {"content": [{"type": "text", "text": text}], "isError": "error" in result}
             if self.protocol_version == "2025-06-18":

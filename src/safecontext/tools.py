@@ -1,5 +1,5 @@
-"""The tools, defined once and served to both Grok (function calling) and MCP
-clients. They search, read and list across every connected source (Gmail,
+"""The tools, defined once and served to MCP clients: local ones over stdio
+(mcp_server.py) and Grok through the relay (grok_link.py). They search, read and list across every connected source (Gmail,
 Google Calendar, ...), with an optional source filter. Every result carries a
 citation: date, sender, source and a deep link back to the original.
 Everything returned comes from the scrubbed store.
@@ -295,17 +295,3 @@ def run_tool(store: Store, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             result["notice"] = notice
     return result
 
-
-def citations(result: Dict[str, Any]) -> List[Dict[str, str]]:
-    """Pull every cited item out of a tool result."""
-    items = result.get("results") or result.get("messages") or []
-    out = []
-    for i in items:
-        if "link" not in i:
-            continue
-        c = {"date": i["date"], "sender": i["sender"], "title": i.get("title", ""), "subject": i.get("title", ""),
-             "source": i.get("source", GMAIL), "source_name": source_name(i.get("source", GMAIL)), "link": i["link"]}
-        if c["source"] == GMAIL:
-            c["gmail_link"] = i["link"]
-        out.append(c)
-    return out

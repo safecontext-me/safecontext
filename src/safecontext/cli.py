@@ -7,10 +7,7 @@
     python -m safecontext sources
     python -m safecontext search "rent transfer" [--source gmail] [--from @example.com] [--after 2025-01-01]
     python -m safecontext disconnect [--source gcal] [--wipe]
-    python -m safecontext set-xai-key
-    python -m safecontext ask "when is the dinner with Jamie?"
-    python -m safecontext chat
-    python -m safecontext mcp            # MCP server on stdio, for other AI clients
+    python -m safecontext mcp            # MCP server on stdio, for local AI clients (Claude Desktop, ...)
     python -m safecontext app [--demo]   # the Mac app window
 """
 from __future__ import annotations
@@ -128,60 +125,6 @@ def cmd_disconnect(args) -> int:
     return 0
 
 
-def _print_answer(ans) -> None:
-    print(ans.text)
-
-
-def cmd_set_xai_key(args) -> int:
-    import getpass
-    from .grok import set_api_key
-    key = getpass.getpass("xAI API key (input hidden): ")
-    if not key.strip():
-        print("No key entered.")
-        return 1
-    set_api_key(key)
-    print("Saved to the macOS Keychain.")
-    return 0
-
-
-def _agent(args):
-    from .grok import GrokMailAgent
-    return GrokMailAgent(_store(args), model=args.model)
-
-
-def cmd_ask(args) -> int:
-    from .grok import GrokError
-    try:
-        agent = _agent(args)
-        _print_answer(agent.ask(args.question))
-    except GrokError as e:
-        print(e)
-        return 1
-    return 0
-
-
-def cmd_chat(args) -> int:
-    from .grok import GrokError
-    try:
-        agent = _agent(args)
-    except GrokError as e:
-        print(e)
-        return 1
-    print("Ask about your mail. Empty line or Ctrl-D to quit.")
-    while True:
-        try:
-            q = input("\n> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return 0
-        if not q:
-            return 0
-        try:
-            _print_answer(agent.ask(q))
-        except GrokError as e:
-            print(e)
-
-
 def cmd_mcp(args) -> int:
     from .mcp_server import main as serve
     serve(_store(args))
@@ -222,15 +165,9 @@ def main(argv=None) -> int:
     d = sub.add_parser("disconnect")
     d.add_argument("--source", choices=source_ids, default="gmail")
     d.add_argument("--wipe", action="store_true")
-    sub.add_parser("set-xai-key")
-    a = sub.add_parser("ask")
-    a.add_argument("question")
-    a.add_argument("--model", help="xAI model id (default grok-4.7, or SAFECONTEXT_GROK_MODEL)")
-    ch = sub.add_parser("chat")
-    ch.add_argument("--model")
     sub.add_parser("mcp")
     ap = sub.add_parser("app")
-    ap.add_argument("--demo", action="store_true", help="synthetic mailbox, no Google or xAI needed")
+    ap.add_argument("--demo", action="store_true", help="synthetic mailbox, no Google account or network needed")
     ap.add_argument("--debug", action="store_true", help="enable the web inspector")
     args = p.parse_args(argv)
     if args.cmd is None:  # double-clicking the packaged .app runs with no arguments
@@ -243,8 +180,7 @@ def main(argv=None) -> int:
               file=sys.stderr)
         return 1
     return {"connect": cmd_connect, "sync": cmd_sync, "status": cmd_status, "sources": cmd_sources, "search": cmd_search,
-            "disconnect": cmd_disconnect, "set-xai-key": cmd_set_xai_key, "ask": cmd_ask, "chat": cmd_chat,
-            "mcp": cmd_mcp, "app": cmd_app}[args.cmd](args)
+            "disconnect": cmd_disconnect, "mcp": cmd_mcp, "app": cmd_app}[args.cmd](args)
 
 
 def legacy_main(argv=None) -> int:

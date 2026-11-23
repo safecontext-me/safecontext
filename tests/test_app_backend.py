@@ -7,7 +7,7 @@ import pytest
 
 from safecontext import auth
 from safecontext.app.backend import Backend
-from safecontext.app.demo import DEMO_ACCOUNT, DemoGrok, make_fake_gmail
+from safecontext.app.demo import DEMO_ACCOUNT, make_fake_gmail
 from safecontext.app.main import build_html
 from safecontext.demo.fake_gmail import FakeGmail
 from safecontext.demo.synthetic import mailbox
@@ -33,7 +33,7 @@ def gmail():
 @pytest.fixture
 def backend(tmp_path, gmail):
     b = Backend(tmp_path / "data", demo=True, gmail_factory=lambda a, m: gmail,
-                connect_fn=lambda mode, email: DEMO_ACCOUNT, grok_client_factory=DemoGrok, auto_sync=False)
+                connect_fn=lambda mode, email: DEMO_ACCOUNT, auto_sync=False)
     yield b
     b._shutdown()
 
@@ -89,18 +89,6 @@ def test_privacy_report_uses_plain_labels(backend):
     assert not any(re.fullmatch(r"[A-Z_]+", k) for k in r["redacted"])
 
 
-def test_ask_with_demo_grok(backend):
-    backend.connect("full")
-    wait_sync(backend)
-    r = backend.ask("Where is the rent transfer info?")
-    assert r["ok"] and "Rent split" in r["text"] and r["sources"][0]["gmail_link"].startswith("https://mail.google")
-    assert backend.ask("   ")["ok"] is False
-
-
-def test_xai_key_validation(backend):
-    assert backend.set_xai_key("sk-not-xai")["ok"] is False
-
-
 def test_revoked_shows_reconnect(backend, gmail):
     backend.connect("full")
     wait_sync(backend)
@@ -153,8 +141,10 @@ def test_window_cannot_reach_internals(backend):
     """pywebview exposes public attributes to JavaScript; only the intended methods may be public."""
     public = {n for n in dir(backend) if not n.startswith("_")}
     assert public == {"status", "connect", "sync_now", "disconnect", "search", "recent", "read_thread",
-                      "open_in_gmail", "privacy_report", "ask", "new_chat", "set_xai_key", "clear_xai_key",
-                      "set_model", "mcp_config", "sources", "connect_source", "sync_source", "disconnect_source",
+                      "open_in_gmail", "privacy_report", "mcp_config", "grok_status", "grok_enable",
+                      "grok_disable", "grok_regenerate", "grok_set_keep_awake", "grok_copy_link", "grok_approve",
+                      "grok_set_link_only", "grok_clear_activity", "open_grok_connectors", "sources",
+                      "connect_source", "sync_source", "disconnect_source",
                       "open_link"}
 
 

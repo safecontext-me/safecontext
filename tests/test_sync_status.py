@@ -5,7 +5,7 @@ import os
 import pytest
 
 from safecontext.app.backend import Backend
-from safecontext.app.demo import DEMO_ACCOUNT, DemoGrok
+from safecontext.app.demo import DEMO_ACCOUNT
 from safecontext.demo.fake_gmail import FakeGmail
 from safecontext.demo.synthetic import mailbox
 from safecontext.store import Store
@@ -86,7 +86,7 @@ def test_quota_wait_is_reported(store, gmail):
 
 def test_app_shows_a_sync_running_in_another_process(tmp_path, gmail):
     b = Backend(tmp_path / "data", demo=True, gmail_factory=lambda a, m: gmail,
-                connect_fn=lambda mode, email: DEMO_ACCOUNT, grok_client_factory=DemoGrok, auto_sync=False)
+                connect_fn=lambda mode, email: DEMO_ACCOUNT, auto_sync=False)
     try:
         b._store.set_state("gmail", "account", DEMO_ACCOUNT)
         parent = os.getppid()  # a live process that isn't us, standing in for the CLI

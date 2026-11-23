@@ -1,0 +1,30 @@
+# SafeContext relay: forwards Grok's MCP requests to the SafeContext app on the user's Mac.
+# See README.md for the deploy steps. Nothing here creates resources until you run `wrangler deploy`.
+name = "safecontext-relay"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# Served only at relay.safecontext.me (a Custom Domain on the safecontext.me zone);
+# no *.workers.dev address.
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "relay.safecontext.me", custom_domain = true }]
+
+# No logs of any kind: no Workers Logs, no Logpush. The code never calls console.* either.
+# (logpush must stay above the first [table] so it is a top-level setting.)
+logpush = false
+
+[[durable_objects.bindings]]
+name = "LINKS"
+class_name = "LinkRelay"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LinkRelay"]
+
+[vars]
+# OAuth callbacks Grok may use (https only; subdomains included).
+ALLOWED_REDIRECT_HOSTS = "grok.com,x.ai"
+
+[observability]
+enabled = false

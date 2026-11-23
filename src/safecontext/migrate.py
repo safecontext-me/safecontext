@@ -9,12 +9,16 @@ Three kinds of state had the old name in it:
   `--data-dir …/MyContext` working, as well as anything still running the old
   code. `cli.main` calls it on every start; it is cheap and idempotent.
 
-* Keychain entries ("MyContext Gmail" per account, "MyContext xAI"). These are
+* Keychain entries ("MyContext Gmail" per account). These are
   copied lazily: `keychain_get` reads the new service and, if it is empty,
   falls back to the old one and copies the secret across. The Gmail token is
   per account and only the mail database knows the account, so doing it at read
   time covers every data directory. The old entry is kept so an older checkout
   still works; disconnecting removes both.
+
+* The xAI API key that the removed Ask feature kept in the Keychain ("SafeContext
+  xAI" / "MyContext xAI"). `remove_ask_leftovers` deletes it once per data folder;
+  SafeContext now works inside Grok itself through the relay (see grok_link.py).
 
 * Environment variables. `getenv("OAUTH_CLIENT")` reads SAFECONTEXT_OAUTH_CLIENT
   and falls back to MYCONTEXT_OAUTH_CLIENT.
@@ -119,3 +123,25 @@ def keychain_delete(service: str, user: str, legacy_service: Optional[str]) -> N
             keyring.delete_password(svc, user)
         except keyring.errors.KeyringError:  # includes "not found"
             pass
+
+
+XAI_KEY_ITEMS = (("SafeContext xAI", "api_key"), ("MyContext xAI", "api_key"))
+_ASK_CLEANED = "ask_removed"
+
+
+def remove_ask_leftovers(store) -> bool:
+    """Delete the xAI API key and model setting left by the removed Ask feature.
+
+    Runs once per data folder (recorded in the store), so a locked Keychain or a
+    user who declines a Keychain prompt is never asked again. Never raises.
+    Returns True if it ran this time."""
+    if store.get_meta(_ASK_CLEANED):
+        return False
+    for service, user in XAI_KEY_ITEMS:
+        try:
+            keyring.delete_password(service, user)
+        except Exception:  # not found, locked, or no Keychain at all
+            pass
+    store.set_meta("grok_model", None)
+    store.set_meta(_ASK_CLEANED, "1")
+    return True

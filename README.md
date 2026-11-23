@@ -4,9 +4,9 @@ A private context layer for AI. SafeContext syncs your Gmail and Google Calendar
 Mac, scrubs them locally, and only then lets an AI read them. iMessage, WhatsApp and call
 recordings are next.
 
-It ships as a command-line tool (`safecontext`), a Mac app (pywebview), an MCP server
-for other AI clients, and an `ask`/`chat` command that answers questions about your
-mail with an xAI Grok model.
+It ships as a command-line tool (`safecontext`), a Mac app (pywebview), a local MCP server
+for AI apps on your Mac, and **Use in Grok**: a one-switch connector that lets Grok (grok.com
+and the Grok apps) search your scrubbed data through a live relay while the app is open.
 
 ## Privacy model
 
@@ -43,10 +43,11 @@ not a guarantee, so review the output (see the demo section) before trusting it 
 **What leaves the Mac:**
 
 - Gmail and Google Calendar API traffic to sync, and Google's OAuth sign-in.
-- With `ask`/`chat` or the app's Ask view: your question, the conversation so far, and the
-  results of the search/read tools Grok calls (scrubbed text only), sent to xAI's API with
-  `store=False`.
-- The MCP server sends nothing itself; the client you connect decides what it does with the results.
+- With **Use in Grok** on: the results of the search/read tools Grok calls (scrubbed text only),
+  answered on your Mac and passed through SafeContext's relay (`relay.safecontext.me`) to Grok.
+  The relay doesn't store or log them. From there xAI's own privacy policy applies. Turn the
+  switch off and nothing more is sent; **Regenerate link** revokes Grok's access entirely.
+- The local MCP server sends nothing itself; the client you connect decides what it does with the results.
 
 Demo mode (below) makes no network calls.
 
@@ -93,15 +94,10 @@ subcommand and defaults to `~/Library/Application Support/SafeContext`.
 | `status` | Print account, sync mode, auth state, counts and whether a sync is running (JSON). |
 | `search QUERY [--source ID] [--from SENDER] [--after DATE] [--before DATE] [--limit N]` | Full-text search of the scrubbed store (default limit 10). |
 | `disconnect [--source gmail\|gcal] [--wipe]` | Forget the source's token (revoking the Google grant once no other Google source uses it); `--wipe` also deletes that source's local data. |
-| `set-xai-key` | Prompt for an xAI API key and save it to the Keychain. |
-| `ask QUESTION [--model ID]` | Ask Grok a question about your mail. |
-| `chat [--model ID]` | Interactive version of `ask`. |
-| `mcp` | Run the MCP server on stdio. |
+| `mcp` | Run the MCP server on stdio (for local AI apps). |
 | `app [--demo] [--debug]` | Open the Mac app window. |
 
 Running `safecontext` with no arguments opens the app (this is how the packaged `.app` launches).
-`ask`/`chat` use model `grok-4.7` by default, overridable with `--model` or `SAFECONTEXT_GROK_MODEL`.
-The xAI key comes from the `XAI_API_KEY` environment variable or the Keychain.
 
 Typical first run:
 
@@ -125,8 +121,8 @@ safecontext app --debug    # with the web inspector
 ```
 
 The window lets you connect Gmail, watch sync progress (including syncs started from the CLI),
-search and read mail, see a privacy report of what was kept, dropped and redacted, ask Grok,
-set the xAI key, and copy the MCP config. It auto-syncs periodically while open.
+search and read mail, see a privacy report of what was kept, dropped and redacted, turn on
+Use in Grok, and copy the local MCP config. It auto-syncs periodically while open.
 For a signed, double-clickable build, see [packaging/README.md](packaging/README.md).
 
 ## Demo / synthetic mode
@@ -136,9 +132,10 @@ safecontext app --demo
 ```
 
 Opens the app on a synthetic mailbox served by an in-memory fake Gmail, with a local stand-in
-for Grok. It needs no Google client, Gmail account or xAI key, makes no network calls, and uses
-a temporary data directory unless you pass `--data-dir`. All values are fake (test card numbers,
-documented example keys, `example.*` domains). Demo "Ask" answers are generated locally, not by Grok.
+for the Grok relay (turning on Use in Grok walks through a pretend approval and two searches).
+It needs no Google client or Gmail account, makes no network calls, never opens a browser or
+touches the clipboard or Keychain, and uses a temporary data directory unless you pass
+`--data-dir`. All values are fake (test card numbers, documented example keys, `example.*` domains).
 
 To see exactly what the scrubber does to that synthetic mailbox:
 
@@ -146,7 +143,33 @@ To see exactly what the scrubber does to that synthetic mailbox:
 .venv/bin/python scripts/scrub_report.py   # writes scrub_report.md (git-ignored)
 ```
 
-## MCP server
+## Use in Grok
+
+Grok's custom connectors call a remote MCP server from xAI's cloud, so they can't reach your Mac
+directly. When you turn on **Use in Grok**, the app opens an outbound WebSocket to SafeContext's
+relay ([relay/](relay/README.md), a Cloudflare Worker) and gives you a private connector link:
+
+```
+https://relay.safecontext.me/g/<256-bit random id>/mcp
+```
+
+1. The link is copied and grok.com/connectors opens. Click **New connector → Custom**, paste, add.
+2. Grok signs in with OAuth (authorization code + PKCE). Its sign-in page shows a 4-digit code and
+   SafeContext asks you to **Approve**; check the numbers match.
+3. Done. Grok calls `search`, `read`, `list_items` and `list_sources`; the relay passes each request
+   down the socket, the app answers from the scrubbed store, and the answer goes back the same way.
+
+It works only while your Mac is awake and SafeContext is open; otherwise Grok gets "SafeContext isn't
+running on your Mac". The card shows live status (Off / Waiting for Grok / Grok connected · last used),
+a list of what Grok asked for (time, request, number of results; never the results), an optional
+**Keep Mac awake while plugged in** (`caffeinate -s`), and **Regenerate link**, which revokes every
+sign-in Grok holds and makes a new link. If Grok's form asks for OAuth details or can't sign in,
+**Trouble connecting?** has the Client ID and endpoints, and a link-only mode.
+
+The relay is a pipe, not a copy: it stores no request or response content and logs nothing.
+Set `SAFECONTEXT_RELAY_URL` to point the app at another relay (for example `wrangler dev`).
+
+## Local MCP server
 
 `safecontext mcp` serves read-only tools over stdio (newline-delimited JSON-RPC, no extra
 dependencies): `search`, `read`, `list_items` and `list_sources`, across every connected source with an
@@ -175,7 +198,7 @@ and Python path; prefer copying that. Run `connect` and `sync` first so there is
 | --- | --- |
 | Scrubbed mail, sync state | `~/Library/Application Support/SafeContext/mail.db` (SQLite + FTS5). Override with `--data-dir`. Directory is `0700`, files `0600`, and `secure_delete` is on. |
 | Gmail OAuth token | macOS Keychain via `keyring`, service `SafeContext Gmail`, one entry per account. Never a plain file. |
-| xAI API key | macOS Keychain, service `SafeContext xAI`, or the `XAI_API_KEY` environment variable. |
+| Grok link | macOS Keychain, service `SafeContext Grok`: the link id and this Mac's relay secret. Grok's activity list is `grok_activity.json` in the data folder (`0600`). |
 | OAuth client file | `src/safecontext/oauth_client.json` or `$SAFECONTEXT_OAUTH_CLIENT`. Not committed. |
 
 `disconnect` removes the token and revokes the grant at Google; `disconnect --wipe` also deletes the local mail.
@@ -188,10 +211,12 @@ This app used to be called MyContext. On first start under the new name it carri
   there is one copy of your mail) and a symlink is left at the old path, so configs that pass
   `--data-dir …/MyContext` keep working. If both folders already hold data, neither is touched and a
   warning is printed; merge them by hand.
-- The Gmail token and xAI key are copied from the `MyContext Gmail` / `MyContext xAI` Keychain items
-  the first time they're needed. The old items stay until you `disconnect` or clear the key, which
-  removes both.
-- `MYCONTEXT_OAUTH_CLIENT`, `MYCONTEXT_GROK_MODEL` and `MYCONTEXT_GMAIL_UNITS_PER_SEC` still work
+- The Gmail token is copied from the `MyContext Gmail` Keychain item the first time it's needed.
+  The old item stays until you `disconnect`, which removes both.
+- The app used to have an Ask view that sent questions to xAI's API with your own xAI key. It's
+  gone (use Grok itself, through Use in Grok); on first start the app deletes any saved xAI key
+  (`SafeContext xAI` / `MyContext xAI` in the Keychain).
+- `MYCONTEXT_OAUTH_CLIENT` and `MYCONTEXT_GMAIL_UNITS_PER_SEC` still work
   if the `SAFECONTEXT_` name isn't set.
 - `mycontext` and `python -m mycontext` still work but are deprecated: they print a notice to
   stderr and run `safecontext`. Update MCP client configs to `-m safecontext` (or copy the new
@@ -203,7 +228,8 @@ This app used to be called MyContext. On first start under the new name it carri
 .venv/bin/pytest
 ```
 
-The suite uses fakes for Gmail and xAI, so it needs no credentials or network. It includes
+The suite uses fakes for Gmail and Google Calendar and a local stand-in for the Grok relay, so it
+needs no credentials or network. The relay has its own tests (`cd relay && npm test`). It includes
 leak tests that check synthetic secrets never reach the store.
 
 ## Packaging

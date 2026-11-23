@@ -2,6 +2,7 @@
 
 There is no HTTP server: the window talks to Python over pywebview's
 in-process bridge, so no other program on the Mac can query your mail.
+Use in Grok (grok_link.py) only ever makes an outbound connection.
 
 Every public method returns a JSON-friendly dict and never raises; errors
 come back as {"ok": False, "error": "..."} for the UI to show.
@@ -14,11 +15,13 @@ import logging
 import os
 import sys
 import threading
+import subprocess
 import webbrowser
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from .. import auth, grok
+from .. import auth, migrate
+from ..grok_link import GROK_CONNECTORS_URL, GrokLink
 from ..sources import Sources, default_sources
 from ..store import DEFAULT_DATA_DIR, GMAIL, Store
 from ..sync import SyncResult, read_heartbeat
@@ -64,7 +67,7 @@ def _safe(fn: Callable) -> Callable:
             return {"ok": True, **(out or {})}
         except auth.NeedsReconnect as e:
             return {"ok": False, "error": e.message, "needs_reconnect": True}
-        except (auth.NotConfigured, grok.GrokError) as e:
+        except auth.NotConfigured as e:
             return {"ok": False, "error": str(e)}
         except Exception as e:  # never leak a traceback (or mail content) into the UI
             log.exception("app call failed: %s", fn.__name__)
@@ -84,7 +87,7 @@ class Backend:
                  connect_fn: Optional[Callable[[str, Optional[str]], str]] = None,
                  calendar_factory: Optional[Callable[[str], Any]] = None,
                  calendar_connect_fn: Optional[Callable[[Optional[str]], str]] = None,
-                 grok_client_factory: Optional[Callable[[], Any]] = None,
+                 grok_link: Optional[Callable[[Store, Path], GrokLink]] = None,
                  auto_sync: bool = True) -> None:
         self._demo = demo
         self._data_dir = Path(data_dir or DEFAULT_DATA_DIR)
@@ -95,8 +98,9 @@ class Backend:
             gmail_connect=lambda mode, email: (self._connect_fn or _real_gmail_connect)(mode, email),
             calendar_factory=calendar_factory, calendar_connect=calendar_connect_fn,
             revoke_fn=_NOOP_REVOKE if demo else None)
-        self._grok_client_factory = grok_client_factory
-        self._agent: Optional[grok.GrokMailAgent] = None
+        if not demo:
+            migrate.remove_ask_leftovers(self._store)  # the old Ask feature's xAI key, once
+        self._grok = (grok_link or GrokLink)(self._store, self._data_dir)
         self._threads: Dict[str, threading.Thread] = {}
         self._sync_lock = threading.Lock()
         self._progress: Dict[str, SyncResult] = {}
@@ -104,6 +108,7 @@ class Backend:
         self._stop = threading.Event()
         if auto_sync:
             threading.Thread(target=self._auto_sync_loop, daemon=True, name="auto-sync").start()
+            self._grok.start()  # reconnect to the relay if Grok was left on
 
     # --- status ------------------------------------------------------------
     @_safe
@@ -142,8 +147,6 @@ class Backend:
             "sources": sources,
             "any_connected": any(x["account"] for x in sources if x["available"]),
             "total_items": s.counts()[0],
-            "has_xai_key": bool(self._grok_client_factory) or bool(grok.get_api_key()),
-            "model": s.get_meta("grok_model") or grok.DEFAULT_MODEL,
             "data_dir": str(self._data_dir),
         }
 
@@ -189,7 +192,6 @@ class Backend:
                 t.join(timeout=30)
         self._sources.disconnect(source_id, wipe=bool(wipe))
         self._last_result.pop(source_id, None)
-        self._agent = None
         return {"wiped": bool(wipe)}
 
     # --- Gmail (the v1 calls the onboarding screen and Settings use) -----------
@@ -310,44 +312,72 @@ class Backend:
                 "dropped": dict(sorted(dropped.items(), key=lambda kv: -kv[1])), "redacted": redacted,
                 "by_source": by_source}
 
-    # --- Grok ----------------------------------------------------------------------
+    # --- Use in Grok ---------------------------------------------------------------
     @_safe
-    def ask(self, question: str) -> Dict[str, Any]:
-        if not question or not question.strip():
-            return {"ok": False, "error": "Type a question first."}
-        if self._agent is None:
-            client = self._grok_client_factory() if self._grok_client_factory else grok.make_client()
-            self._agent = grok.GrokMailAgent(self._store, client=client,
-                                             model=self._store.get_meta("grok_model") or None)
-        ans = self._agent.ask(question.strip())
-        return {"text": ans.text, "sources": ans.sources, "tool_calls": ans.tool_calls}
+    def grok_status(self) -> Dict[str, Any]:
+        return self._grok.status()
 
     @_safe
-    def new_chat(self) -> Dict[str, Any]:
-        self._agent = None
+    def grok_enable(self) -> Dict[str, Any]:
+        """Turn on: connect to the relay, copy the connector link, open Grok's connectors page."""
+        url = self._grok.enable()
+        return {"url": url, "copied": self._copy(url), **self._grok.status()}
+
+    @_safe
+    def grok_disable(self) -> Dict[str, Any]:
+        self._grok.disable()
+        return self._grok.status()
+
+    @_safe
+    def grok_regenerate(self) -> Dict[str, Any]:
+        url = self._grok.regenerate()
+        return {"url": url, "copied": self._copy(url), **self._grok.status()}
+
+    @_safe
+    def grok_copy_link(self) -> Dict[str, Any]:
+        url = self._grok.connector_url()
+        if not url or not self._grok.enabled:
+            return {"ok": False, "error": "Turn on Use in Grok first."}
+        return {"url": url, "copied": self._copy(url)}
+
+    @_safe
+    def grok_approve(self, approval_id: str, ok: bool = True) -> Dict[str, Any]:
+        if not self._grok.approve(str(approval_id), bool(ok)):
+            return {"ok": False, "error": "That request expired. Try connecting again in Grok."}
         return {}
 
     @_safe
-    def set_xai_key(self, key: str) -> Dict[str, Any]:
-        key = (key or "").strip()
-        if not key.startswith("xai-") or len(key) < 20:
-            return {"ok": False, "error": "That doesn't look like an xAI API key (they start with “xai-”)."}
-        grok.set_api_key(key)
-        self._agent = None
+    def grok_set_keep_awake(self, on: bool) -> Dict[str, Any]:
+        self._grok.set_keep_awake(bool(on))
+        return self._grok.status()
+
+    @_safe
+    def grok_set_link_only(self, on: bool) -> Dict[str, Any]:
+        self._grok.set_link_only(bool(on))
+        return self._grok.status()
+
+    @_safe
+    def grok_clear_activity(self) -> Dict[str, Any]:
+        self._grok.activity.clear()
         return {}
 
     @_safe
-    def clear_xai_key(self) -> Dict[str, Any]:
-        grok.clear_api_key()
-        self._agent = None
-        return {}
+    def open_grok_connectors(self) -> Dict[str, Any]:
+        if self._demo:
+            return {"opened": False}  # demo mode never touches the network
+        webbrowser.open(GROK_CONNECTORS_URL)
+        return {"opened": True}
 
-    @_safe
-    def set_model(self, model: str) -> Dict[str, Any]:
-        model = (model or "").strip()
-        self._store.set_meta("grok_model", model or None)
-        self._agent = None
-        return {"model": model or grok.DEFAULT_MODEL}
+    def _copy(self, text: str) -> bool:
+        """The system clipboard via pbcopy (WebKit's clipboard API needs a fresh click).
+        Demo mode leaves the clipboard alone; the window copies it itself."""
+        if self._demo or not text:
+            return False
+        try:
+            subprocess.run(["/usr/bin/pbcopy"], input=text.encode(), check=True, timeout=5)
+            return True
+        except (OSError, subprocess.SubprocessError):
+            return False
 
     # --- MCP -------------------------------------------------------------------------
     @_safe
@@ -365,6 +395,7 @@ class Backend:
 
     def _shutdown(self) -> None:
         self._stop.set()
+        self._grok.shutdown()
 
 
 

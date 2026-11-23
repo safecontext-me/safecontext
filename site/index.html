@@ -23,7 +23,7 @@
 
 <h2>What SafeContext does</h2>
 <p>SafeContext downloads your Gmail to your own Mac, removes sensitive information from it there, and saves a searchable copy
-on your computer. You can then ask questions about your email, for example “when is my flight to Denver?” or
+on your computer. Turn on <b>Use in Grok</b> and you can ask Grok about your email, for example “when is my flight to Denver?” or
 “what did the landlord say about the lease?”, and get answers that cite the messages they came from.</p>
 
 <h2>Why it needs access to your Gmail</h2>
@@ -36,9 +36,10 @@ on your computer. You can then ask questions about your email, for example “wh
 
 <h2>How your data is protected</h2>
 <ul>
-  <li><b>Stays on your Mac.</b> There is no SafeContext server. The developer never receives, stores or sees your email.</li>
+  <li><b>Stays on your Mac.</b> Your scrubbed copy lives only on your computer. The developer never stores or keeps your email.</li>
   <li><b>Scrubbed before it's saved.</b> Verification codes, passwords, card and account numbers, API keys, addresses and similar details are removed. Security, banking, tax and health email is skipped entirely.</li>
-  <li><b>You choose what AI sees.</b> Nothing is sent to an AI service unless you ask a question or connect an AI app yourself, and then only scrubbed messages are shared.</li>
+  <li><b>You choose what AI sees.</b> Nothing is sent to an AI service until you turn on Use in Grok or connect an AI app yourself, and then only scrubbed results for its searches are shared.</li>
+  <li><b>Grok, without a cloud copy.</b> Grok's searches reach your Mac through SafeContext's relay, which passes scrubbed results through without storing or logging them. It works only while your Mac is awake and SafeContext is open; switch it off, or regenerate the link, to cut Grok off.</li>
   <li><b>No ads, no selling, no AI training.</b> Your Google data is never used for advertising, never sold, and never used to train AI models.</li>
   <li><b>Disconnect any time.</b> One click in Settings deletes the local copy and revokes SafeContext's access to your Google account.</li>
 </ul>

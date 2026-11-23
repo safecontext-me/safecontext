@@ -47,8 +47,9 @@ should print `arm64`.
 ## Before you ship
 
 - Run the full test suite under 3.12: `.venv312/bin/pip install -e '.[dev]' && .venv312/bin/pytest`.
-- Do one real sync with your own Gmail account, plus one `ask`, to confirm
-  the live Gmail and xAI APIs behave the way the fakes do.
+- Do one real sync with your own Gmail account, then turn on Use in Grok and run
+  one search from grok.com, to confirm the live Gmail API and the relay behave the
+  way the fakes do (deploy the relay first: see relay/README.md).
 - The MCP config shown in Settings points at the Python that runs the app.
   In the bundled app that's the bundled runtime, so check the path shown there.
 

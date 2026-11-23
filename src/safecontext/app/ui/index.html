@@ -18,11 +18,11 @@
 <section id="onboarding" class="onboarding" hidden>
   <div class="card onboard-card">
     <div class="brand-lg"><span class="logo" aria-hidden="true"></span> SafeContext <span class="muted brand-sub">· your private context layer</span></div>
-    <h1>Ask Grok about your email, with the sensitive parts removed first.</h1>
+    <h1>Use your email and calendar in Grok, with the sensitive parts removed first.</h1>
     <ul class="points">
-      <li><b>Stays on this Mac.</b> Your mail is downloaded and stored here. There is no SafeContext server; nothing is uploaded except what you ask an AI about.</li>
+      <li><b>Stays on this Mac.</b> Your mail is downloaded and stored here, never uploaded to SafeContext.</li>
       <li><b>Scrubbed before it's saved.</b> 2FA codes, passwords, card and account numbers, API keys, addresses and more are removed. Security, banking, tax and health email is skipped entirely.</li>
-      <li><b>You decide what Grok sees.</b> Only the scrubbed messages Grok searches for are sent to xAI, and only when you ask a question.</li>
+      <li><b>You decide what Grok sees.</b> Turn on <b>Use in Grok</b> and Grok can search your scrubbed data, only while SafeContext is open. Nothing is sent until you do.</li>
     </ul>
     <fieldset class="modes">
       <legend>What to download</legend>
@@ -61,7 +61,6 @@
     </div>
     <nav class="nav">
       <button data-view="search" class="active">Search</button>
-      <button data-view="ask">Ask Grok</button>
       <button data-view="sources">Sources</button>
       <button data-view="removed">What was removed</button>
       <button data-view="settings">Settings</button>
@@ -74,8 +73,71 @@
       <button class="btn small primary" id="reconnect">Reconnect Gmail</button>
     </div>
 
-    <!-- Search -->
+    <!-- Search (home) -->
     <section id="view-search" class="view">
+      <!-- Use in Grok -->
+      <div class="card grok-card" id="grok-card">
+        <div class="grok-row">
+          <div class="grok-logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 18 18 4M9 4h9v9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="grok-main">
+            <div class="grok-title">Use in Grok</div>
+            <div class="grok-status"><span class="dot" id="grok-dot"></span><span id="grok-status-text">Off</span></div>
+          </div>
+          <div class="grok-actions" id="grok-actions" hidden>
+            <button class="btn small" id="grok-copy">Copy link</button>
+            <button class="btn small" id="grok-open">Open Grok connectors</button>
+          </div>
+          <label class="switch" title="Use in Grok">
+            <input type="checkbox" id="grok-toggle" role="switch" aria-label="Use in Grok">
+            <span class="slider" aria-hidden="true"></span>
+          </label>
+        </div>
+
+        <p class="grok-pitch" id="grok-pitch">Ask Grok about your mail and calendar. Grok searches your scrubbed copy on this Mac, read-only.</p>
+
+        <ol class="steps" id="grok-steps" hidden>
+          <li>
+            <svg viewBox="0 0 120 72" aria-hidden="true"><rect x="2" y="2" width="116" height="68" rx="8" class="ill-frame"/><rect x="12" y="14" width="44" height="6" rx="3" class="ill-line"/><rect x="12" y="28" width="96" height="10" rx="5" class="ill-soft"/><rect x="62" y="48" width="46" height="14" rx="7" class="ill-accent"/><text x="85" y="58.5" text-anchor="middle" class="ill-btn-text">+ Custom</text></svg>
+            <b>1. Add custom connector</b>
+            <span>On grok.com/connectors, click <b>New connector</b>, then <b>Custom</b>.</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 120 72" aria-hidden="true"><rect x="2" y="2" width="116" height="68" rx="8" class="ill-frame"/><rect x="12" y="24" width="96" height="16" rx="5" class="ill-field"/><rect x="18" y="30" width="58" height="4" rx="2" class="ill-accent"/><rect x="40" y="50" width="40" height="12" rx="6" class="ill-soft"/><text x="60" y="58.5" text-anchor="middle" class="ill-key">⌘V</text></svg>
+            <b>2. Paste</b>
+            <span>Your link is already copied. Paste it as the server URL and add it.</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 120 72" aria-hidden="true"><rect x="2" y="2" width="116" height="68" rx="8" class="ill-frame"/><circle cx="60" cy="32" r="14" class="ill-ok"/><path d="m53 32 5 5 9-10" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><rect x="38" y="52" width="44" height="10" rx="5" class="ill-soft"/></svg>
+            <b>3. Done</b>
+            <span>Click <b>Approve</b> here when SafeContext asks. Then just ask Grok.</span>
+          </li>
+        </ol>
+
+        <div class="grok-on" id="grok-on" hidden>
+          <div class="grok-link-row">
+            <code id="grok-url" class="grok-url"></code>
+          </div>
+          <div class="grok-opts">
+            <label class="check"><input type="checkbox" id="grok-awake"> Keep Mac awake while plugged in</label>
+            <button class="linkish" id="grok-regen">Regenerate link</button>
+            <button class="linkish" id="grok-activity-btn">Activity</button>
+            <button class="linkish" id="grok-help-btn">Trouble connecting?</button>
+          </div>
+          <div class="grok-activity" id="grok-activity" hidden>
+            <div class="grok-sub-head"><span>What Grok asked for</span><button class="linkish" id="grok-clear">Clear</button></div>
+            <ul id="grok-activity-list"></ul>
+            <p class="hint">Only the time, the request and how many results are kept here. The results themselves aren't saved.</p>
+          </div>
+          <div class="grok-help" id="grok-help" hidden>
+            <p>If Grok asks for OAuth details, use Client ID <code>grok</code>, leave the secret blank, and these endpoints:</p>
+            <dl class="kv"><dt>Authorization</dt><dd><code id="grok-auth-url"></code></dd><dt>Token</dt><dd><code id="grok-token-url"></code></dd></dl>
+            <label class="check"><input type="checkbox" id="grok-link-only"> Let Grok connect with just the link (no Approve step). Anyone with the link can then search your scrubbed data, so keep it private.</label>
+          </div>
+        </div>
+        <p class="grok-note">Works while your Mac is awake and SafeContext is open.</p>
+      </div>
       <form class="toolbar" id="search-form" autocomplete="off">
         <input id="q" type="search" placeholder="Search your scrubbed mail and calendar" aria-label="Search">
         <select id="f-source" aria-label="Source"><option value="">All sources</option></select>
@@ -90,37 +152,10 @@
       </div>
     </section>
 
-    <!-- Ask Grok -->
-    <section id="view-ask" class="view" hidden>
-      <div class="ask-head">
-        <div>
-          <h2>Ask Grok</h2>
-          <p class="muted">Grok searches your scrubbed mail and calendar. Your question and the items it finds are sent to xAI; nothing else is.</p>
-        </div>
-        <button class="btn small" id="new-chat">New chat</button>
-      </div>
-      <div id="no-key" class="card notice" hidden>
-        <b>Add your xAI API key to use Grok.</b> <span class="muted">It's stored in your Mac's Keychain.</span>
-        <button class="btn small" data-goto="settings">Open Settings</button>
-      </div>
-      <div class="transcript" id="transcript">
-        <div class="suggestions" id="suggestions">
-          <button class="chip-btn">What's on my calendar next week?</button>
-          <button class="chip-btn">What plans do I have this weekend?</button>
-          <button class="chip-btn">Summarize what Taylor sent me recently</button>
-          <button class="chip-btn">Who asked me to pay them back?</button>
-        </div>
-      </div>
-      <form class="composer" id="ask-form">
-        <textarea id="ask-input" rows="2" placeholder="Ask about your email and calendar…"></textarea>
-        <button class="btn primary" type="submit" id="ask-send">Ask</button>
-      </form>
-    </section>
-
     <!-- Sources -->
     <section id="view-sources" class="view" hidden>
       <h2>Sources</h2>
-      <p class="muted">Each source is copied to this Mac and scrubbed before it's saved. Nothing leaves your Mac unless you ask an AI a question.</p>
+      <p class="muted">Each source is copied to this Mac and scrubbed before it's saved. Nothing leaves your Mac unless you turn on Use in Grok or connect another AI app.</p>
       <div class="source-grid" id="source-grid"></div>
     </section>
 
@@ -155,23 +190,8 @@
         <p class="hint">Google Calendar and other sources are on the <a href="#" data-goto="sources">Sources</a> screen.</p>
       </div>
       <div class="card setting">
-        <h3>Grok (xAI)</h3>
-        <div class="row"><span class="muted">API key</span><span id="s-key">—</span></div>
-        <form class="inline" id="key-form" autocomplete="off">
-          <input id="key-input" type="password" placeholder="xai-…" aria-label="xAI API key">
-          <button class="btn" type="submit">Save key</button>
-          <button class="btn" type="button" id="key-clear">Remove</button>
-        </form>
-        <form class="inline" id="model-form" autocomplete="off">
-          <label class="muted" for="model-input">Model</label>
-          <input id="model-input" placeholder="grok-4.7">
-          <button class="btn" type="submit">Save</button>
-        </form>
-        <p class="error" id="key-error" hidden></p>
-      </div>
-      <div class="card setting">
-        <h3>Use from other AI apps (MCP)</h3>
-        <p class="muted">Add this to an MCP client's config to give it the same read-only, scrubbed search tools.</p>
+        <h3>Use from AI apps on this Mac (MCP)</h3>
+        <p class="muted">Add this to a local MCP client's config (Claude Desktop, for example) to give it the same read-only, scrubbed search tools. For Grok, use the Use in Grok card on the Search screen.</p>
         <pre id="mcp-json" class="code"></pre>
         <button class="btn small" id="mcp-copy">Copy</button>
       </div>
@@ -187,6 +207,19 @@
       <button class="btn danger" value="ok" id="confirm-ok">Delete</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="grok-approve" class="approve">
+  <div class="approve-body">
+    <h2>Grok wants to connect</h2>
+    <p class="muted"><span id="ga-client">Grok</span> is asking for read-only access to your scrubbed mail and calendar.</p>
+    <p class="approve-code" id="ga-code"></p>
+    <p class="hint">Check that the page in your browser shows the same number.</p>
+    <div class="actions">
+      <button class="btn" id="ga-deny">Deny</button>
+      <button class="btn primary" id="ga-ok">Approve</button>
+    </div>
+  </div>
 </dialog>
 
 <div id="toast" class="toast" hidden></div>

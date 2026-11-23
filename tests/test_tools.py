@@ -2,7 +2,7 @@ import pytest
 
 from safecontext.scrub import scrub
 from safecontext.store import Store
-from safecontext.tools import MAX_BODY_CHARS, MAX_THREAD_MESSAGES, TOOLS, citations, run_tool
+from safecontext.tools import MAX_BODY_CHARS, MAX_THREAD_MESSAGES, TOOLS, run_tool
 from safecontext.demo.synthetic import mailbox, msg
 
 
@@ -89,10 +89,3 @@ def test_syncing_notice(store):
     store.set_state("gmail", "history_id", None)
     store.set_state("gmail", "account", "alex@example.org")
     assert "still running" in run_tool(store, "list_messages", {})["notice"]
-
-
-def test_citations_helper(store):
-    r = run_tool(store, "read_thread", {"thread_id": "t0001"})
-    (c,) = citations(r)
-    assert {"date", "sender", "subject", "gmail_link", "link", "source"} <= set(c)
-    assert c["source"] == "gmail" and c["link"] == c["gmail_link"]

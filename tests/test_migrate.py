@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from safecontext import auth, grok, migrate, store as store_mod
+from safecontext import auth, migrate, store as store_mod
 from safecontext.cli import main
 from safecontext.store import Store
 
@@ -160,14 +160,31 @@ def test_forgetting_a_token_removes_both_names(fake_keyring):
     assert fake_keyring.items == {}
 
 
-def test_xai_key_is_copied_and_cleared(fake_keyring, monkeypatch):
-    monkeypatch.delenv(grok.KEY_ENV, raising=False)
+def test_leftover_xai_key_is_deleted_once(fake_keyring, tmp_path):
+    """Ask (which sent questions to xAI's API) was removed; its saved key goes on first run."""
+    from safecontext.store import Store
+    fake_keyring.items[("SafeContext xAI", "api_key")] = "xai-new-key-0123456789"
     fake_keyring.items[("MyContext xAI", "api_key")] = "xai-old-key-0123456789"
-    assert grok.get_api_key() == "xai-old-key-0123456789"
-    assert fake_keyring.items[("SafeContext xAI", "api_key")] == "xai-old-key-0123456789"
-    grok.clear_api_key()
-    assert fake_keyring.items == {}
-    assert grok.get_api_key() is None
+    fake_keyring.items[("SafeContext Gmail", "a@example.org")] = "token"
+    store = Store(tmp_path / "mail.db")
+    store.set_meta("grok_model", "grok-x")
+    assert migrate.remove_ask_leftovers(store) is True
+    assert fake_keyring.items == {("SafeContext Gmail", "a@example.org"): "token"}  # Gmail untouched
+    assert store.get_meta("grok_model") is None
+    fake_keyring.items[("SafeContext xAI", "api_key")] = "xai-again-0123456789"
+    assert migrate.remove_ask_leftovers(store) is False   # only once per data folder
+    assert ("SafeContext xAI", "api_key") in fake_keyring.items
+
+
+def test_leftover_cleanup_survives_a_locked_keychain(fake_keyring, tmp_path, monkeypatch):
+    import keyring.errors
+    from safecontext.store import Store
+
+    def boom(*a):
+        raise keyring.errors.KeyringError("locked")
+    monkeypatch.setattr(migrate.keyring, "delete_password", boom)
+    store = Store(tmp_path / "mail.db")
+    assert migrate.remove_ask_leftovers(store) is True  # never raises
 
 
 def test_no_old_secret_means_none(fake_keyring):
@@ -178,11 +195,11 @@ def test_no_old_secret_means_none(fake_keyring):
 # --- environment and the old command -------------------------------------------------
 
 def test_old_environment_variables_still_work(monkeypatch):
-    monkeypatch.delenv("SAFECONTEXT_GROK_MODEL", raising=False)
-    monkeypatch.setenv("MYCONTEXT_GROK_MODEL", "grok-old")
-    assert migrate.getenv("GROK_MODEL") == "grok-old"
-    monkeypatch.setenv("SAFECONTEXT_GROK_MODEL", "grok-new")
-    assert migrate.getenv("GROK_MODEL") == "grok-new"
+    monkeypatch.delenv("SAFECONTEXT_OAUTH_CLIENT", raising=False)
+    monkeypatch.setenv("MYCONTEXT_OAUTH_CLIENT", "old")
+    assert migrate.getenv("OAUTH_CLIENT") == "old"
+    monkeypatch.setenv("SAFECONTEXT_OAUTH_CLIENT", "new")
+    assert migrate.getenv("OAUTH_CLIENT") == "new"
 
 
 def test_python_dash_m_mycontext_still_serves_mcp(tmp_path):

@@ -162,27 +162,63 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .atts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .att { font-size: 12px; border: 1px dashed var(--line); border-radius: 6px; padding: 3px 8px; color: var(--muted); }
 
-/* ---------- ask ---------- */
-#view-ask { display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
-.ask-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.ask-head p { margin: 0; max-width: 640px; }
-.notice { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 14px; }
-.transcript { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 4px 2px; }
-.bubble { max-width: 760px; padding: 12px 14px; border-radius: 12px; white-space: pre-wrap; word-wrap: break-word; }
-.bubble.user { align-self: flex-end; background: var(--accent); color: var(--accent-ink); }
-.bubble.bot { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); }
-.bubble.err { border-color: var(--danger); color: var(--danger); }
-.bubble a { color: var(--accent); cursor: pointer; }
-.thinking { color: var(--muted); font-style: italic; }
-.sources { display: grid; gap: 6px; margin-top: 10px; white-space: normal; }
-.source { display: flex; justify-content: space-between; gap: 10px; align-items: center; font-size: 12.5px;
-          border-top: 1px solid var(--line); padding-top: 6px; }
-.suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin: auto 0 0; }
-.chip-btn { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--panel);
-            color: var(--text); padding: 6px 12px; border-radius: 99px; cursor: pointer; }
-.chip-btn:hover { border-color: var(--accent); }
-.composer { display: flex; gap: 8px; align-items: flex-end; }
-.composer textarea { flex: 1; resize: none; }
+/* ---------- use in grok ---------- */
+.grok-card { padding: 14px 16px; flex: none; }
+.grok-card.is-on { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.grok-row { display: flex; align-items: center; gap: 12px; }
+.grok-logo { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; flex: none;
+  background: var(--text); color: var(--bg); }
+.grok-main { flex: 1; min-width: 0; }
+.grok-title { font-weight: 650; font-size: 15px; }
+.grok-status { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; }
+.dot.off { background: var(--line); }
+.dot.on { background: var(--ok); }
+.grok-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.grok-pitch { margin: 8px 0 0 50px; color: var(--muted); }
+.grok-note { margin: 10px 0 0 50px; color: var(--muted); font-size: 12.5px; }
+.switch { position: relative; width: 52px; height: 30px; flex: none; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.slider { position: absolute; inset: 0; border-radius: 99px; background: var(--line); transition: background .15s; }
+.slider::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s; }
+.switch input:checked + .slider { background: var(--ok); }
+.switch input:checked + .slider::after { transform: translateX(22px); }
+.switch input:focus-visible + .slider { outline: 2px solid var(--accent); outline-offset: 2px; }
+.steps { list-style: none; padding: 0; margin: 14px 0 0 50px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.steps li { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.steps li b { color: var(--text); font-size: 13px; }
+.steps svg { width: 100%; max-width: 180px; height: auto; margin-bottom: 4px; }
+.ill-frame { fill: var(--bg); stroke: var(--line); stroke-width: 1.5; }
+.ill-line { fill: var(--line); }
+.ill-soft { fill: var(--accent-soft); }
+.ill-field { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; }
+.ill-accent { fill: var(--accent); }
+.ill-ok { fill: var(--ok); }
+.ill-btn-text { fill: var(--accent-ink); font: 600 8px -apple-system, sans-serif; }
+.ill-key { fill: var(--accent); font: 600 8px -apple-system, sans-serif; }
+.grok-on { margin: 10px 0 0 50px; }
+.grok-url { display: block; padding: 6px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line);
+  color: var(--muted); user-select: all; -webkit-user-select: all; }
+.grok-opts { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
+.check { display: inline-flex; gap: 6px; align-items: flex-start; }
+.check input { margin-top: 3px; }
+.linkish { font: inherit; border: 0; background: none; color: var(--accent); padding: 0; cursor: pointer; }
+.linkish:hover { text-decoration: underline; }
+.grok-activity, .grok-help { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; }
+.grok-help p { margin: 0 0 8px; }
+.grok-sub-head { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 6px; }
+#grok-activity-list { list-style: none; margin: 0; padding: 0; max-height: 160px; overflow: auto; }
+#grok-activity-list li { display: grid; grid-template-columns: 90px 1fr auto; gap: 10px; padding: 3px 0; }
+.act-time, .act-n { color: var(--muted); }
+.act-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0 0 10px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; }
+.approve { width: min(420px, 92vw); padding: 0; }
+.approve-body { padding: 22px 24px; text-align: center; }
+.approve-code { font: 600 40px/1 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .2em; margin: 18px 0 6px; }
+.approve .actions { justify-content: center; margin-top: 18px; }
+@media (max-width: 900px) { .steps { grid-template-columns: 1fr; } .grok-pitch, .grok-note, .steps, .grok-on { margin-left: 0; } }
 
 /* ---------- sources ---------- */
 .source-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-top: 16px; }

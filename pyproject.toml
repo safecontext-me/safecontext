@@ -9,7 +9,7 @@ dependencies = [
     "google-auth-oauthlib>=1.2",
     "google-api-python-client>=2.130",
     "keyring>=25",
-    "openai>=1.60",
+    "websockets>=15",
     "pywebview>=5.0",
 ]
 
@@ -44,7 +44,7 @@ requires = [
     "google-auth-oauthlib>=1.2",
     "google-api-python-client>=2.130",
     "keyring>=25",
-    "openai>=1.60",
+    "websockets>=15",
     "pywebview>=5.0",
 ]
 

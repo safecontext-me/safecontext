@@ -12,7 +12,7 @@ import pytest
 
 from safecontext import auth
 from safecontext.app.backend import Backend
-from safecontext.app.demo import DEMO_ACCOUNT, DemoGrok
+from safecontext.app.demo import DEMO_ACCOUNT
 from safecontext.demo.fake_calendar import make_fake_calendar
 from safecontext.demo.fake_gmail import FakeGmail
 from safecontext.demo.synthetic import mailbox
@@ -253,7 +253,7 @@ def backend(tmp_path, gmail):
     cal = make_fake_calendar(DEMO_ACCOUNT)
     b = Backend(tmp_path / "data", demo=True, gmail_factory=lambda a, m: gmail,
                 connect_fn=lambda mode, email: DEMO_ACCOUNT, calendar_factory=lambda a: cal,
-                calendar_connect_fn=lambda email: DEMO_ACCOUNT, grok_client_factory=DemoGrok, auto_sync=False)
+                calendar_connect_fn=lambda email: DEMO_ACCOUNT, auto_sync=False)
     b._cal = cal
     yield b
     b._shutdown()
@@ -336,9 +336,3 @@ def test_unknown_source(backend):
     assert backend.connect_source("fax")["ok"] is False
     assert backend.disconnect_source("fax")["ok"] is False
 
-
-def test_ask_cites_calendar(backend):
-    backend.connect_source("gcal")
-    wait_idle(backend)
-    r = backend.ask("When is dinner with Jamie?")
-    assert r["ok"] and any(s["source"] == "gcal" and s["link"] for s in r["sources"])
