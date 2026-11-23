@@ -24,7 +24,7 @@ Grok (xAI cloud) --HTTPS, MCP Streamable HTTP--> Worker --> LinkRelay Durable Ob
   Mac's answer is returned. If the Mac isn't connected, Grok gets a normal MCP answer:
   "SafeContext isn't running on your Mac…".
 
-Source: [src/index.js](src/index.js). Mac side: `src/safecontext/grok_link.py`.
+Source: [src/relay.js](src/relay.js) (entry point `src/index.js`). Mac side: `src/safecontext/grok_link.py`.
 
 ## Security properties
 
@@ -73,10 +73,11 @@ deployed and no Cloudflare resources are created. Run each command from this `re
    npm test
    ```
 
-4. Optional: run the relay locally on port 8787:
+4. Optional: run the relay locally on port 8787 (`npm run dev` adds the flags that keep its own
+   URLs on 127.0.0.1 instead of relay.safecontext.me):
 
    ```bash
-   npx wrangler dev
+   npm run dev
    ```
 
 5. Optional: in another Terminal, from the repo root, open the app against that local relay.

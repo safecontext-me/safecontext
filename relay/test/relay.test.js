@@ -1,7 +1,7 @@
 // Run with `npm test` (Miniflare via @cloudflare/vitest-pool-workers). Nothing is deployed.
 import { SELF, env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { OFFLINE_MESSAGE, route, s256 } from "../src/index.js";
+import { OFFLINE_MESSAGE, route, s256 } from "../src/relay.js";
 
 const ORIGIN = "https://relay.safecontext.me";
 const REDIRECT = "https://grok.com/connectors/oauth/callback";
