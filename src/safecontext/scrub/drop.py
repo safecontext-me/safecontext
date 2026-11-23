@@ -9,9 +9,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from email.utils import parseaddr
-from typing import FrozenSet, Optional
+from typing import Callable, Dict, FrozenSet, Optional, Tuple, Union
 
-from .models import RawMessage
+from .models import KIND_MESSAGE, RawItem, RawMessage
 from .otp import looks_like_security_mail
 
 SPAM_TRASH_LABELS = frozenset({"SPAM", "TRASH"})
@@ -152,11 +152,43 @@ def check_security_body(body: str) -> Optional[str]:
     return None
 
 
-def check_headers(msg: RawMessage, subject: str, config: DropConfig = DEFAULT_CONFIG) -> Optional[str]:
-    """All checks that don't need the body, in priority order."""
-    return (
-        check_labels(msg, config)
-        or check_bulk(msg, config)
-        or check_sensitive_sender(msg, config)
-        or check_subject(subject)
-    )
+# --- which rules apply to which kind of item --------------------------------
+#
+# Email-only rules read things only email has: Gmail labels (spam, drafts,
+# Promotions…) and bulk-mail headers (List-Unsubscribe, Precedence, no-reply
+# senders). A chat or a calendar invite never carries them, and a friend's
+# text from a "noreply"-looking handle must not be dropped.
+#
+# Universal rules protect what the product exists to protect, so they apply to
+# every source: security / one-time-code content, and banking, tax and health
+# senders and subjects (titles). Inline redaction (codes, cards, accounts,
+# addresses, …) also runs on every item; see pipeline.scrub_item.
+
+EMAIL_ONLY_RULES: Tuple[str, ...] = ("labels", "bulk")
+UNIVERSAL_RULES: Tuple[str, ...] = ("sensitive_sender", "subject", "security_body")
+EMAIL_KINDS = frozenset({KIND_MESSAGE})
+
+Item = Union[RawMessage, RawItem]
+_HEADER_RULES: Dict[str, Callable[[Item, str, DropConfig], Optional[str]]] = {
+    "labels": lambda m, subject, cfg: check_labels(m, cfg),
+    "bulk": lambda m, subject, cfg: check_bulk(m, cfg),
+    "sensitive_sender": lambda m, subject, cfg: check_sensitive_sender(m, cfg),
+    "subject": lambda m, subject, cfg: check_subject(subject),
+}
+
+
+def rules_for(kind: str) -> Tuple[str, ...]:
+    """Names of the drop rules that apply to an item of this kind, in order."""
+    return (EMAIL_ONLY_RULES if kind in EMAIL_KINDS else ()) + UNIVERSAL_RULES
+
+
+def check_headers(msg: Item, subject: str, config: DropConfig = DEFAULT_CONFIG,
+                  kind: str = KIND_MESSAGE) -> Optional[str]:
+    """All checks that don't need the body, in priority order. `subject` is the
+    normalized subject (or title, for non-email items)."""
+    for name in rules_for(kind):
+        rule = _HEADER_RULES.get(name)
+        reason = rule(msg, subject, config) if rule else None
+        if reason:
+            return reason
+    return None

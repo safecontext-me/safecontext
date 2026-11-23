@@ -34,6 +34,7 @@
     <label class="field"><span>Gmail address <small>(optional, pre-fills Google's account picker)</small></span>
       <input id="ob-email" type="email" placeholder="you@gmail.com" autocomplete="off"></label>
     <button id="ob-connect" class="btn primary lg">Connect Gmail</button>
+    <p class="hint">You can add Google Calendar on the Sources screen afterwards. iMessage, WhatsApp and call recordings are coming.</p>
     <p class="hint" id="ob-hint">Google will warn that this app isn't verified. That's expected for a small app like this: click <b>Advanced</b>, then <b>Go to SafeContext</b>.</p>
     <p class="error" id="ob-error" hidden></p>
   </div>
@@ -61,6 +62,7 @@
     <nav class="nav">
       <button data-view="search" class="active">Search</button>
       <button data-view="ask">Ask Grok</button>
+      <button data-view="sources">Sources</button>
       <button data-view="removed">What was removed</button>
       <button data-view="settings">Settings</button>
     </nav>
@@ -75,7 +77,8 @@
     <!-- Search -->
     <section id="view-search" class="view">
       <form class="toolbar" id="search-form" autocomplete="off">
-        <input id="q" type="search" placeholder="Search your scrubbed mail" aria-label="Search">
+        <input id="q" type="search" placeholder="Search your scrubbed mail and calendar" aria-label="Search">
+        <select id="f-source" aria-label="Source"><option value="">All sources</option></select>
         <input id="f-from" placeholder="From (name, address or @domain)" aria-label="From">
         <label class="date">After <input id="f-after" type="date"></label>
         <label class="date">Before <input id="f-before" type="date"></label>
@@ -83,7 +86,7 @@
       </form>
       <div class="panes">
         <div class="list" id="results" role="list"></div>
-        <div class="reader" id="reader"><div class="empty">Select a message to read it.</div></div>
+        <div class="reader" id="reader"><div class="empty">Select an item to read it.</div></div>
       </div>
     </section>
 
@@ -92,7 +95,7 @@
       <div class="ask-head">
         <div>
           <h2>Ask Grok</h2>
-          <p class="muted">Grok searches your scrubbed mail. Your question and the messages it finds are sent to xAI; nothing else is.</p>
+          <p class="muted">Grok searches your scrubbed mail and calendar. Your question and the items it finds are sent to xAI; nothing else is.</p>
         </div>
         <button class="btn small" id="new-chat">New chat</button>
       </div>
@@ -102,15 +105,23 @@
       </div>
       <div class="transcript" id="transcript">
         <div class="suggestions" id="suggestions">
+          <button class="chip-btn">What's on my calendar next week?</button>
           <button class="chip-btn">What plans do I have this weekend?</button>
           <button class="chip-btn">Summarize what Taylor sent me recently</button>
           <button class="chip-btn">Who asked me to pay them back?</button>
         </div>
       </div>
       <form class="composer" id="ask-form">
-        <textarea id="ask-input" rows="2" placeholder="Ask about your email…"></textarea>
+        <textarea id="ask-input" rows="2" placeholder="Ask about your email and calendar…"></textarea>
         <button class="btn primary" type="submit" id="ask-send">Ask</button>
       </form>
+    </section>
+
+    <!-- Sources -->
+    <section id="view-sources" class="view" hidden>
+      <h2>Sources</h2>
+      <p class="muted">Each source is copied to this Mac and scrubbed before it's saved. Nothing leaves your Mac unless you ask an AI a question.</p>
+      <div class="source-grid" id="source-grid"></div>
     </section>
 
     <!-- What was removed -->
@@ -118,14 +129,15 @@
       <h2>What was removed</h2>
       <p class="muted">Everything below was removed on this Mac before anything was saved.</p>
       <div class="tiles">
-        <div class="tile"><div class="num" id="t-kept">0</div><div class="lbl">messages kept (scrubbed)</div></div>
-        <div class="tile"><div class="num" id="t-dropped">0</div><div class="lbl">messages skipped entirely</div></div>
+        <div class="tile"><div class="num" id="t-kept">0</div><div class="lbl">items kept (scrubbed)</div></div>
+        <div class="tile"><div class="num" id="t-dropped">0</div><div class="lbl">items skipped entirely</div></div>
         <div class="tile"><div class="num" id="t-redacted">0</div><div class="lbl">sensitive values blanked out</div></div>
       </div>
       <div class="two-col">
         <div class="card"><h3>Skipped entirely</h3><div id="dropped-bars" class="bars"></div></div>
-        <div class="card"><h3>Blanked out inside kept messages</h3><div id="redacted-bars" class="bars"></div></div>
+        <div class="card"><h3>Blanked out inside kept items</h3><div id="redacted-bars" class="bars"></div></div>
       </div>
+      <div class="card by-source"><h3>By source</h3><div id="by-source" class="bars"></div></div>
     </section>
 
     <!-- Settings -->
@@ -140,6 +152,7 @@
           <button class="btn" id="s-disconnect">Disconnect, keep local mail</button>
           <button class="btn danger" id="s-wipe">Disconnect and delete local mail</button>
         </div>
+        <p class="hint">Google Calendar and other sources are on the <a href="#" data-goto="sources">Sources</a> screen.</p>
       </div>
       <div class="card setting">
         <h3>Grok (xAI)</h3>

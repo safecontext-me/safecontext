@@ -23,7 +23,7 @@ def gmail():
 @pytest.fixture
 def store(tmp_path):
     s = Store(tmp_path / "mail.db")
-    s.set_meta("account_email", DEMO_ACCOUNT)
+    s.set_state("gmail", "account", DEMO_ACCOUNT)
     return s
 
 
@@ -33,20 +33,20 @@ def test_heartbeat_written_during_sync_and_cleared_after(store, gmail):
     beats = [b for b in seen if b]
     assert beats and beats[-1]["pid"] == os.getpid()
     assert beats[-1]["fetched"] > 0 and beats[-1]["phase"] == "backfill"
-    assert store.get_meta(HEARTBEAT_KEY) is None
+    assert store.get_state("gmail", HEARTBEAT_KEY) is None
     assert read_heartbeat(store) is None
 
 
 def test_heartbeat_holds_no_message_content(store, gmail):
     seen = []
-    Syncer(store, gmail, batch_size=3, progress=lambda r: seen.append(store.get_meta(HEARTBEAT_KEY))).run()
+    Syncer(store, gmail, batch_size=3, progress=lambda r: seen.append(store.get_state("gmail", HEARTBEAT_KEY))).run()
     for raw in filter(None, seen):
         assert set(json.loads(raw)) <= {"pid", "phase", "fetched", "kept", "dropped", "deleted",
                                         "started_ms", "updated_ms", "per_min", "waiting_until_ms"}
 
 
 def test_heartbeat_from_dead_process_is_ignored(store):
-    store.set_meta(HEARTBEAT_KEY, json.dumps({"pid": 2 ** 22 + 12345, "fetched": 5}))
+    store.set_state("gmail", HEARTBEAT_KEY, json.dumps({"pid": 2 ** 22 + 12345, "fetched": 5}))
     assert read_heartbeat(store) is None
 
 
@@ -88,9 +88,9 @@ def test_app_shows_a_sync_running_in_another_process(tmp_path, gmail):
     b = Backend(tmp_path / "data", demo=True, gmail_factory=lambda a, m: gmail,
                 connect_fn=lambda mode, email: DEMO_ACCOUNT, grok_client_factory=DemoGrok, auto_sync=False)
     try:
-        b._store.set_meta("account_email", DEMO_ACCOUNT)
+        b._store.set_state("gmail", "account", DEMO_ACCOUNT)
         parent = os.getppid()  # a live process that isn't us, standing in for the CLI
-        b._store.set_meta(HEARTBEAT_KEY, json.dumps(
+        b._store.set_state("gmail", HEARTBEAT_KEY, json.dumps(
             {"pid": parent, "phase": "backfill", "fetched": 120, "kept": 70, "dropped": 50,
              "started_ms": 1, "per_min": 55.0, "waiting_until_ms": None}))
         s = b.status()
@@ -98,5 +98,5 @@ def test_app_shows_a_sync_running_in_another_process(tmp_path, gmail):
         assert s["progress"]["backfill"] is True
         assert b.sync_now()["started"] is False  # never double-fetch against Gmail's quota
     finally:
-        b._store.set_meta(HEARTBEAT_KEY, None)
+        b._store.set_state("gmail", HEARTBEAT_KEY, None)
         b._shutdown()

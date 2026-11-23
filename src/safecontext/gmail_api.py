@@ -20,6 +20,7 @@ except ImportError:  # pragma: no cover
     Protocol = object  # type: ignore
 
 from .auth import NeedsReconnect, TransientAuthError, is_invalid_grant
+from .errors import TransientError
 from .migrate import getenv
 
 log = logging.getLogger("safecontext.gmail")  # status codes and counts only, never content
@@ -31,10 +32,6 @@ class GmailError(Exception):
 
 class HistoryExpired(GmailError):
     """startHistoryId is too old (Gmail keeps roughly a week); do a full resync."""
-
-
-class TransientError(GmailError):
-    """Network or server trouble that outlasted retries. Safe to try again later."""
 
 
 # Exclude what the drop layer would discard anyway, so it is never downloaded.

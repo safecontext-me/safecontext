@@ -1,4 +1,4 @@
-"""Demo wiring: a fake Gmail and a local stand-in for Grok, so the app can be
+"""Demo wiring: a fake Gmail, a fake Google Calendar and a local stand-in for Grok, so the app can be
 tried without a Google client, a Gmail account, or an xAI key.
 Nothing in demo mode touches the network."""
 from __future__ import annotations
@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
+from ..demo.fake_calendar import make_fake_calendar
 from ..demo.fake_gmail import FakeGmail
 from ..demo.synthetic import mailbox, msg
 
@@ -72,12 +73,13 @@ class DemoGrok:
         keywords = self._keywords(question)
         found = json.loads(answered[-1]["output"]).get("results", []) if answered else []
         if not found and len(answered) < len(keywords):  # try the next keyword
-            call = _Item(type="function_call", name="search_mail", call_id=f"demo{len(answered)}",
+            call = _Item(type="function_call", name="search", call_id=f"demo{len(answered)}",
                          arguments=json.dumps({"query": keywords[len(answered)]}))
             return SimpleNamespace(output=[call], output_text="")
         if found:
-            lines = [f"• {r['subject']} — {r['sender']}, {r['date'][:10]}" for r in found[:5]]
-            text = ("Demo mode: this answer is generated locally, not by Grok. Matching messages:\n"
+            lines = [f"• {r['title']} — {r['sender']}, {r['date'][:10]} ({r['citation'].rsplit(' · ', 1)[-1]})"
+                     for r in found[:5]]
+            text = ("Demo mode: this answer is generated locally, not by Grok. Matching items:\n"
                     + "\n".join(lines))
         else:
             text = ("Demo mode: this answer is generated locally, not by Grok. I didn't find matching mail; "
@@ -88,10 +90,13 @@ class DemoGrok:
 
 def demo_backend_kwargs(data_dir: Optional[Path] = None) -> Dict[str, Any]:
     gmail = make_fake_gmail()
+    calendar = make_fake_calendar(DEMO_ACCOUNT)
     return dict(
         data_dir=data_dir or Path(tempfile.mkdtemp(prefix="safecontext-demo-")),
         demo=True,
         gmail_factory=lambda account, mode: gmail,
         connect_fn=lambda mode, email: (time.sleep(0.8), DEMO_ACCOUNT)[1],
+        calendar_factory=lambda account: calendar,
+        calendar_connect_fn=lambda email: (time.sleep(0.8), DEMO_ACCOUNT)[1],
         grok_client_factory=DemoGrok,
     )

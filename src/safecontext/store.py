@@ -17,66 +17,97 @@ import re
 import sqlite3
 import threading
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from email.utils import getaddresses, parseaddr
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Set, Union
 from urllib.parse import quote
 
-from .scrub import SCRUBBER_VERSION, Attachment, Dropped, ScrubbedMessage
+from .scrub import SCRUBBER_VERSION, Attachment, Dropped, ScrubbedItem, ScrubbedMessage
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
+# Schema v2: every source's items in one table, tagged by source.
+#   source   the connected source ("gmail", "gcal", later "imessage", ...)
+#   id       the item's id inside that source; (source, id) is the key
+#   kind     "message" (email) | "event" | "chat" | "transcript"
+#   date_ms  sent time, or an event's / call's start; end_ms its end, if any
+#   sender   author / organizer;  participants: recipients / attendees / members
+#   title    subject / event title;  body: the scrubbed text
+#   link     deep link back to the original (Gmail, Google Calendar, ...)
+#   extra    short labelled fields shown with the item (JSON), e.g. Location
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 
-CREATE TABLE IF NOT EXISTS messages (
-    id                TEXT PRIMARY KEY,
+-- Per-source sync state: cursor, account, auth state, last sync, heartbeat.
+CREATE TABLE IF NOT EXISTS source_state (
+    source TEXT NOT NULL, key TEXT NOT NULL, value TEXT,
+    PRIMARY KEY (source, key)
+);
+
+CREATE TABLE IF NOT EXISTS items (
+    source            TEXT NOT NULL,
+    id                TEXT NOT NULL,
+    account           TEXT NOT NULL DEFAULT '',
+    kind              TEXT NOT NULL,
     thread_id         TEXT NOT NULL,
     date_ms           INTEGER NOT NULL,
+    end_ms            INTEGER,
     sender            TEXT NOT NULL DEFAULT '',
     sender_email      TEXT NOT NULL DEFAULT '',
-    recipients        TEXT NOT NULL DEFAULT '',
-    subject           TEXT NOT NULL DEFAULT '',
+    participants      TEXT NOT NULL DEFAULT '',
+    title             TEXT NOT NULL DEFAULT '',
     body              TEXT NOT NULL DEFAULT '',
     attachments       TEXT NOT NULL DEFAULT '[]',
     attachment_names  TEXT NOT NULL DEFAULT '',
-    message_id_header TEXT NOT NULL DEFAULT '',
+    link              TEXT NOT NULL DEFAULT '',
+    extra             TEXT NOT NULL DEFAULT '{}',
     redactions        TEXT NOT NULL DEFAULT '{}',
-    scrubber_version  TEXT NOT NULL
+    scrubber_version  TEXT NOT NULL,
+    PRIMARY KEY (source, id)
 );
-CREATE INDEX IF NOT EXISTS ix_messages_thread ON messages(thread_id, date_ms);
-CREATE INDEX IF NOT EXISTS ix_messages_sender ON messages(sender_email, date_ms);
-CREATE INDEX IF NOT EXISTS ix_messages_date   ON messages(date_ms);
+CREATE INDEX IF NOT EXISTS ix_items_thread ON items(source, thread_id, date_ms);
+CREATE INDEX IF NOT EXISTS ix_items_sender ON items(sender_email, date_ms);
+CREATE INDEX IF NOT EXISTS ix_items_date   ON items(date_ms);
+CREATE INDEX IF NOT EXISTS ix_items_source ON items(source, date_ms);
 
 CREATE TABLE IF NOT EXISTS dropped (
-    id               TEXT PRIMARY KEY,
+    source           TEXT NOT NULL,
+    id               TEXT NOT NULL,
     thread_id        TEXT NOT NULL,
     date_ms          INTEGER NOT NULL DEFAULT 0,
     reason           TEXT NOT NULL,
-    scrubber_version TEXT NOT NULL
+    scrubber_version TEXT NOT NULL,
+    PRIMARY KEY (source, id)
 );
 
--- Ids listed during a full (re)sync; used to prune mail deleted in Gmail. Ids only.
-CREATE TABLE IF NOT EXISTS sync_seen (id TEXT PRIMARY KEY);
+-- Ids listed during a full (re)sync; used to prune items deleted at the source. Ids only.
+CREATE TABLE IF NOT EXISTS seen (source TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (source, id));
 
-CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-    subject, body, sender, recipients, attachment_names,
-    content='messages', content_rowid='rowid',
+CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+    title, body, sender, participants, attachment_names, extra,
+    content='items', content_rowid='rowid',
     tokenize='porter unicode61 remove_diacritics 2'
 );
 """
-_FTS_TRIGGERS = """
-CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
-    INSERT INTO messages_fts(rowid, subject, body, sender, recipients, attachment_names)
-    VALUES (new.rowid, new.subject, new.body, new.sender, new.recipients, new.attachment_names);
+_FTS_COLUMNS = "title, body, sender, participants, attachment_names, extra"
+_FTS_TRIGGERS = f"""
+CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
+    INSERT INTO items_fts(rowid, {_FTS_COLUMNS})
+    VALUES (new.rowid, new.title, new.body, new.sender, new.participants, new.attachment_names, new.extra);
 END;
-CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, subject, body, sender, recipients, attachment_names)
-    VALUES ('delete', old.rowid, old.subject, old.body, old.sender, old.recipients, old.attachment_names);
+CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
+    INSERT INTO items_fts(items_fts, rowid, {_FTS_COLUMNS})
+    VALUES ('delete', old.rowid, old.title, old.body, old.sender, old.participants, old.attachment_names, old.extra);
 END;
 """
+
+GMAIL = "gmail"
+# Schema v1 kept Gmail's sync state in `meta`; v2 moves it to source_state('gmail').
+_V1_GMAIL_META = {"account_email": "account", "sync_mode": "sync_mode", "auth_state": "auth_state",
+                  "history_id": "history_id", "backfill_start_history_id": "backfill_start_history_id",
+                  "backfill_page_token": "backfill_page_token", "resync": "resync", "last_sync_ms": "last_sync_ms"}
 
 DEFAULT_DATA_DIR = Path.home() / "Library" / "Application Support" / "SafeContext"
 
@@ -87,28 +118,52 @@ DEFAULT_DATA_DIR = Path.home() / "Library" / "Application Support" / "SafeContex
 class Citation:
     date: str      # ISO 8601, UTC
     sender: str
-    link: str      # Gmail deep link
+    link: str      # deep link to the original (Gmail, Google Calendar, ...)
+    source: str = GMAIL
+    title: str = ""
 
 
 @dataclass
 class Hit:
     id: str
     thread_id: str
-    subject: str
+    title: str
     snippet: str
     citation: Citation
+    source: str = GMAIL
+    kind: str = "message"
+    end: Optional[str] = None
+
+    @property
+    def subject(self) -> str:
+        return self.title
 
 
 @dataclass
-class MessageView:
+class ItemView:
     id: str
     thread_id: str
-    subject: str
-    recipients: str
+    title: str
+    participants: str
     body: str
     attachments: List[Attachment]
     redactions: Dict[str, int]
     citation: Citation
+    source: str = GMAIL
+    kind: str = "message"
+    end: Optional[str] = None
+    extra: Dict[str, str] = field(default_factory=dict)
+
+    @property
+    def subject(self) -> str:
+        return self.title
+
+    @property
+    def recipients(self) -> str:
+        return self.participants
+
+
+MessageView = ItemView  # the v1 name
 
 
 # --- helpers --------------------------------------------------------------
@@ -168,7 +223,32 @@ def _recipients(to: str, cc: str) -> str:
     return ", ".join(f"{n} <{a}>" if n else a for n, a in getaddresses([to, cc]) if a)
 
 
-# --- the store ------------------------------------------------------------
+def _iso_or_none(ms: Optional[int]) -> Optional[str]:
+    return None if ms is None else _iso(ms)
+
+
+def _handle(sender: str) -> str:
+    """Lower-cased address for filtering: the email address, or the handle
+    itself (a phone number, a chat name) when there is no address."""
+    addr = parseaddr(sender)[1]
+    return (addr or sender).strip().lower()
+
+
+StoreResult = Union[ScrubbedMessage, ScrubbedItem, Dropped]
+
+
+class SourceState:
+    """Key/value sync state for one source (cursor, account, auth state...)."""
+
+    def __init__(self, store: "Store", source: str) -> None:
+        self.store, self.source = store, source
+
+    def get(self, key: str) -> Optional[str]:
+        return self.store.get_state(self.source, key)
+
+    def set(self, key: str, value: Optional[str]) -> None:
+        self.store.set_state(self.source, key, value)
+
 
 class Store:
     def __init__(self, path: Union[str, Path], account: str = "") -> None:
@@ -186,10 +266,21 @@ class Store:
             self._db.execute(f"PRAGMA {pragma}")
         # executescript manages its own transaction; schema DDL is idempotent.
         self._db.executescript(_SCHEMA + _FTS_TRIGGERS)
+        if self._has_table("messages"):
+            self._migrate_v1()
         if self.get_meta("schema_version") is None:
             self.set_meta("schema_version", str(SCHEMA_VERSION))
         os.chmod(self.path, 0o600)
-        self.account = account or (self.get_meta("account_email") or "")
+        self._account = account
+
+    @property
+    def account(self) -> str:
+        """The Gmail account, used in Gmail deep links."""
+        return self._account or (self.get_state(GMAIL, "account") or "")
+
+    @account.setter
+    def account(self, value: str) -> None:
+        self._account = value
 
     @classmethod
     def open_default(cls) -> "Store":
@@ -211,6 +302,56 @@ class Store:
                 raise
             self._db.execute("COMMIT")
 
+    def _has_table(self, name: str) -> bool:
+        with self._lock:
+            return self._db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                                    (name,)).fetchone() is not None
+
+    # migration ----------------------------------------------------------------
+
+    def _migrate_v1(self) -> None:
+        """Schema v1 (Gmail only: `messages`, `dropped`, `sync_seen`, state in
+        `meta`) -> v2, in place and in one transaction, so synced mail survives
+        without a re-sync. If anything fails, the transaction rolls back and v1
+        is left exactly as it was; the next start tries again."""
+        with self._tx() as db:
+            meta = dict(db.execute("SELECT key, value FROM meta").fetchall())
+            account = (meta.get("account_email") or "").lower()
+            cur = db.execute("SELECT * FROM messages ORDER BY rowid")
+            while True:
+                rows = cur.fetchmany(500)
+                if not rows:
+                    break
+                db.executemany(
+                    "INSERT OR REPLACE INTO items (source, id, account, kind, thread_id, date_ms, end_ms, sender,"
+                    " sender_email, participants, title, body, attachments, attachment_names, link, extra,"
+                    " redactions, scrubber_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    [(GMAIL, r["id"], account, "message", r["thread_id"], r["date_ms"], None, r["sender"],
+                      r["sender_email"], r["recipients"], r["subject"], r["body"], r["attachments"],
+                      r["attachment_names"], gmail_link(account, r["message_id_header"], r["thread_id"]), "{}",
+                      r["redactions"], r["scrubber_version"]) for r in rows])
+            cols = [r[1] for r in db.execute("PRAGMA table_info(dropped)")]
+            if "source" not in cols:  # v1 dropped table: rebuild with a source column
+                db.execute("ALTER TABLE dropped RENAME TO dropped_v1")
+                db.execute("""CREATE TABLE dropped (
+                    source TEXT NOT NULL, id TEXT NOT NULL, thread_id TEXT NOT NULL,
+                    date_ms INTEGER NOT NULL DEFAULT 0, reason TEXT NOT NULL, scrubber_version TEXT NOT NULL,
+                    PRIMARY KEY (source, id))""")
+                db.execute("INSERT INTO dropped SELECT ?, id, thread_id, date_ms, reason, scrubber_version "
+                           "FROM dropped_v1", (GMAIL,))
+                db.execute("DROP TABLE dropped_v1")
+            if self._has_table("sync_seen"):
+                db.execute("INSERT OR IGNORE INTO seen SELECT ?, id FROM sync_seen", (GMAIL,))
+                db.execute("DROP TABLE sync_seen")
+            for old, new in _V1_GMAIL_META.items():
+                if meta.get(old) is not None:
+                    db.execute("INSERT OR REPLACE INTO source_state VALUES (?,?,?)", (GMAIL, new, meta[old]))
+            db.execute("DELETE FROM meta WHERE key IN (%s)" % ",".join("?" * (len(_V1_GMAIL_META) + 1)),
+                       [*_V1_GMAIL_META, "sync_heartbeat"])
+            db.execute("DROP TABLE messages_fts")  # its triggers go with `messages`
+            db.execute("DROP TABLE messages")
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
+
     # meta / sync state ------------------------------------------------------
 
     def get_meta(self, key: str) -> Optional[str]:
@@ -226,53 +367,99 @@ class Store:
                 self._db.execute("INSERT INTO meta(key, value) VALUES(?, ?) "
                                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
 
+    def get_state(self, source: str, key: str) -> Optional[str]:
+        with self._lock:
+            row = self._db.execute("SELECT value FROM source_state WHERE source=? AND key=?",
+                                   (source, key)).fetchone()
+        return row[0] if row else None
+
+    def set_state(self, source: str, key: str, value: Optional[str]) -> None:
+        with self._lock:
+            if value is None:
+                self._db.execute("DELETE FROM source_state WHERE source=? AND key=?", (source, key))
+            else:
+                self._db.execute("INSERT INTO source_state(source, key, value) VALUES(?, ?, ?) "
+                                 "ON CONFLICT(source, key) DO UPDATE SET value=excluded.value",
+                                 (source, key, value))
+
+    def state(self, source: str) -> SourceState:
+        return SourceState(self, source)
+
     # writes -----------------------------------------------------------------
 
-    def put_many(self, results: Iterable[Union[ScrubbedMessage, Dropped]]) -> None:
-        """Insert or replace. A message can move between kept and dropped
-        (e.g. it was later labelled Promotions); the other row is removed."""
+    def _row(self, r: Union[ScrubbedMessage, ScrubbedItem], source: str, account: str) -> tuple:
+        if isinstance(r, ScrubbedMessage):
+            return (source, r.id, account, "message", r.thread_id, r.date_ms, None, r.sender,
+                    _sender_email(r.sender), _recipients(r.to, r.cc), r.subject, r.body,
+                    json.dumps([dataclasses.asdict(a) for a in r.attachments]),
+                    " ".join(a.filename for a in r.attachments),
+                    gmail_link(account, r.message_id_header, r.thread_id), "{}",
+                    json.dumps(r.redactions), r.scrubber_version)
+        return (source, r.id, account, r.kind, r.thread_id, r.date_ms, r.end_ms, r.sender, _handle(r.sender),
+                ", ".join(p for p in r.participants if p), r.title, r.body,
+                json.dumps([dataclasses.asdict(a) for a in r.attachments]),
+                " ".join(a.filename for a in r.attachments), r.link,
+                json.dumps(r.extra, ensure_ascii=False), json.dumps(r.redactions), r.scrubber_version)
+
+    def put_many(self, results: Iterable[StoreResult], source: str = GMAIL, account: Optional[str] = None) -> None:
+        """Insert or replace one source's results. An item can move between kept
+        and dropped (e.g. it was later labelled Promotions); the other row is
+        removed. Only scrubbed results are accepted."""
+        if account is None:
+            account = self.account if source == GMAIL else (self.get_state(source, "account") or "")
         with self._tx() as db:
             for r in results:
-                db.execute("DELETE FROM messages WHERE id=?", (r.id,))
-                db.execute("DELETE FROM dropped WHERE id=?", (r.id,))
+                db.execute("DELETE FROM items WHERE source=? AND id=?", (source, r.id))
+                db.execute("DELETE FROM dropped WHERE source=? AND id=?", (source, r.id))
                 if isinstance(r, Dropped):
-                    db.execute("INSERT INTO dropped VALUES (?,?,?,?,?)",
-                               (r.id, r.thread_id, r.date_ms, r.reason, SCRUBBER_VERSION))
-                elif isinstance(r, ScrubbedMessage):
+                    db.execute("INSERT INTO dropped VALUES (?,?,?,?,?,?)",
+                               (source, r.id, r.thread_id, r.date_ms, r.reason, SCRUBBER_VERSION))
+                elif isinstance(r, (ScrubbedMessage, ScrubbedItem)):
                     db.execute(
-                        "INSERT INTO messages (id, thread_id, date_ms, sender, sender_email, recipients,"
-                        " subject, body, attachments, attachment_names, message_id_header, redactions,"
-                        " scrubber_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (r.id, r.thread_id, r.date_ms, r.sender, _sender_email(r.sender),
-                         _recipients(r.to, r.cc), r.subject, r.body,
-                         json.dumps([dataclasses.asdict(a) for a in r.attachments]),
-                         " ".join(a.filename for a in r.attachments), r.message_id_header, json.dumps(r.redactions), r.scrubber_version))
-                else:  # never let anything else (e.g. a RawMessage) reach disk
+                        "INSERT INTO items (source, id, account, kind, thread_id, date_ms, end_ms, sender,"
+                        " sender_email, participants, title, body, attachments, attachment_names, link, extra,"
+                        " redactions, scrubber_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        self._row(r, source, account))
+                else:  # never let anything else (e.g. a RawMessage / RawItem) reach disk
                     raise TypeError(f"refusing to store {type(r).__name__}")
 
-    def put(self, result: Union[ScrubbedMessage, Dropped]) -> None:
-        self.put_many([result])
+    def put(self, result: StoreResult, source: str = GMAIL) -> None:
+        self.put_many([result], source=source)
 
-    def delete(self, ids: Sequence[str]) -> None:
+    def delete(self, ids: Sequence[str], source: str = GMAIL) -> None:
         with self._tx() as db:
             for i in ids:
-                db.execute("DELETE FROM messages WHERE id=?", (i,))
-                db.execute("DELETE FROM dropped WHERE id=?", (i,))
+                db.execute("DELETE FROM items WHERE source=? AND id=?", (source, i))
+                db.execute("DELETE FROM dropped WHERE source=? AND id=?", (source, i))
 
-    def wipe(self) -> None:
-        """Remove all mail and sync state (used on disconnect)."""
-        with self._tx() as db:
-            db.execute("DELETE FROM messages")
-            db.execute("DELETE FROM dropped")
-            db.execute("DELETE FROM sync_seen")
-            db.execute("DELETE FROM meta WHERE key != 'schema_version'")
+    def _compact(self) -> None:
         with self._lock:
             self._db.execute("VACUUM")
             self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
+    def wipe(self) -> None:
+        """Remove every source's items and sync state."""
+        with self._tx() as db:
+            for table in ("items", "dropped", "seen", "source_state"):
+                db.execute(f"DELETE FROM {table}")
+            # Deleting rows only marks their index entries deleted; the words stay in
+            # older FTS segments until merged. Clear the index so no word survives.
+            db.execute("INSERT INTO items_fts(items_fts) VALUES('delete-all')")
+            db.execute("DELETE FROM meta WHERE key != 'schema_version'")
+        self._compact()
+
+    def wipe_source(self, source: str) -> None:
+        """Remove one source's items, dropped ids and sync state (used when it's disconnected)."""
+        with self._tx() as db:
+            for table in ("items", "dropped", "seen", "source_state"):
+                db.execute(f"DELETE FROM {table} WHERE source=?", (source,))
+            # Merge FTS segments so the deleted source's words leave the index too.
+            db.execute("INSERT INTO items_fts(items_fts) VALUES('optimize')")
+        self._compact()
+
     # sync support -----------------------------------------------------------
 
-    def known_ids(self, ids: Sequence[str], version: str = SCRUBBER_VERSION) -> Set[str]:
+    def known_ids(self, ids: Sequence[str], version: str = SCRUBBER_VERSION, source: str = GMAIL) -> Set[str]:
         """Ids already processed under this scrubber version (kept or dropped)."""
         found: Set[str] = set()
         ids = list(ids)
@@ -280,75 +467,113 @@ class Store:
             for i in range(0, len(ids), 500):
                 chunk = ids[i:i + 500]
                 marks = ",".join("?" * len(chunk))
-                for table in ("messages", "dropped"):
+                for table in ("items", "dropped"):
                     rows = self._db.execute(
-                        f"SELECT id FROM {table} WHERE scrubber_version=? AND id IN ({marks})",
-                        [version, *chunk])
+                        f"SELECT id FROM {table} WHERE source=? AND scrubber_version=? AND id IN ({marks})",
+                        [source, version, *chunk])
                     found.update(r[0] for r in rows)
         return found
 
-    def mark_seen(self, ids: Sequence[str]) -> None:
-        with self._tx() as db:
-            db.executemany("INSERT OR IGNORE INTO sync_seen(id) VALUES (?)", [(i,) for i in ids])
-
-    def clear_seen(self) -> None:
+    def ids(self, source: str) -> Set[str]:
+        """Every id stored for a source, kept or dropped."""
         with self._lock:
-            self._db.execute("DELETE FROM sync_seen")
+            rows = self._db.execute("SELECT id FROM items WHERE source=? UNION SELECT id FROM dropped WHERE source=?",
+                                    (source, source))
+            return {r[0] for r in rows}
 
-    def prune_unseen(self) -> int:
-        """After a complete listing, remove local rows Gmail no longer lists."""
+    def mark_seen(self, ids: Sequence[str], source: str = GMAIL) -> None:
         with self._tx() as db:
-            n = db.execute("DELETE FROM messages WHERE id NOT IN (SELECT id FROM sync_seen)").rowcount
-            n += db.execute("DELETE FROM dropped WHERE id NOT IN (SELECT id FROM sync_seen)").rowcount
-            db.execute("DELETE FROM sync_seen")
+            db.executemany("INSERT OR IGNORE INTO seen(source, id) VALUES (?, ?)", [(source, i) for i in ids])
+
+    def clear_seen(self, source: str = GMAIL) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM seen WHERE source=?", (source,))
+
+    def prune_unseen(self, source: str = GMAIL) -> int:
+        """After a complete listing, remove local rows the source no longer lists."""
+        with self._tx() as db:
+            n = 0
+            for table in ("items", "dropped"):
+                n += db.execute(f"DELETE FROM {table} WHERE source=? AND id NOT IN "
+                                "(SELECT id FROM seen WHERE source=?)", (source, source)).rowcount
+            db.execute("DELETE FROM seen WHERE source=?", (source,))
         return n
 
-    def stale_ids(self, version: str = SCRUBBER_VERSION) -> List[str]:
+    def stale_ids(self, version: str = SCRUBBER_VERSION, source: str = GMAIL) -> List[str]:
         """Ids scrubbed under an older version; sync re-fetches these."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT id FROM messages WHERE scrubber_version != ? "
-                "UNION SELECT id FROM dropped WHERE scrubber_version != ?", (version, version))
+                "SELECT id FROM items WHERE source=? AND scrubber_version != ? "
+                "UNION SELECT id FROM dropped WHERE source=? AND scrubber_version != ?",
+                (source, version, source, version))
             return [r[0] for r in rows]
 
-    def stats(self) -> Dict[str, object]:
+    @staticmethod
+    def _source_where(source: Optional[str]):
+        return ("WHERE source=?", [source]) if source else ("", [])
+
+    def stats(self, source: Optional[str] = None) -> Dict[str, object]:
+        where, args = self._source_where(source)
         with self._lock:
-            kept = self._db.execute("SELECT count(*) FROM messages").fetchone()[0]
+            kept = self._db.execute(f"SELECT count(*) FROM items {where}", args).fetchone()[0]
             reasons = dict(self._db.execute(
-                "SELECT reason, count(*) FROM dropped GROUP BY reason ORDER BY 2 DESC").fetchall())
+                f"SELECT reason, count(*) FROM dropped {where} GROUP BY reason ORDER BY 2 DESC", args).fetchall())
             redactions: Dict[str, int] = {}
-            for (blob,) in self._db.execute("SELECT redactions FROM messages WHERE redactions != '{}'"):
+            cond = (where + " AND" if where else "WHERE")
+            for (blob,) in self._db.execute(f"SELECT redactions FROM items {cond} redactions != '{{}}'", args):
                 for k, v in json.loads(blob).items():
                     redactions[k] = redactions.get(k, 0) + v
         return {"kept": kept, "dropped": sum(reasons.values()), "dropped_by_reason": reasons,
                 "redactions": redactions}
 
-    def counts(self):
+    def counts(self, source: Optional[str] = None):
         """(kept, dropped), cheap enough to poll."""
+        where, args = self._source_where(source)
         with self._lock:
-            return (self._db.execute("SELECT count(*) FROM messages").fetchone()[0],
-                    self._db.execute("SELECT count(*) FROM dropped").fetchone()[0])
+            return (self._db.execute(f"SELECT count(*) FROM items {where}", args).fetchone()[0],
+                    self._db.execute(f"SELECT count(*) FROM dropped {where}", args).fetchone()[0])
 
-    def date_range(self):
-        """(oldest, newest) date_ms of kept messages, or (None, None)."""
+    def date_range(self, source: Optional[str] = None):
+        """(oldest, newest) date_ms of kept items, or (None, None)."""
+        where, args = self._source_where(source)
         with self._lock:
-            return tuple(self._db.execute("SELECT min(date_ms), max(date_ms) FROM messages").fetchone())
+            return tuple(self._db.execute(f"SELECT min(date_ms), max(date_ms) FROM items {where}", args).fetchone())
+
+    def source_ids(self) -> List[str]:
+        """Sources that have sync state or items on this Mac."""
+        with self._lock:
+            rows = self._db.execute("SELECT DISTINCT source FROM source_state UNION "
+                                    "SELECT DISTINCT source FROM items ORDER BY 1")
+            return [r[0] for r in rows]
 
     # reads ------------------------------------------------------------------
 
-    def _citation(self, row: sqlite3.Row) -> Citation:
-        return Citation(date=_iso(row["date_ms"]), sender=row["sender"],
-                        link=gmail_link(self.account, row["message_id_header"], row["thread_id"]))
+    @staticmethod
+    def _citation(row: sqlite3.Row) -> Citation:
+        return Citation(date=_iso(row["date_ms"]), sender=row["sender"], link=row["link"],
+                        source=row["source"], title=row["title"])
 
-    def _view(self, row: sqlite3.Row) -> MessageView:
-        return MessageView(
-            id=row["id"], thread_id=row["thread_id"], subject=row["subject"], recipients=row["recipients"],
+    def _hit(self, r: sqlite3.Row, snippet: str) -> Hit:
+        return Hit(id=r["id"], thread_id=r["thread_id"], title=r["title"], snippet=snippet,
+                   citation=self._citation(r), source=r["source"], kind=r["kind"], end=_iso_or_none(r["end_ms"]))
+
+    def _view(self, row: sqlite3.Row) -> ItemView:
+        return ItemView(
+            id=row["id"], thread_id=row["thread_id"], title=row["title"], participants=row["participants"],
             body=row["body"], attachments=[Attachment(**a) for a in json.loads(row["attachments"])],
-            redactions=json.loads(row["redactions"]), citation=self._citation(row))
+            redactions=json.loads(row["redactions"]), citation=self._citation(row), source=row["source"],
+            kind=row["kind"], end=_iso_or_none(row["end_ms"]), extra=json.loads(row["extra"] or "{}"))
 
     @staticmethod
-    def _filters(sender: Optional[str], after: DateLike, before: DateLike, alias: str = "m"):
+    def _filters(sender: Optional[str], after: DateLike, before: DateLike, alias: str = "m",
+                 source: Optional[str] = None, kind: Optional[str] = None):
         where, args = [], []
+        if source:
+            where.append(f"{alias}.source = ?")
+            args.append(source)
+        if kind:
+            where.append(f"{alias}.kind = ?")
+            args.append(kind)
         if sender:
             s = sender.strip().lower()
             if s.startswith("@"):
@@ -361,48 +586,62 @@ class Store:
                 where.append(f"(lower({alias}.sender) LIKE ? OR {alias}.sender_email LIKE ?)")
                 args += [f"%{s}%", f"%{s}%"]
         a, b = to_ms(after), to_ms(before)
-        if a is not None:
-            where.append(f"{alias}.date_ms >= ?")
+        if a is not None:  # an event counts if any part of it falls in the range
+            where.append(f"coalesce({alias}.end_ms, {alias}.date_ms) >= ?")
             args.append(a)
         if b is not None:
             where.append(f"{alias}.date_ms < ?")
             args.append(b)
         return where, args
 
-    def search(self, query: str, *, sender: Optional[str] = None, after: DateLike = None,
-               before: DateLike = None, limit: int = 20) -> List[Hit]:
+    def search(self, query: str, *, source: Optional[str] = None, kind: Optional[str] = None,
+               sender: Optional[str] = None, after: DateLike = None, before: DateLike = None,
+               limit: int = 20) -> List[Hit]:
         q = fts_query(query)
         if not q:
             return []
-        where, args = self._filters(sender, after, before)
+        where, args = self._filters(sender, after, before, source=source, kind=kind)
         sql = (
-            "SELECT m.*, snippet(messages_fts, 1, '«', '»', ' … ', 24) AS snip "
-            "FROM messages_fts JOIN messages m ON m.rowid = messages_fts.rowid "
-            "WHERE messages_fts MATCH ? " + "".join(f"AND {w} " for w in where) +
-            # weights: subject, body, sender, recipients, attachment_names
-            "ORDER BY bm25(messages_fts, 5.0, 1.0, 3.0, 1.0, 2.0) LIMIT ?")
+            "SELECT m.*, snippet(items_fts, 1, '«', '»', ' … ', 24) AS snip "
+            "FROM items_fts JOIN items m ON m.rowid = items_fts.rowid "
+            "WHERE items_fts MATCH ? " + "".join(f"AND {w} " for w in where) +
+            # weights: title, body, sender, participants, attachment_names, extra
+            "ORDER BY bm25(items_fts, 5.0, 1.0, 3.0, 1.0, 2.0, 1.0) LIMIT ?")
         with self._lock:
             rows = self._db.execute(sql, [q, *args, max(1, min(limit, 100))]).fetchall()
-        return [Hit(id=r["id"], thread_id=r["thread_id"], subject=r["subject"],
-                    snippet=r["snip"] or r["body"][:200], citation=self._citation(r)) for r in rows]
+        return [self._hit(r, r["snip"] or r["body"][:200]) for r in rows]
 
-    def read_thread(self, thread_id: str) -> List[MessageView]:
+    def read_thread(self, thread_id: str, source: Optional[str] = None) -> List[ItemView]:
+        """Every item in a thread (an email thread, a chat, a recurring event),
+        oldest first. Without `source`, thread ids are matched in every source."""
+        where, args = self._source_where(source)
+        cond = (where + " AND" if where else "WHERE")
         with self._lock:
-            rows = self._db.execute(
-                "SELECT * FROM messages WHERE thread_id=? ORDER BY date_ms", (thread_id,)).fetchall()
+            rows = self._db.execute(f"SELECT * FROM items {cond} thread_id=? ORDER BY date_ms",
+                                    [*args, thread_id]).fetchall()
         return [self._view(r) for r in rows]
 
-    def read_message(self, message_id: str) -> Optional[MessageView]:
+    def read_item(self, item_id: str, source: Optional[str] = None) -> Optional[ItemView]:
+        where, args = self._source_where(source)
+        cond = (where + " AND" if where else "WHERE")
         with self._lock:
-            row = self._db.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
+            row = self._db.execute(f"SELECT * FROM items {cond} id=? LIMIT 1", [*args, item_id]).fetchone()
         return self._view(row) if row else None
+
+    def read_message(self, message_id: str) -> Optional[ItemView]:
+        return self.read_item(message_id, GMAIL)
+
+    def list_items(self, *, source: Optional[str] = None, kind: Optional[str] = None,
+                   sender: Optional[str] = None, after: DateLike = None, before: DateLike = None,
+                   limit: int = 50, oldest_first: bool = False) -> List[Hit]:
+        where, args = self._filters(sender, after, before, source=source, kind=kind)
+        sql = ("SELECT m.* FROM items m " + ("WHERE " + " AND ".join(where) + " " if where else "")
+               + f"ORDER BY m.date_ms {'ASC' if oldest_first else 'DESC'} LIMIT ?")
+        with self._lock:
+            rows = self._db.execute(sql, [*args, max(1, min(limit, 200))]).fetchall()
+        return [self._hit(r, r["body"][:200]) for r in rows]
 
     def list_messages(self, *, sender: Optional[str] = None, after: DateLike = None,
                       before: DateLike = None, limit: int = 50) -> List[Hit]:
-        where, args = self._filters(sender, after, before)
-        sql = ("SELECT m.* FROM messages m " + ("WHERE " + " AND ".join(where) + " " if where else "")
-               + "ORDER BY m.date_ms DESC LIMIT ?")
-        with self._lock:
-            rows = self._db.execute(sql, [*args, max(1, min(limit, 200))]).fetchall()
-        return [Hit(id=r["id"], thread_id=r["thread_id"], subject=r["subject"],
-                    snippet=r["body"][:200], citation=self._citation(r)) for r in rows]
+        """Gmail only (the v1 call)."""
+        return self.list_items(source=GMAIL, sender=sender, after=after, before=before, limit=limit)

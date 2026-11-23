@@ -154,7 +154,8 @@ def test_window_cannot_reach_internals(backend):
     public = {n for n in dir(backend) if not n.startswith("_")}
     assert public == {"status", "connect", "sync_now", "disconnect", "search", "recent", "read_thread",
                       "open_in_gmail", "privacy_report", "ask", "new_chat", "set_xai_key", "clear_xai_key",
-                      "set_model", "mcp_config"}
+                      "set_model", "mcp_config", "sources", "connect_source", "sync_source", "disconnect_source",
+                      "open_link"}
 
 
 def test_mcp_config_points_at_this_data(backend):

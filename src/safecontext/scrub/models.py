@@ -1,7 +1,8 @@
 """Data shapes for the scrubber.
 
-`RawMessage` exists only in memory, between the Gmail fetch and `scrub()`.
-It must never be written, logged, or pickled. Attachments carry metadata
+`RawMessage` (Gmail) and `RawItem` (every other source) exist only in
+memory, between the fetch and `scrub()` / `scrub_item()`. They must never
+be written, logged, or pickled. Attachments carry metadata
 only: there is deliberately no field that could hold attachment bytes.
 """
 from __future__ import annotations
@@ -47,6 +48,73 @@ class ScrubbedMessage:
     body: str
     message_id_header: str
     attachments: List[Attachment]
+    redactions: Dict[str, int]
+    scrubber_version: str
+
+
+# Kinds of item a source can produce. "message" means email: only email gets
+# the email-only drop rules (labels, List-Unsubscribe, no-reply senders).
+KIND_MESSAGE, KIND_EVENT, KIND_CHAT, KIND_TRANSCRIPT = "message", "event", "chat", "transcript"
+KINDS = (KIND_MESSAGE, KIND_EVENT, KIND_CHAT, KIND_TRANSCRIPT)
+
+
+@dataclass
+class RawItem:
+    """One unscrubbed item from any source other than Gmail (a calendar event,
+    a chat message, a call transcript, mail from another provider).
+
+    `sender` and `participants` are identities (names, addresses, handles) and
+    are kept as-is, like an email's From and To. Everything a person wrote
+    (title, text, html, extra values, attachment names) is scrubbed.
+    `extra` holds short labelled fields shown with the item, e.g.
+    {"Location": ..., "Join": ...}. `headers` and `labels` are only read by
+    the email-only rules, for email-like sources.
+    """
+
+    id: str
+    kind: str
+    thread_id: str
+    date_ms: int
+    end_ms: Optional[int] = None
+    sender: str = ""
+    participants: List[str] = field(default_factory=list)
+    title: str = ""
+    text: str = ""
+    html: str = ""
+    link: str = ""
+    attachments: List[Attachment] = field(default_factory=list)
+    extra: Dict[str, str] = field(default_factory=dict)
+    headers: Dict[str, str] = field(default_factory=dict)  # keys lower-cased
+    labels: List[str] = field(default_factory=list)
+
+    @property
+    def label_ids(self) -> List[str]:  # same shape as RawMessage for the label rule
+        return self.labels
+
+    def header(self, name: str) -> str:
+        name = name.lower()
+        if name == "from" and name not in self.headers:
+            return self.sender
+        return self.headers.get(name, "")
+
+    def __repr__(self) -> str:
+        return f"RawItem(id={self.id!r}, kind={self.kind!r}, <content hidden>)"
+
+
+@dataclass
+class ScrubbedItem:
+    id: str
+    kind: str
+    thread_id: str
+    date_ms: int
+    end_ms: Optional[int]
+    sender: str
+    participants: List[str]
+    title: str
+    body: str
+    link: str
+    attachments: List[Attachment]
+    extra: Dict[str, str]
     redactions: Dict[str, int]
     scrubber_version: str
 

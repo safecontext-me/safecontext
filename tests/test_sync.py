@@ -35,11 +35,11 @@ def ids_in(store, table):
 def test_backfill(store, gmail):
     r = run(store, gmail)
     assert r.status == "ok" and r.phase == "backfill"
-    assert ids_in(store, "messages") == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006"}
-    assert store.get_meta("history_id") == "5000"
-    assert store.get_meta("account_email") == "alex@example.org"
-    assert store.get_meta("auth_state") == "ok"
-    assert store.get_meta("backfill_page_token") is None
+    assert ids_in(store, "items") == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006"}
+    assert store.get_state("gmail", "history_id") == "5000"
+    assert store.get_state("gmail", "account") == "alex@example.org"
+    assert store.get_state("gmail", "auth_state") == "ok"
+    assert store.get_state("gmail", "backfill_page_token") is None
 
 
 def test_full_mode_never_downloads_excluded_categories(store, gmail):
@@ -62,10 +62,10 @@ def test_resume_after_interrupted_listing(store, gmail):
     gmail.fail_list_call = 2
     r1 = run(store, gmail)
     assert r1.status == "retry_later" and "resume" in r1.message
-    assert store.get_meta("history_id") is None and store.get_meta("backfill_page_token")
+    assert store.get_state("gmail", "history_id") is None and store.get_state("gmail", "backfill_page_token")
     r2 = run(store, gmail)
     assert r2.status == "ok"
-    assert ids_in(store, "messages") == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006"}
+    assert ids_in(store, "items") == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006"}
     assert max(gmail.fetched.values()) == 1  # nothing downloaded twice
 
 
@@ -73,7 +73,7 @@ def test_resume_after_failed_batch_mid_page(store, gmail):
     gmail.fail_get_call = 2
     assert run(store, gmail).status == "retry_later"
     assert run(store, gmail).status == "ok"
-    assert len(ids_in(store, "messages")) == 6 and max(gmail.fetched.values()) == 1
+    assert len(ids_in(store, "items")) == 6 and max(gmail.fetched.values()) == 1
 
 
 def test_mail_arriving_during_backfill_is_caught(store, gmail):
@@ -104,7 +104,7 @@ def test_incremental_add_delete_relabel(store, gmail):
     assert store.read_message("m0004") is None
     assert store.read_message("m0001") is None and "m0001" in ids_in(store, "dropped")
     assert store.read_message("m0006") is None
-    assert store.get_meta("history_id") == str(gmail.history_id)
+    assert store.get_state("gmail", "history_id") == str(gmail.history_id)
 
 
 def test_restored_from_trash_comes_back(store, gmail):
@@ -135,11 +135,11 @@ def test_expired_history_triggers_resync_and_prunes(store, gmail):
     gmail.delete("m0003", record=False)   # deletion we never hear about via history
     gmail.add(msg(102, text="arrived while offline"), record=False)
     gmail.expire_history()
-    store.set_meta("history_id", "4000")
+    store.set_state("gmail", "history_id", "4000")
     r = run(store, gmail)
     assert r.status == "ok" and r.phase == "resync"
     assert store.read_message("m0003") is None and store.read_message("m0102") is not None
-    assert store.get_meta("resync") is None and store.get_meta("history_id") == str(gmail.history_id)
+    assert store.get_state("gmail", "resync") is None and store.get_state("gmail", "history_id") == str(gmail.history_id)
 
 
 # --- auth loss ----------------------------------------------------------------
@@ -148,11 +148,11 @@ def test_revoked_token_asks_to_reconnect_and_keeps_progress(store, gmail):
     gmail.after_list = lambda n: n == 1 and setattr(gmail, "revoked", True)
     r = run(store, gmail)
     assert r.status == "needs_reconnect" and "Reconnect Gmail" in r.message
-    assert store.get_meta("auth_state") == "needs_reconnect"
+    assert store.get_state("gmail", "auth_state") == "needs_reconnect"
     gmail.after_list, gmail.revoked = None, False
     r = run(store, gmail)
-    assert r.status == "ok" and store.get_meta("auth_state") == "ok"
-    assert len(ids_in(store, "messages")) == 6
+    assert r.status == "ok" and store.get_state("gmail", "auth_state") == "ok"
+    assert len(ids_in(store, "items")) == 6
 
 
 def test_revoked_during_incremental(store, gmail):
@@ -165,10 +165,10 @@ def test_revoked_during_incremental(store, gmail):
 
 def test_scrubber_version_change_refetches(store, gmail):
     run(store, gmail)
-    store._db.execute("UPDATE messages SET scrubber_version='0' WHERE id='m0002'")
+    store._db.execute("UPDATE items SET scrubber_version='0' WHERE id='m0002'")
     run(store, gmail)
     assert gmail.fetched["m0002"] == 2
-    assert store._db.execute("SELECT scrubber_version FROM messages WHERE id='m0002'").fetchone()[0] == "1"
+    assert store._db.execute("SELECT scrubber_version FROM items WHERE id='m0002'").fetchone()[0] == "1"
 
 
 def test_one_bad_message_does_not_stop_sync(store, gmail):
@@ -183,7 +183,7 @@ def test_one_bad_message_does_not_stop_sync(store, gmail):
     assert r.status == "ok" and r.errors == {"ValueError": 1}
     assert store.read_message("m0003") is None
     assert store._db.execute("SELECT reason FROM dropped WHERE id='m0003'").fetchone()[0] == "error:ValueError"
-    assert len(ids_in(store, "messages")) == 5
+    assert len(ids_in(store, "items")) == 5
 
 
 def test_progress_callback(store, gmail):

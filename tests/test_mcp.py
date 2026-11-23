@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 def store(tmp_path):
     s = Store(tmp_path / "data" / "mail.db", account="alex@example.org")
     s.put_many(scrub(m) for m in mailbox())
-    s.set_meta("history_id", "1")
+    s.set_state("gmail", "history_id", "1")
     yield s
     s.close()
 
@@ -51,7 +51,8 @@ def test_initialize_and_list(store):
     assert r[0]["result"]["protocolVersion"] == "2025-06-18"
     assert r[0]["result"]["capabilities"] == {"tools": {"listChanged": False}}
     tools = r[1]["result"]["tools"]
-    assert [t["name"] for t in tools] == ["search_mail", "read_thread", "list_messages"]
+    assert [t["name"] for t in tools] == ["search", "read", "list_items", "list_sources",
+                                          "search_mail", "read_thread", "list_messages"]  # v1 names still work
     assert all(t["inputSchema"]["type"] == "object" and t["annotations"]["readOnlyHint"] for t in tools)
 
 
@@ -91,7 +92,7 @@ def test_protocol_errors(store):
 
 
 def test_reconnect_notice(store):
-    store.set_meta("auth_state", "needs_reconnect")
+    store.set_state("gmail", "auth_state", "needs_reconnect")
     r = session(store, init(), rpc(2, "tools/call", {"name": "search_mail", "arguments": {"query": "rent"}}))[1]
     assert "Reconnect Gmail" in r["result"]["structuredContent"]["notice"]
 

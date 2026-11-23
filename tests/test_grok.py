@@ -46,7 +46,7 @@ class FakeXAI:
 def store(tmp_path):
     s = Store(tmp_path / "mail.db", account="alex@example.org")
     s.put_many(scrub(m) for m in mailbox() + leak_matrix())
-    s.set_meta("history_id", "1")
+    s.set_state("gmail", "history_id", "1")
     yield s
     s.close()
 
@@ -142,7 +142,7 @@ def test_failed_turn_rolls_back_history(store):
 
 
 def test_reconnect_notice_reaches_model(store):
-    store.set_meta("auth_state", "needs_reconnect")
+    store.set_state("gmail", "auth_state", "needs_reconnect")
     fake = FakeXAI([[call("search_mail", {"query": "rent"}, "c1")], [message("ok")]])
     GrokMailAgent(store, client=fake).ask("x")
     out = next(i for i in fake.requests[1]["input"] if i.get("type") == "function_call_output")
@@ -163,7 +163,7 @@ def test_client_points_at_xai(monkeypatch):
 
 def test_nothing_secret_leaves_the_mac(store):
     """Grok reads every thread in the leak matrix; no planted secret may be in any request."""
-    threads = sorted({r[0] for r in store._db.execute("SELECT thread_id FROM messages")})
+    threads = sorted({r[0] for r in store._db.execute("SELECT thread_id FROM items")})
     turns = [[call("search_mail", {"query": q}, f"s{i}")] for i, q in
              enumerate(["card", "password", "code", "key", "IBAN", "address", "SSN", "phone", "routing"])]
     turns += [[call("read_thread", {"thread_id": t}, f"t{i}") for i, t in enumerate(threads)]]
