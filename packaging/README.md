@@ -63,19 +63,46 @@ Cloudflare dashboard → `safecontext.me` → **Email → Email Routing**, enabl
 records), add a custom address `privacy` that forwards to your own inbox, and confirm the destination.
 Then send a test email to privacy@safecontext.me and check that it arrives.
 
-## Deploy
+## Cloudflare account and DNS
 
-Either connect the repo (redeploys on every push to `main`):
+The site, the download and the relay all run on Cloudflare, so the `safecontext.me`
+zone must use Cloudflare's nameservers (Pages can only serve an apex domain from a
+Cloudflare zone). Add the site in the Cloudflare dashboard (Free plan), then at Porkbun
+replace the nameservers with the two Cloudflare shows. Before switching, check that any
+records you need (for example Porkbun email forwarding) were copied over; Cloudflare
+Email Routing above replaces Porkbun's forwarding.
 
-1. Cloudflare dashboard → **Workers & Pages → Create → Pages → Connect to Git**, pick this GitHub repo.
-2. Production branch `main`, framework preset **None**, build command **empty**,
-   build output directory **`site`**. Save and deploy.
+## Download (R2)
 
-Or upload directly from this folder:
+The home page's **Download for Mac** button links to `/download`, which
+`functions/download.js` serves by streaming `SafeContext.dmg` from the R2 bucket
+`safecontext-downloads` (bound as `DOWNLOADS` in the root `wrangler.toml`). The DMG is
+too big for a Pages static file (25 MB limit), and the bucket is not public: the only way
+in is through the function. Create the bucket once (R2 must be enabled on the account):
 
 ```bash
-npx wrangler pages deploy site --project-name safecontext
+npx wrangler r2 bucket create safecontext-downloads
 ```
+
+For each release, upload under the same key so the URL never changes, then update the
+version and size shown on `site/index.html`:
+
+```bash
+npx wrangler r2 object put safecontext-downloads/SafeContext.dmg --remote --file dist/SafeContext-X.Y.Z.dmg --content-type application/x-apple-diskimage
+```
+
+## Deploy
+
+Run from the repo root. `wrangler.toml` points Pages at `site/` for static files and
+picks up `functions/` and the R2 binding:
+
+```bash
+npx wrangler pages deploy
+```
+
+The first run asks to create the `safecontext` project; answer with production branch `main`.
+(Connecting the repo with **Connect to Git** also works, with build output directory
+`site` and no build command; Pages reads the same `wrangler.toml`.)
 
 `site/_headers` sets security headers and `site/404.html` is served for unknown paths;
 Pages picks both up automatically and does not publish `_headers` itself.
@@ -83,9 +110,11 @@ Pages serves `privacy.html` at `/privacy` (it redirects `.html` URLs to the clea
 
 ## Custom domain
 
-In the Pages project → **Custom domains → Set up a custom domain** → `safecontext.me`.
-If the domain's DNS is on Cloudflare this adds the record for you; otherwise add the
-CNAME it shows. Optionally add `www.safecontext.me` too.
+In the Pages project → **Custom domains → Set up a custom domain** → `safecontext.me`
+(the zone is on Cloudflare, so it adds the record itself). Optionally add `www.safecontext.me` too.
+
+Check: `curl -sI https://safecontext.me/download` should show `200`,
+`content-type: application/x-apple-diskimage` and the DMG's size as `content-length`.
 
 ## Google Search Console and the consent screen
 
