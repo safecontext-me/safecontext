@@ -37,3 +37,6 @@ scrub_report.md
 # Briefcase cache and locally built wheels (see packaging/README.md)
 .briefcase/
 packaging/wheels/
+
+# Cloudflare wrangler local state
+.wrangler/
