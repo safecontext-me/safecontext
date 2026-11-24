@@ -28,7 +28,7 @@ def _kept(i, **kw):
 
 def test_counts(store):
     st = store.stats()
-    assert st["kept"] == 6 and st["dropped"] == 10
+    assert st["kept"] == 7 and st["dropped"] == 9
     assert st["redactions"]["API_KEY"] == 6
 
 
@@ -71,6 +71,21 @@ def test_known_and_stale_ids_follow_scrubber_version(store):
     assert store.known_ids(["m0001"], version="999") == set()
     store._db.execute("UPDATE items SET scrubber_version='0' WHERE id='m0002'")
     assert store.stale_ids() == ["m0002"]
+
+
+def test_retired_drop_reasons_are_requeued_once(tmp_path):
+    path = tmp_path / "mail.db"
+    s = Store(path)
+    s.put_many([Dropped("m0001", "t1", "bulk:no_reply_sender"), Dropped("m0002", "t2", "spam_trash")])
+    assert s.stale_ids() == []  # written under the current version
+    s.close()
+    s = Store(path)  # next start: only the retired-rule drop is queued for re-fetch
+    assert s.stale_ids() == ["m0001"] and s.known_ids(["m0001", "m0002"]) == {"m0002"}
+    s.put(_kept(1, subject="Your order has shipped", frm="Shop <no-reply@shop.example>"))
+    s.close()
+    s = Store(path)
+    assert s.stale_ids() == [] and s.read_message("m0001") is not None
+    s.close()
 
 
 def test_meta(store):

@@ -7,6 +7,7 @@ const REDACTION_NAMES = {
   CREDIT_CARD: "card number", CVV: "card code", SSN: "SSN", API_KEY: "API key", JWT: "login token",
   PRIVATE_KEY: "private key", PASSWORD: "password", IBAN: "IBAN", ROUTING_NUMBER: "routing no.",
   BANK_ACCOUNT: "account no.", DATE_OF_BIRTH: "birth date", PHONE: "phone", STREET_ADDRESS: "address",
+  BOOKING_CODE: "booking code",
   HEALTH: "health detail", LEGAL: "legal detail", PERSONAL: "personal detail",
 };
 

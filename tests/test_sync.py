@@ -35,7 +35,7 @@ def ids_in(store, table):
 def test_backfill(store, gmail):
     r = run(store, gmail)
     assert r.status == "ok" and r.phase == "backfill"
-    assert ids_in(store, "items") == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006"}
+    assert ids_in(store, "items") == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006", "m0012"}
     assert store.get_state("gmail", "history_id") == "5000"
     assert store.get_state("gmail", "account") == "alex@example.org"
     assert store.get_state("gmail", "auth_state") == "ok"
@@ -65,7 +65,7 @@ def test_resume_after_interrupted_listing(store, gmail):
     assert store.get_state("gmail", "history_id") is None and store.get_state("gmail", "backfill_page_token")
     r2 = run(store, gmail)
     assert r2.status == "ok"
-    assert ids_in(store, "items") == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006"}
+    assert ids_in(store, "items") == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006", "m0012"}
     assert max(gmail.fetched.values()) == 1  # nothing downloaded twice
 
 
@@ -73,7 +73,7 @@ def test_resume_after_failed_batch_mid_page(store, gmail):
     gmail.fail_get_call = 2
     assert run(store, gmail).status == "retry_later"
     assert run(store, gmail).status == "ok"
-    assert len(ids_in(store, "items")) == 6 and max(gmail.fetched.values()) == 1
+    assert len(ids_in(store, "items")) == 7 and max(gmail.fetched.values()) == 1
 
 
 def test_mail_arriving_during_backfill_is_caught(store, gmail):
@@ -208,7 +208,7 @@ def test_revoked_token_asks_to_reconnect_and_keeps_progress(store, gmail):
     gmail.after_list, gmail.revoked = None, False
     r = run(store, gmail)
     assert r.status == "ok" and store.get_state("gmail", "auth_state") == "ok"
-    assert len(ids_in(store, "items")) == 6
+    assert len(ids_in(store, "items")) == 7
 
 
 def test_revoked_during_incremental(store, gmail):
@@ -239,7 +239,7 @@ def test_one_bad_message_does_not_stop_sync(store, gmail):
     assert r.status == "ok" and r.errors == {"ValueError": 1}
     assert store.read_message("m0003") is None
     assert store._db.execute("SELECT reason FROM dropped WHERE id='m0003'").fetchone()[0] == "error:ValueError"
-    assert len(ids_in(store, "items")) == 5
+    assert len(ids_in(store, "items")) == 6
 
 
 def test_progress_callback(store, gmail):
@@ -262,3 +262,36 @@ def test_full_sync_leaks_nothing_to_disk(tmp_path):
     leaks = [n for n in all_needles() if n.encode() in blob]
     assert not leaks, leaks
     assert b"BENIGN-MARKER" in blob
+
+
+# --- a removed drop rule: mail it hid comes back on the next sync ----------------
+
+def test_mail_dropped_by_retired_no_reply_rule_is_resynced(tmp_path, gmail):
+    from safecontext.scrub import Dropped
+    github = msg(950, frm="GitHub <noreply@github.com>",
+                 subject="[GitHub] A third-party OAuth application has been added to your account",
+                 text="A third-party OAuth application (Example CI) was recently authorized to access your account.")
+    united = msg(951, frm="United Airlines <no-reply@united.example>", subject="Your trip to Denver",
+                 text="Confirmation ABC123. Passenger Alex Kim. Seat 22C.")
+    for m in (github, united):
+        gmail.add(m, record=False)
+    path = tmp_path / "data" / "mail.db"
+    store = Store(path)
+    assert run(store, gmail).status == "ok"
+    # What an older SafeContext left behind: the no-reply rule dropped all three.
+    old = ["m0012", "m0950", "m0951"]
+    store.put_many(Dropped(i, f"t{i[1:]}", "bulk:no_reply_sender") for i in old)
+    store.close()
+
+    store = Store(path)  # the update's first start
+    assert sorted(store.stale_ids()) == old
+    gmail.fetched.clear()
+    assert run(store, gmail).status == "ok"
+    assert set(gmail.fetched) == set(old)  # only the retired rule's mail is downloaded again
+    assert store.read_message("m0012") is not None  # shipping receipt: kept
+    trip = store.read_message("m0951")
+    assert trip is not None and "ABC123" not in trip.body and "[REDACTED:BOOKING_CODE]" in trip.body
+    reasons = dict(store._db.execute("SELECT id, reason FROM dropped WHERE id IN ('m0950','m0951','m0012')"))
+    assert reasons == {"m0950": "security:subject"}  # the OAuth notice: dropped under its new reason
+    assert store.stale_ids() == []
+    store.close()

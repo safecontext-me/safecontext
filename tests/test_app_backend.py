@@ -47,7 +47,7 @@ def test_connect_then_sync(backend):
     r = backend.connect("full", "")
     assert r == {"ok": True, "account": DEMO_ACCOUNT}
     s = wait_sync(backend)
-    assert s["kept"] == 6 and s["first_sync_done"] and not s["needs_reconnect"]
+    assert s["kept"] == 7 and s["first_sync_done"] and not s["needs_reconnect"]
     assert s["last_result"]["status"] == "ok"
 
 
@@ -84,7 +84,7 @@ def test_privacy_report_uses_plain_labels(backend):
     backend.connect("full")
     wait_sync(backend)
     r = backend.privacy_report()
-    assert r["kept"] == 6
+    assert r["kept"] == 7
     assert "Security & 2FA codes" in r["dropped"] and "Card numbers" in r["redacted"]
     assert not any(re.fullmatch(r"[A-Z_]+", k) for k in r["redacted"])
 

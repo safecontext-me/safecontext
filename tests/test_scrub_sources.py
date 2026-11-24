@@ -1,5 +1,5 @@
 """Every source goes through scrub/. Email-only drop rules (labels, bulk-mail
-headers, no-reply senders) apply only to email; OTP/security, financial and
+headers, bounce senders) apply only to email; OTP/security, financial and
 health rules apply to every kind of item."""
 import pytest
 
@@ -42,10 +42,15 @@ def test_list_unsubscribe_and_precedence_only_for_email(kind):
 
 
 @pytest.mark.parametrize("kind", KINDS_NOT_EMAIL)
-def test_no_reply_sender_only_for_email(kind):
+def test_bounce_sender_only_for_email(kind):
+    kept(scrub_item(item(kind, title="Book club", sender="mailer-daemon@meetup.com")))
+    r = scrub_item(item("message", title="Book club", sender="mailer-daemon@meetup.com"))
+    assert isinstance(r, Dropped) and r.reason == "bulk:bounce"
+
+
+@pytest.mark.parametrize("kind", ALL_KINDS)
+def test_no_reply_sender_kept(kind):
     kept(scrub_item(item(kind, title="Book club", sender="no-reply@meetup.com")))
-    r = scrub_item(item("message", title="Book club", sender="no-reply@meetup.com"))
-    assert isinstance(r, Dropped) and r.reason == "bulk:no_reply_sender"
 
 
 @pytest.mark.parametrize("kind", KINDS_NOT_EMAIL)
@@ -77,17 +82,13 @@ def test_security_titles_drop_everywhere(kind):
 @pytest.mark.parametrize("kind", ALL_KINDS)
 @pytest.mark.parametrize("sender,reason", [
     ("Chase <alerts@chase.com>", "sensitive:sender_domain"),
-    ("MyChart <noreply@mychart.org>", None),  # email: no-reply first; others: health domain
+    ("MyChart <noreply@mychart.org>", "sensitive:sender_domain"),  # no-reply, still dropped as health
     ("appointments@brightsmiledental.com", "sensitive:sender_keyword"),
     ("IRS <info@irs.gov>", "sensitive:sender_domain"),
 ])
 def test_financial_and_health_senders_drop_everywhere(kind, sender, reason):
     r = scrub_item(item(kind, sender=sender, text="hello"))
-    assert isinstance(r, Dropped)
-    if reason:
-        assert r.reason == reason
-    elif kind != "message":
-        assert r.reason == "sensitive:sender_domain"
+    assert isinstance(r, Dropped) and r.reason == reason
 
 
 @pytest.mark.parametrize("kind", ALL_KINDS)

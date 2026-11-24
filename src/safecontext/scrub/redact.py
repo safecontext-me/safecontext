@@ -210,6 +210,23 @@ ROUTING = RegexRule("ROUTING_NUMBER", re.compile(
 BANK_ACCOUNT = RegexRule("BANK_ACCOUNT", re.compile(
     rf"\b(?:account|acct|a/c){_NUM_LABEL}(\d[\d -]{{3,22}}\d)\b", _I), group=1)
 
+# Booking codes: airline record locators / PNRs and hotel, rail and car-rental
+# confirmation numbers. With the traveller's name, a code lets anyone view,
+# change or cancel the booking. Only a code right after a booking word counts,
+# so ordinary 6-character tokens and order numbers are left alone. Letters-only
+# codes ("KXJQPT") also need a label or colon, so "RESERVATION DETAILS" in
+# an all-caps heading isn't taken for one.
+_BOOKING_KEY = r"(?i:\b(?:confirmation|booking|reservation|record[ \t]+locator|PNR|itinerary|trip[ \t]+id))"
+_BOOKING_LABEL = r"(?i:[ \t]+(?:code|number|no\.?|num|#|id|ref(?:erence)?|locator))"
+_BOOKING_SEP = r"[ \t]*(?:[:#][ \t]*)?(?i:(?:is|was)[ \t]+)?"
+BOOKING_CODE = RegexRule("BOOKING_CODE", re.compile(
+    rf"{_BOOKING_KEY}{_BOOKING_LABEL}?{_BOOKING_SEP}(?<![\w-])((?=[A-Z]*\d)[A-Z0-9]{{5,14}})(?![\w-])"), group=1)
+_NOT_LOCATORS = frozenset({"CANCEL", "CHANGE", "STATUS", "UPDATE", "NUMBER", "DETAIL", "PLEASE", "REVIEW",
+                           "RECORD", "MANAGE", "BELOW", "ACTIVE", "CLOSED", "PAYMENT", "TICKET"})
+BOOKING_LOCATOR = RegexRule("BOOKING_CODE", re.compile(
+    rf"{_BOOKING_KEY}(?:{_BOOKING_LABEL}{_BOOKING_SEP}|[ \t]*[:#][ \t]*)(?<![\w-])([A-Z]{{6}})(?![\w-])"), group=1,
+    validate=lambda code: code not in _NOT_LOCATORS)
+
 _MONTHS = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?"
 _DATE = (rf"(?:\d{{1,2}}[/.-]\d{{1,2}}[/.-]\d{{2,4}}|\d{{4}}-\d{{2}}-\d{{2}}|"
          rf"{_MONTHS}[ ]\d{{1,2}}(?:st|nd|rd|th)?,?[ ]\d{{4}}|\d{{1,2}}[ ]{_MONTHS}[ ]\d{{4}})")
@@ -271,6 +288,8 @@ REDACTORS: List[Tuple[str, Redactor]] = [
     ("ROUTING_NUMBER", ROUTING),
     ("BANK_ACCOUNT", BANK_ACCOUNT),
     ("DATE_OF_BIRTH", DOB),
+    ("BOOKING_CODE", BOOKING_CODE),   # before phones: a 10-digit hotel number isn't a phone
+    ("BOOKING_CODE", BOOKING_LOCATOR),
     ("PHONE", redact_phones),
     ("STREET_ADDRESS", STREET_ADDRESS),
     ("STREET_ADDRESS", CITY_STATE_ZIP),

@@ -29,6 +29,11 @@ from .scrub import SCRUBBER_VERSION, Attachment, Dropped, ScrubbedItem, Scrubbed
 
 SCHEMA_VERSION = 3
 
+# Drop reasons from rules that were removed. Rows with these reasons are
+# re-fetched once so the mail they hid can be kept under today's rules.
+RETIRED_DROP_REASONS = ("bulk:no_reply_sender",)
+_RETIRED = "retired"
+
 # Schema v2: every source's items in one table, tagged by source.
 #   source   the connected source ("gmail", "gcal", later "imessage", ...)
 #   id       the item's id inside that source; (source, id) is the key
@@ -281,6 +286,7 @@ class Store:
         if self._has_table("messages"):
             self._migrate_v1()
         self._db.executescript(_BROWSE_INDEXES)  # v2 -> v3: indexes only, idempotent
+        self._requeue_retired_drops()
         version = self.get_meta("schema_version")
         if version is None or (version.isdigit() and int(version) < SCHEMA_VERSION):
             self.set_meta("schema_version", str(SCHEMA_VERSION))
@@ -365,6 +371,15 @@ class Store:
             db.execute("DROP TABLE messages_fts")  # its triggers go with `messages`
             db.execute("DROP TABLE messages")
             db.execute("INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
+
+    def _requeue_retired_drops(self) -> None:
+        """Mark mail dropped by a rule that no longer exists as stale, so sync
+        re-fetches and re-scrubs just those messages instead of the whole
+        mailbox. Idempotent: the retired rule never produces new rows."""
+        marks = ",".join("?" * len(RETIRED_DROP_REASONS))
+        with self._lock:
+            self._db.execute(f"UPDATE dropped SET scrubber_version=? WHERE source=? AND reason IN ({marks}) "
+                             "AND scrubber_version != ?", [_RETIRED, GMAIL, *RETIRED_DROP_REASONS, _RETIRED])
 
     # meta / sync state ------------------------------------------------------
 

@@ -269,3 +269,30 @@ def test_clean_text_untouched():
 def test_counts_accumulate():
     _, counts = redact("SSN 536-22-1987 and 4111 1111 1111 1111 and (415) 555-0132")
     assert counts == {"SSN": 1, "CREDIT_CARD": 1, "PHONE": 1}
+
+
+# --- booking / confirmation codes -------------------------------------------
+
+@pytest.mark.parametrize("text,code", [
+    ("Confirmation ABC123. Passenger Alex Kim. Seat 22C.", "ABC123"),
+    ("Your confirmation code: KXJQPT", "KXJQPT"),
+    ("Record locator: KXJQPT", "KXJQPT"),
+    ("PNR XYZ9QK", "XYZ9QK"),
+    ("Reservation number 83749201", "83749201"),
+    ("Booking number 1234567890 at Hotel Example", "1234567890"),
+    ("Itinerary # 72345678901", "72345678901"),
+    ("Trip ID: 4F7G9H", "4F7G9H"),
+    ("CONFIRMATION NUMBER: 9QX2LM", "9QX2LM"),
+    ("your booking ref is HX4T9P", "HX4T9P"),
+])
+def test_booking_codes(text, code):
+    assert_redacted(text, "BOOKING_CODE", code)
+
+
+@pytest.mark.parametrize("text", [
+    "RESERVATION DETAILS", "Booking confirmed for 2 guests", "Your order confirmation #112-3344556",
+    "Order 123456 confirmed", "Booking.com reservation for 3 nights", "Confirmation email sent",
+    "Reservation at 7pm", "reservation: CANCEL", "Your ride ABC123 is arriving", "Flight UA 1234 departs 8:05",
+])
+def test_booking_words_without_codes_untouched(text):
+    assert_untouched(text)

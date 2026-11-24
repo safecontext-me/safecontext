@@ -62,11 +62,11 @@ def test_prose_classifier_hook():
 def test_synthetic_mailbox_outcomes():
     results = {m.id: scrub(m) for m in mailbox()}
     kept = {k for k, v in results.items() if isinstance(v, ScrubbedMessage)}
-    assert kept == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006"}
+    assert kept == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006", "m0012"}  # m0012: no-reply receipt
     reasons = {k: v.reason for k, v in results.items() if isinstance(v, Dropped)}
     assert reasons == {
         "m0007": "security:subject", "m0008": "security:subject", "m0009": "category:promotions",
-        "m0010": "category:social", "m0011": "bulk:list_unsubscribe", "m0012": "bulk:no_reply_sender",
+        "m0010": "category:social", "m0011": "bulk:list_unsubscribe",
         "m0013": "sensitive:sender_domain", "m0014": "sensitive:subject", "m0015": "spam_trash",
         "m0016": "sensitive:sender_keyword",
     }

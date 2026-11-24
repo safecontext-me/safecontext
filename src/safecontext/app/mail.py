@@ -25,7 +25,10 @@ REASON_SHORT: Dict[str, tuple] = {
     "category:forums": ("Forums", "Gmail filed it under Forums."),
     "bulk:list_unsubscribe": ("Newsletter", "It has an unsubscribe header, so it's a newsletter or mailing list."),
     "bulk:precedence": ("Bulk mail", "It's marked as bulk mail."),
-    "bulk:no_reply_sender": ("No-reply sender", "It came from a no-reply address."),
+    "bulk:bounce": ("Bounce notice", "It's an automatic notice that a message couldn't be delivered."),
+    # Retired rule: rows keep this reason only until sync re-fetches them.
+    "bulk:no_reply_sender": ("No-reply sender", "An older version skipped no-reply mail; the next sync "
+                             "fetches it again."),
     "security:subject": ("Security code or sign-in", "Its subject looks like a security code, sign-in or "
                          "password email."),
     "security:body": ("Security code", "It contains a security code or a password reset link."),
@@ -33,6 +36,7 @@ REASON_SHORT: Dict[str, tuple] = {
                                 "service."),
     "sensitive:sender_keyword": ("Bank/financial, tax or health sender", "The sender's domain looks like a bank, "
                                  "insurer, clinic or tax service."),
+    "sensitive:dating": ("Dating app", "It came from a dating app."),
     "business_sender": ("Business or automated text", "It came from a shortcode, a business sender ID or a "
                         "toll-free number, the way banks, pharmacies and sign-in codes are sent."),
     "sensitive:text": ("Bank, tax or health text", "It reads like a bank, tax or health notice (a balance, a "
