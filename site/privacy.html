@@ -27,20 +27,20 @@
 <main id="main" class="doc">
 <div class="wrap prose">
 <h1>SafeContext Privacy Policy</h1>
-<p class="muted">Effective November 23, 2026</p>
+<p class="muted">Effective November 24, 2026</p>
 
-<p>SafeContext is a Mac app, developed by Cyrus Karbassiyoon (“we”, “the developer”), that downloads your Gmail to your
+<p>SafeContext is a Mac app, developed by Cyrus Karbassiyoon (“we”, “the developer”), that copies your Gmail and, if you add them, your Google Calendar and your Messages history (iMessage, SMS and RCS) to your
 own computer, removes sensitive information from it on your computer, and lets you and AI assistants you choose search the result.
 This policy explains what data SafeContext uses, how it is protected, and where it goes. It applies to the SafeContext app and
 to this website, <a href="https://safecontext.me/">safecontext.me</a>.</p>
 
 <h2>The short version</h2>
 <ul>
-  <li>Your email is processed and stored <b>only on your Mac</b>. The developer never stores or keeps a copy of your email.</li>
+  <li>Your email, events and text messages are processed and stored <b>only on your Mac</b>. The developer never stores or keeps a copy of them.</li>
   <li>Sensitive data is removed <b>before</b> anything is saved.</li>
-  <li>Nothing leaves your Mac unless <b>you</b> turn on <b>Use in Grok</b> or connect an AI app, and then only scrubbed results for that AI's searches are shared.</li>
-  <li>With Use in Grok on, those scrubbed results pass through SafeContext's relay on their way to Grok. The relay <b>does not store or log</b> them.</li>
-  <li>SafeContext only reads your mail. It cannot send, delete or change email.</li>
+  <li>Nothing leaves your Mac unless <b>you</b> turn on <b>MCP</b> or connect an AI app, and then only scrubbed results for that AI's searches are shared.</li>
+  <li>With MCP on, those scrubbed results pass through SafeContext's relay on their way to the AI app you connected, such as Grok or Claude. The relay <b>does not store or log</b> them.</li>
+  <li>SafeContext only reads. It cannot send, delete or change email, events or messages.</li>
   <li>Your Google data is never sold, never used for advertising, and never used to train AI models.</li>
 </ul>
 
@@ -57,21 +57,24 @@ to this website, <a href="https://safecontext.me/">safecontext.me</a>.</p>
 <p>SafeContext also learns the email address of the Google account you connect, so it can show which account is connected.
 It never downloads the contents of attachments; it records only each attachment's file name, type and size.</p>
 
+<h2>Messages data SafeContext accesses</h2>
+<p>If you choose to add iMessage, SafeContext reads the Messages history that macOS keeps on your Mac (iMessage, SMS and RCS), read-only. This needs <b>Full Disk Access</b>, which you turn on yourself in System Settings; SafeContext cannot turn it on for you. With that access, SafeContext also reads the Contacts data on your Mac so it can show names instead of phone numbers. It never sends, changes or deletes a message, and it records only each attachment's file name and type, never its contents. Messages data never goes to Google or to the developer.</p>
+
 <h2>How SafeContext uses your Google data</h2>
-<p>SafeContext uses Gmail and Google Calendar data only to provide the features you see in the app:</p>
+<p>SafeContext uses Gmail, Google Calendar and Messages data only to provide the features you see in the app:</p>
 <ul>
-  <li>building a scrubbed, searchable copy of your mail on your Mac;</li>
+  <li>building a scrubbed, searchable copy of your mail, events and messages on your Mac;</li>
   <li>letting you browse and search that copy;</li>
-  <li>letting Grok, when you turn on Use in Grok, search that copy to answer the questions you ask it, with links back to the original messages in Gmail and events in Google Calendar; and</li>
+  <li>letting AI apps such as Grok or Claude, when you turn on MCP and connect them, search that copy to answer the questions you ask, with links back to the original messages in Gmail and events in Google Calendar; and</li>
   <li>letting AI apps that you connect on your Mac search that copy on your behalf.</li>
 </ul>
 
 <h2>How your data is processed and stored</h2>
 <ul>
-  <li><b>Scrubbing happens on your Mac, in memory, before storage.</b> Whole messages are skipped if they are spam or trash, promotions, social or forum notifications, bulk mail, security messages (such as verification codes and password resets), or come from banking, tax or health senders. In the messages that remain, values such as one-time codes, passwords, card and bank numbers, Social Security numbers, API keys, dates of birth, phone numbers and street addresses are replaced with placeholders. Quoted replies and signatures are removed.</li>
-  <li><b>Only scrubbed messages are saved</b>, in a database file on your Mac, in <code>~/Library/Application Support/SafeContext</code>.</li>
-  <li><b>Your Google sign-in token</b> and the private Use in Grok link are stored in your Mac's Keychain, not in a plain file.</li>
-  <li>A short <b>activity list</b> of what Grok asked for (time, request and number of results, never the results) is kept on your Mac so you can see it in the app. You can clear it at any time.</li>
+  <li><b>Scrubbing happens on your Mac, in memory, before storage.</b> Whole messages are skipped if they are spam or trash, promotions, social or forum notifications, bulk mail, security messages (such as verification codes and password resets), or come from banking, tax or health senders. In the messages that remain, values such as one-time codes, passwords, card and bank numbers, Social Security numbers, API keys, dates of birth, phone numbers and street addresses are replaced with placeholders. Quoted replies and signatures are removed. Text messages from short codes, sender IDs and toll-free numbers (such as banks, pharmacies and sign-in codes), and texts that read like a bank, tax or health notice, are skipped.</li>
+  <li><b>Only scrubbed items are saved</b>, in a database file on your Mac, in <code>~/Library/Application Support/SafeContext</code>.</li>
+  <li><b>Your Google sign-in token</b> and the private MCP link are stored in your Mac's Keychain, not in a plain file.</li>
+  <li>A short <b>activity list</b> of what connected AI apps asked for through the MCP link (time, request and number of results, never the results) is kept on your Mac so you can see it in the app. You can clear it at any time.</li>
   <li>SafeContext has <b>no analytics, tracking or telemetry</b>, and this website sets no cookies.</li>
 </ul>
 
@@ -81,25 +84,26 @@ It never downloads the contents of attachments; it records only each attachment'
   <li>The SafeContext folder and database are created so that <b>only your macOS user account</b> can read or write them.</li>
   <li>The Google sign-in token is protected by the <b>macOS Keychain</b>.</li>
   <li>The database itself is <b>not separately encrypted</b> by SafeContext. It is protected by your Mac's own security: your user account password and, if you turn it on, <b>FileVault</b> disk encryption. We recommend keeping FileVault on.</li>
-  <li>Because sensitive values are scrubbed before saving, the stored copy holds less sensitive data than your mailbox does.</li>
+  <li>Because sensitive values are scrubbed before saving, the stored copy holds less sensitive data than your mailbox and Messages history do.</li>
   <li>When messages are deleted from the database, SafeContext overwrites the deleted content rather than leaving it in free space in the file.</li>
-  <li>Connections to Google, to SafeContext's relay and from the relay to Grok use HTTPS or secure WebSockets (TLS).</li>
+  <li>Connections to Google, to SafeContext's relay and from the relay to the AI apps you connect use HTTPS or secure WebSockets (TLS).</li>
 </ul>
 
 <h2>When data leaves your Mac</h2>
 <p>Only in the cases below, each started by you. Sharing with an AI assistant is the feature you are asking SafeContext to perform.</p>
 <ul>
-  <li><b>Use in Grok.</b> Off until you turn it on. When it is on, you add a private link to Grok's connectors and approve Grok once in SafeContext. After that, when you ask Grok something, Grok sends its search to SafeContext's relay (<code>relay.safecontext.me</code>), the relay passes it to SafeContext on your Mac, your Mac answers from the scrubbed copy, and the relay passes the scrubbed results back to Grok. Then those results are with xAI, which handles them under its own terms and privacy policy.
+  <li><b>MCP (Grok, Claude and other AI apps).</b> Off until you turn it on. When it is on, you add a private link as a connector in an AI app such as Grok or Claude and approve that app once in SafeContext. After that, when you ask the app something, it sends its search to SafeContext's relay (<code>relay.safecontext.me</code>), the relay passes it to SafeContext on your Mac, your Mac answers from the scrubbed copy, and the relay passes the scrubbed results back to the app. Then those results are with that app's provider (xAI for Grok, Anthropic for Claude), which handles them under its own terms and privacy policy.
     <ul>
-      <li>The relay is operated by the developer on Cloudflare. It forwards requests and results in memory and <b>does not store or log</b> them. What it does store is only what it needs to recognise your Mac and Grok: a random link identifier and one-way hashes of your Mac's relay secret and of Grok's sign-in tokens. None of it is Google data. As with any website, Cloudflare handles network information such as IP addresses to deliver and protect the service.</li>
-      <li>It only works while your Mac is awake and SafeContext is open. Grok can only use read-only search tools; it cannot change, send or delete anything.</li>
-      <li><b>To stop:</b> turn the Use in Grok switch off, and nothing more is sent. <b>Regenerate link</b> revokes Grok's access entirely; you can also remove the connector in Grok.</li>
+      <li>The relay is operated by the developer on Cloudflare. It forwards requests and results in memory and <b>does not store or log</b> them. What it does store is only what it needs to recognise your Mac and the apps you approved: a random link identifier and one-way hashes of your Mac's relay secret and of those apps' sign-in tokens. None of it is Google data. As with any website, Cloudflare handles network information such as IP addresses to deliver and protect the service.</li>
+      <li>It only works while your Mac is awake and SafeContext is open. Connected apps can only use read-only search tools; they cannot change, send or delete anything.</li>
+      <li>An optional setting lets apps connect with just the link, without the Approve step. With it on, anyone who has your link can search your scrubbed data, so keep the link private.</li>
+      <li><b>To stop:</b> turn the MCP switch off, and nothing more is sent. <b>Regenerate link</b> revokes every connected app's access entirely; you can also remove the connector in the app.</li>
     </ul>
   </li>
-  <li><b>AI apps you connect on your Mac.</b> If you connect another AI app to SafeContext on your Mac (through the Model Context Protocol), that app can search and read your scrubbed messages when you use it. You choose whether to connect an app, and you can disconnect it at any time. The app handles that data under its own terms.</li>
+  <li><b>AI apps you connect on your Mac.</b> If you connect another AI app to SafeContext on your Mac (through the Model Context Protocol), that app can search and read your scrubbed copy when you use it. You choose whether to connect an app, and you can disconnect it at any time. The app handles that data under its own terms.</li>
   <li><b>Opening a message in Gmail</b> opens it in your web browser at Google.</li>
 </ul>
-<p>The developer never keeps your Google data. With Use in Grok on, scrubbed results pass through the developer's relay only in transit, as described above.</p>
+<p>The developer never keeps your Google or Messages data. With MCP on, scrubbed results pass through the developer's relay only in transit, as described above.</p>
 
 <h2>Google API Services User Data Policy and Limited Use</h2>
 <p>SafeContext's use and transfer to any other app of information received from Google APIs will adhere to the
@@ -107,18 +111,19 @@ It never downloads the contents of attachments; it records only each attachment'
 including the Limited Use requirements. In particular:</p>
 <ol>
   <li><b>Limited use.</b> SafeContext uses Google user data only to provide and improve the user-facing features described in this policy, which are prominent in the app.</li>
-  <li><b>Limited transfer.</b> SafeContext does not transfer Google user data to anyone except as necessary to provide those features (such as passing scrubbed search results through SafeContext's relay to Grok, or to an AI app on your Mac, when you turn that on), with your consent, to comply with applicable law, or as part of a merger, acquisition or sale of assets with notice to you.</li>
-  <li><b>No human reading.</b> No person, including the developer, reads your Google user data, unless you give explicit consent for specific messages (for example, to help with a support request), it is necessary for security purposes such as investigating abuse, it is required to comply with applicable law, or the data has been aggregated and anonymized for internal operations. Because your data is kept only on your Mac, and the relay passes Use in Grok results through without storing or logging them, the developer has no copy of it to read.</li>
+  <li><b>Limited transfer.</b> SafeContext does not transfer Google user data to anyone except as necessary to provide those features (such as passing scrubbed search results through SafeContext's relay to an AI app you connected, such as Grok or Claude, or to an AI app on your Mac, when you turn that on), with your consent, to comply with applicable law, or as part of a merger, acquisition or sale of assets with notice to you.</li>
+  <li><b>No human reading.</b> No person, including the developer, reads your Google user data, unless you give explicit consent for specific messages (for example, to help with a support request), it is necessary for security purposes such as investigating abuse, it is required to comply with applicable law, or the data has been aggregated and anonymized for internal operations. Because your data is kept only on your Mac, and the relay passes MCP results through without storing or logging them, the developer has no copy of it to read.</li>
   <li><b>No advertising, selling or AI training.</b> SafeContext does not use or transfer Google user data to serve advertisements, including retargeting, personalized or interest-based ads; does not sell it; does not use it to determine credit-worthiness or for lending purposes; and does not use it to develop, improve or train generalized AI or machine-learning models.</li>
 </ol>
 
 <h2>Keeping and deleting your data</h2>
 <ul>
-  <li>Your scrubbed mail stays on your Mac until you delete it. In SafeContext, <b>Settings → Disconnect and delete local mail</b> deletes it and revokes SafeContext's access to your Google account.</li>
+  <li>Your scrubbed copy stays on your Mac until you delete it. On SafeContext's Sources screen you can disconnect each source and delete its local copy. For Gmail, <b>Disconnect and delete local mail</b> also revokes SafeContext's access to your Google account.</li>
+  <li>You can turn off SafeContext's Full Disk Access in System Settings at any time, and it stops reading your Messages history.</li>
   <li>You can also revoke access at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
   <li>Uninstalling SafeContext and deleting its folder removes everything it stored.</li>
   <li>The relay keeps none of your data. Regenerating the link in SafeContext deletes everything the relay held for it (the link identifier and the hashes above).</li>
-  <li>Data Grok received, or that an AI app you connected received, is kept under that service's own policy.</li>
+  <li>Data that an AI app you connected received, such as Grok or Claude, is kept under that service's own policy.</li>
 </ul>
 
 <h2>Children</h2>
