@@ -8,7 +8,7 @@
 <link rel="canonical" href="https://safecontext.me/privacy">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/style.css?v=5">
+<link rel="stylesheet" href="/style.css?v=7">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -20,7 +20,9 @@
     </a>
     <nav aria-label="Site">
       <a href="/how-it-works">How it works</a>
-      <a href="/privacy" aria-current="page">Privacy Policy</a>
+      <a href="/agent-context-guide">Safe AI guide</a>
+      <a href="/privacy" aria-current="page">Privacy</a>
+      <a class="nav-cta" href="/download">Download</a>
     </nav>
   </div>
 </header>
@@ -60,6 +62,7 @@ It never downloads the contents of attachments; it records only each attachment'
 
 <h2>Messages data SafeContext accesses</h2>
 <p>If you choose to add iMessage, SafeContext reads the Messages history that macOS keeps on your Mac (iMessage, SMS and RCS), read-only. This needs <b>Full Disk Access</b>, which you turn on yourself in System Settings; SafeContext cannot turn it on for you. With that access, SafeContext also reads the Contacts data on your Mac so it can show names instead of phone numbers. It never sends, changes or deletes a message, and it records only each attachment's file name and type, never its contents. Messages data never goes to Google or to the developer.</p>
+<p>If you turn on <b>Check AI apps on this Mac</b> in the AI access review, SafeContext reads Claude Desktop's MCP config file and Claude Code's settings files in your home folder, on your Mac only. It uses them to list the MCP servers and “always allow” rules those apps have. It doesn't keep or show the values in those files, such as API keys, and it doesn't open your project folders. It's off until you turn it on, and you can turn it off at any time.</p>
 
 <h2>How SafeContext uses your Google data</h2>
 <p>SafeContext uses Gmail, Google Calendar and Messages data only to provide the features you see in the app:</p>
@@ -72,11 +75,12 @@ It never downloads the contents of attachments; it records only each attachment'
 
 <h2>How your data is processed and stored</h2>
 <ul>
-  <li><b>Scrubbing happens on your Mac, in memory, before storage.</b> Whole messages are skipped if they are spam or trash, promotions, social or forum notifications, bulk mail, security messages (such as verification codes and password resets), or come from banking, tax or health senders. In the messages that remain, values such as one-time codes, passwords, card and bank numbers, Social Security numbers, API keys, dates of birth, phone numbers and street addresses are replaced with placeholders. Quoted replies and signatures are removed. Text messages from short codes, sender IDs and toll-free numbers (such as banks, pharmacies and sign-in codes), and texts that read like a bank, tax or health notice, are skipped.</li>
+  <li><b>Scrubbing happens on your Mac, in memory, before storage.</b> Whole messages are skipped if they are spam or trash, promotions, social or forum notifications, bulk mail, security messages (such as verification codes, password resets and notices that an app or device was given access to your account), or come from banking, tax, health or dating-app senders. In the messages that remain, values such as one-time codes, passwords, card and bank numbers, Social Security numbers, API keys, dates of birth, phone numbers, street addresses and booking confirmation codes are replaced with placeholders. Quoted replies and signatures are removed. Text messages from short codes, sender IDs and toll-free numbers (such as banks, pharmacies and sign-in codes), and texts that read like a bank, tax or health notice, are skipped.</li>
   <li><b>Only scrubbed items are saved</b>, in a database file on your Mac, in <code>~/Library/Application Support/SafeContext</code>.</li>
   <li><b>Your Google sign-in token</b> and the private MCP link are stored in your Mac's Keychain, not in a plain file.</li>
   <li>A short <b>activity list</b> of what connected AI apps asked for through the MCP link (time, request and number of results, never the results) is kept on your Mac so you can see it in the app. You can clear it at any time.</li>
-  <li>SafeContext has <b>no analytics, tracking or telemetry</b>, and this website sets no cookies.</li>
+  <li>Your answers in the <b>AI access review</b> (which checks you've done, and when) and any report you save are kept on your Mac, in SafeContext's folder. A saved report contains no email addresses, no MCP link and no values from other apps' files.</li>
+  <li>The SafeContext app has <b>no analytics, tracking or telemetry</b>, and this website sets no cookies. SafeContext's relay and update check keep anonymous usage counts, described below.</li>
 </ul>
 
 <h2>How your data is protected</h2>
@@ -95,7 +99,9 @@ It never downloads the contents of attachments; it records only each attachment'
 <ul>
   <li><b>MCP (Grok, Claude and other AI apps).</b> Off until you turn it on. When it is on, you add a private link as a connector in an AI app such as Grok or Claude and approve that app once in SafeContext. After that, when you ask the app something, it sends its search to SafeContext's relay (<code>relay.safecontext.me</code>), the relay passes it to SafeContext on your Mac, your Mac answers from the scrubbed copy, and the relay passes the scrubbed results back to the app. Then those results are with that app's provider (xAI for Grok, Anthropic for Claude), which handles them under its own terms and privacy policy.
     <ul>
-      <li>The relay is operated by the developer on Cloudflare. It forwards requests and results in memory and <b>does not store or log</b> them. What it does store is only what it needs to recognise your Mac and the apps you approved: a random link identifier and one-way hashes of your Mac's relay secret and of those apps' sign-in tokens. None of it is Google data. As with any website, Cloudflare handles network information such as IP addresses to deliver and protect the service.</li>
+      <li>The relay is operated by the developer on Cloudflare. It forwards requests and results in memory and <b>does not store or log</b> them. What it does store is only what it needs to recognise your Mac and the apps you approved: a random link identifier and one-way hashes of your Mac's relay secret and of those apps' sign-in tokens. None of it is Google data.</li>
+      <li>The relay also records anonymous usage counts: the date, which AI app (Grok, Claude or other), which SafeContext tool was used, whether it worked, how long it took and roughly how large the answer was, tied to a random-looking code derived from your link that can't identify you or be used to reach your Mac. It also counts when an app connects, when your Mac can't be reached and when a request is turned away for coming too fast. It never records your queries, results, IP address, browser or location. These counts are kept for about three months.</li>
+      <li>As with any website, Cloudflare handles network information such as IP addresses to deliver and protect the service.</li>
       <li>It only works while your Mac is awake and SafeContext is open. Connected apps can only use read-only search tools; they cannot change, send or delete anything.</li>
       <li>An optional setting lets apps connect with just the link, without the Approve step. With it on, anyone who has your link can search your scrubbed data, so keep the link private.</li>
       <li><b>To stop:</b> turn the MCP switch off, and nothing more is sent. <b>Regenerate link</b> revokes every connected app's access entirely; you can also remove the connector in the app.</li>
@@ -103,7 +109,7 @@ It never downloads the contents of attachments; it records only each attachment'
   </li>
   <li><b>AI apps you connect on your Mac.</b> If you connect another AI app to SafeContext on your Mac (through the Model Context Protocol), that app can search and read your scrubbed copy when you use it. You choose whether to connect an app, and you can disconnect it at any time. The app handles that data under its own terms.</li>
   <li><b>Opening a message in Gmail</b> opens it in your web browser at Google.</li>
-  <li><b>Update checks.</b> Once a day, and when you click <b>Check for updates</b>, SafeContext downloads a small file from safecontext.me that lists the latest version. The request sends none of your data: no account, email address, device identifier or usage information, only what any web request carries (your IP address, which Cloudflare handles to deliver the site). If you choose <b>Update and restart</b>, SafeContext downloads the new version from safecontext.me, checks that it is signed by SafeContext's developer, and replaces the app. Your data folder and Keychain items are not touched. You can turn automatic checks off in Settings.</li>
+  <li><b>Update checks.</b> Once a day, and when you click <b>Check for updates</b>, SafeContext downloads a small file from safecontext.me that lists the latest version. The request sends none of your data: no account, email address, device identifier or usage information, only what any web request carries (your IP address, which Cloudflare handles to deliver the site). The site counts each check with only the app version and the date. If you choose <b>Update and restart</b>, SafeContext downloads the new version from safecontext.me, checks that it is signed by SafeContext's developer, and replaces the app. Your data folder and Keychain items are not touched. You can turn automatic checks off in Settings.</li>
 </ul>
 <p>The developer never keeps your Google or Messages data. With MCP on, scrubbed results pass through the developer's relay only in transit, as described above.</p>
 
@@ -124,7 +130,7 @@ including the Limited Use requirements. In particular:</p>
   <li>You can turn off SafeContext's Full Disk Access in System Settings at any time, and it stops reading your Messages history.</li>
   <li>You can also revoke access at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
   <li>Uninstalling SafeContext and deleting its folder removes everything it stored.</li>
-  <li>The relay keeps none of your data. Regenerating the link in SafeContext deletes everything the relay held for it (the link identifier and the hashes above).</li>
+  <li>The relay keeps none of your data. Regenerating the link in SafeContext deletes everything the relay held for it (the link identifier and the hashes above). The anonymous usage counts stay until they expire after about three months; they contain none of your data.</li>
   <li>Data that an AI app you connected received, such as Grok or Claude, is kept under that service's own policy.</li>
 </ul>
 
@@ -143,8 +149,8 @@ Questions about this policy or your data: <!--email_off--><a href="mailto:privac
   <div class="wrap">
     <span>© 2026 SafeContext</span>
     <nav aria-label="Footer">
-      <a href="/">Home</a>
       <a href="/how-it-works">How it works</a>
+      <a href="/agent-context-guide">Safe AI guide</a>
       <a href="/connectors">Build a connector</a>
       <a href="/privacy">Privacy Policy</a>
       <!--email_off--><a href="mailto:privacy@safecontext.me">Contact: privacy@safecontext.me</a><!--/email_off-->
