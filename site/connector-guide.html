@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Writing a SafeContext connector</title>
+<meta name="description" content="The full guide to writing a SafeContext connector: the rules, the ReaderSource interface, registering, the conformance kit and the pull request checklist.">
+<meta name="color-scheme" content="light dark">
+<link rel="canonical" href="https://safecontext.me/connector-guide">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css?v=5">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="SafeContext home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect class="logo-bg" width="32" height="32" rx="8"/><path class="logo-fg" d="M16 6.5l7.5 2.8v5.6c0 4.8-3.2 8.6-7.5 10.6-4.3-2-7.5-5.8-7.5-10.6V9.3z"/></svg>
+      SafeContext
+    </a>
+    <nav aria-label="Site">
+      <a href="/how-it-works">How it works</a>
+      <a href="/privacy">Privacy Policy</a>
+    </nav>
+  </div>
+</header>
+<!-- Kept in step with src/safecontext/sources/CONNECTORS.md. Update both together. -->
+<main id="main" class="doc">
+<div class="wrap prose">
+<p class="eyebrow"><a href="/connectors">Build a connector</a></p>
+<h1>Writing a SafeContext connector</h1>
+
+<p>A connector copies data from one place (a chat app, an export file, a folder of transcripts) into SafeContext. SafeContext scrubs every item on the Mac before storing it, then serves the result to AI.</p>
+<p>Anyone can write a connector. Connectors ship <b>inside</b> SafeContext: you open a pull request, it gets reviewed, and it goes out in the next signed release. SafeContext never loads code from outside the app. A connector sees raw data before the scrubber does, so every one is reviewed.</p>
+
+<h2 id="rules">The rules</h2>
+<p>These protect the promise SafeContext makes to its users. A pull request that breaks one is not merged.</p>
+<ol>
+  <li><b>Read-only.</b> Never send, change or delete anything at the source.</li>
+  <li><b>Nothing leaves the Mac.</b> No network calls, except to the service's own official API when the connector is an API connector (see below). No analytics and no “phone home”.</li>
+  <li><b>Everything goes through the scrubber.</b> Return <code>RawItem</code>s from <code>to_item</code> and let <code>ReaderSource</code> do the rest. Never write to the store, and never override <code>sync()</code> or <code>_syncer()</code>. The registry refuses a connector that does.</li>
+  <li><b>Keep raw data out of logs.</b> Log ids and counts only, never message text, names, numbers or addresses.</li>
+  <li><b>Ask, don't take.</b> Declare every permission in <code>requirements</code> with a plain <code>why</code>. Check access in <code>check_access()</code> without triggering a macOS prompt, and raise <code>NeedsPermission</code> with a <code>permission_help</code> entry that tells the user what to do.</li>
+  <li><b>Only fixture data in tests.</b> Build fake databases or files in a temp folder (see <code>demo/fake_messages.py</code>). Never read real user data, not even your own.</li>
+  <li><b>No new dependencies</b> without asking first in the pull request.</li>
+</ol>
+
+<h2 id="how">How to write one</h2>
+<p>Start from <code>tests/example_connector.py</code>. It is a complete working connector for a chat export file.</p>
+<ol>
+  <li><b>The reader</b> goes in <code>src/safecontext/readers/&lt;name&gt;.py</code>. It knows the source's format and nothing about SafeContext: a function or class that yields plain dataclasses, oldest first, starting after a cursor.</li>
+  <li><b>The connector</b> goes in <code>src/safecontext/sources/&lt;name&gt;.py</code>. Subclass <code>ReaderSource</code> and provide the items in the table below. Batching, scrubbing, storing, the cursor, locking, progress and error handling all come from <code>ReaderSource</code>.</li>
+  <li><b>Register it:</b> add the class to <code>CONNECTORS</code> in <code>sources/__init__.py</code>, and remove its entry from <code>COMING_SOON</code> if it had one.</li>
+  <li><b>Test it:</b> add a <code>ConnectorFixture</code> for it to <code>tests/test_connector_conformance.py</code> and put it in <code>FIXTURES</code>. The kit (<code>tests/connector_kit.py</code>) then checks first sync, resuming, a bad record, a crash while reading, undeclared kinds, permissions, disconnect, and that card numbers and one-time codes never reach the store's files. Add tests of your own for the mapping in <code>to_item</code>.</li>
+  <li>Run <code>.venv/bin/pytest</code>. Every test must pass.</li>
+</ol>
+
+<ul class="facts">
+  <li><b><code>id</code></b><span>Lowercase, stable, never changes: items are stored under it.</span></li>
+  <li><b><code>name</code>, <code>description</code></b><span>Shown on the Sources screen.</span></li>
+  <li><b><code>kinds</code></b><span>One or more of <code>message</code>, <code>event</code>, <code>chat</code>, <code>transcript</code>. The scrubber picks its rules by kind, so new kinds aren't allowed.</span></li>
+  <li><b><code>api_version</code></b><span><code>1</code>, the current <code>CONNECTOR_API_VERSION</code>.</span></li>
+  <li><b><code>requirements</code></b><span>What the connector needs, each with a reason for the user.</span></li>
+  <li><b><code>link_prefixes</code></b><span>Optional. <code>https://</code> deep links the app may open for an item.</span></li>
+  <li><b><code>read(cursor)</code></b><span>Records after <code>cursor</code> (<code>None</code> means everything), oldest first.</span></li>
+  <li><b><code>to_item(record)</code></b><span>One record to one <code>RawItem</code>, or <code>None</code> to skip it.</span></li>
+  <li><b><code>cursor_of(record)</code></b><span>A string that makes <code>read</code> resume after this record.</span></li>
+  <li><b><code>check_access()</code></b><span>Optional. Raise <code>NeedsPermission</code> when access is missing.</span></li>
+</ul>
+
+<h2 id="api">API connectors</h2>
+<p>Connectors for web services that need a sign-in (like Gmail and Google Calendar) sync through their own API syncer and are not covered by the kit yet. Open an issue before starting one, so the sign-in and token storage can be designed with you.</p>
+
+<h2 id="checklist">Pull request checklist</h2>
+<ul>
+  <li>Reader in <code>readers/</code>, connector in <code>sources/</code>, registered in <code>CONNECTORS</code></li>
+  <li>Conformance fixture added; <code>.venv/bin/pytest</code> passes</li>
+  <li>Follows the rules above: read-only, no network, no raw logging, fixture data only</li>
+  <li>Every requirement has a plain-language <code>why</code></li>
+  <li>New dependencies, if any, are explained</li>
+</ul>
+</div>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>© 2026 SafeContext</span>
+    <nav aria-label="Footer">
+      <a href="/how-it-works">How it works</a>
+      <a href="/connectors">Build a connector</a>
+      <a href="/privacy">Privacy Policy</a>
+      <!--email_off--><a href="mailto:privacy@safecontext.me">Contact: privacy@safecontext.me</a><!--/email_off-->
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

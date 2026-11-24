@@ -243,3 +243,5 @@ h1 .line { display: block; }
   .code pre { padding: 16px; font-size: 13px; }
   .sources b { min-width: 0; width: 100%; }
 }
+.doc .facts { padding-left: 0; }
+.doc .facts li { margin: 0; }
