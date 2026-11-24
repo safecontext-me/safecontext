@@ -25,7 +25,10 @@ REASON_SHORT: Dict[str, tuple] = {
     "category:forums": ("Forums", "Gmail filed it under Forums."),
     "bulk:list_unsubscribe": ("Newsletter", "It has an unsubscribe header, so it's a newsletter or mailing list."),
     "bulk:precedence": ("Bulk mail", "It's marked as bulk mail."),
-    "bulk:no_reply_sender": ("No-reply sender", "It came from a no-reply address."),
+    "bulk:bounce": ("Bounce notice", "It's an automatic notice that a message couldn't be delivered."),
+    # Retired rule: rows keep this reason only until sync re-fetches them.
+    "bulk:no_reply_sender": ("No-reply sender", "An older version skipped no-reply mail; the next sync "
+                             "fetches it again."),
     "security:subject": ("Security code or sign-in", "Its subject looks like a security code, sign-in or "
                          "password email."),
     "security:body": ("Security code", "It contains a security code or a password reset link."),

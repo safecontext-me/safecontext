@@ -36,15 +36,16 @@ def test_precedence_bulk():
     assert reason(msg(1, text="hi", extra_headers={"Precedence": "bulk"})) == "bulk:precedence"
 
 
-@pytest.mark.parametrize("frm", ["noreply@example.com", "no-reply@example.com", "No_Reply <no_reply@x.example>",
-                                 "donotreply@example.com", "do-not-reply@example.com",
-                                 "MAILER-DAEMON@mx.example.com", "noreply+tag@example.com"])
-def test_no_reply_senders(frm):
-    assert reason(msg(1, frm=frm, text="hi")) == "bulk:no_reply_sender"
+@pytest.mark.parametrize("frm", ["MAILER-DAEMON@mx.example.com", "Mail Delivery <postmaster@x.example>",
+                                 "bounces+123@lists.example.com"])
+def test_bounce_senders(frm):
+    assert reason(msg(1, frm=frm, text="hi")) == "bulk:bounce"
 
 
-@pytest.mark.parametrize("frm", ["Reply Guy <replyguy@example.com>", "noreen@example.com", "jamie@example.com"])
-def test_normal_senders_kept(frm):
+@pytest.mark.parametrize("frm", ["Reply Guy <replyguy@example.com>", "noreen@example.com", "jamie@example.com",
+                                 "Shop <no-reply@shop.example>", "noreply+orders@example.com",
+                                 "Airline <donotreply@air.example>", "do-not-reply@example.com"])
+def test_normal_and_no_reply_senders_kept(frm):
     assert reason(msg(1, frm=frm, text="hi")) is None
 
 

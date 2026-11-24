@@ -118,7 +118,7 @@ def test_mail_drop_behaviour_is_unchanged():
         r = scrub(m)
         outcomes[m.id] = r.reason if isinstance(r, Dropped) else "kept"
     kept = sum(1 for v in outcomes.values() if v == "kept")
-    assert kept == 6  # what test_app_backend's demo mailbox has always kept
+    assert kept == 7  # the demo mailbox: 6, plus the no-reply receipt (m0012)
     assert not any(v in ("business_sender", "sensitive:text") for v in outcomes.values())
     # and a mail item through scrub_item doesn't get the chat rules either
     r = scrub_item(RawItem(id="e1", kind="message", thread_id="t", date_ms=0, sender="CVS <hi@example.com>",

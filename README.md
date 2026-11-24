@@ -22,7 +22,8 @@ email-only rules such as `List-Unsubscribe` don't apply to them.
 **Dropped entirely** (only the message id and a reason are kept, so sync doesn't refetch it):
 
 - Spam, trash, drafts, chats, and Promotions/Social/Forums categories
-- Bulk mail: `List-Unsubscribe` or `Precedence: bulk/junk` headers, and no-reply senders
+- Bulk mail: `List-Unsubscribe` or `Precedence: bulk/junk` headers, and bounce notices
+  (mailer-daemon). Mail from no-reply addresses (receipts, bookings) is kept and scrubbed
 - Security mail: verification/login codes, password resets, sign-in alerts, 2FA, magic links
 - Sensitive senders: a built-in list of banks, brokerages, payment apps, tax, health,
   insurance and pharmacy domains, plus domains containing words like `bank`, `clinic`,

@@ -35,7 +35,7 @@ def ids_in(store, table):
 def test_backfill(store, gmail):
     r = run(store, gmail)
     assert r.status == "ok" and r.phase == "backfill"
-    assert ids_in(store, "items") == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006"}
+    assert ids_in(store, "items") == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006", "m0012"}
     assert store.get_state("gmail", "history_id") == "5000"
     assert store.get_state("gmail", "account") == "alex@example.org"
     assert store.get_state("gmail", "auth_state") == "ok"
@@ -65,7 +65,7 @@ def test_resume_after_interrupted_listing(store, gmail):
     assert store.get_state("gmail", "history_id") is None and store.get_state("gmail", "backfill_page_token")
     r2 = run(store, gmail)
     assert r2.status == "ok"
-    assert ids_in(store, "items") == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006"}
+    assert ids_in(store, "items") == {"m0001", "m0002", "m0003", "m0004", "m0005", "m0006", "m0012"}
     assert max(gmail.fetched.values()) == 1  # nothing downloaded twice
 
 
@@ -73,7 +73,7 @@ def test_resume_after_failed_batch_mid_page(store, gmail):
     gmail.fail_get_call = 2
     assert run(store, gmail).status == "retry_later"
     assert run(store, gmail).status == "ok"
-    assert len(ids_in(store, "items")) == 6 and max(gmail.fetched.values()) == 1
+    assert len(ids_in(store, "items")) == 7 and max(gmail.fetched.values()) == 1
 
 
 def test_mail_arriving_during_backfill_is_caught(store, gmail):
@@ -208,7 +208,7 @@ def test_revoked_token_asks_to_reconnect_and_keeps_progress(store, gmail):
     gmail.after_list, gmail.revoked = None, False
     r = run(store, gmail)
     assert r.status == "ok" and store.get_state("gmail", "auth_state") == "ok"
-    assert len(ids_in(store, "items")) == 6
+    assert len(ids_in(store, "items")) == 7
 
 
 def test_revoked_during_incremental(store, gmail):
@@ -239,7 +239,7 @@ def test_one_bad_message_does_not_stop_sync(store, gmail):
     assert r.status == "ok" and r.errors == {"ValueError": 1}
     assert store.read_message("m0003") is None
     assert store._db.execute("SELECT reason FROM dropped WHERE id='m0003'").fetchone()[0] == "error:ValueError"
-    assert len(ids_in(store, "items")) == 5
+    assert len(ids_in(store, "items")) == 6
 
 
 def test_progress_callback(store, gmail):

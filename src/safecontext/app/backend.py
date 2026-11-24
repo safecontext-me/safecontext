@@ -37,7 +37,7 @@ REASON_LABELS = {
     "spam_trash": "Spam & Trash", "draft": "Drafts", "chat": "Chats",
     "category:promotions": "Promotions", "category:social": "Social", "category:forums": "Forums",
     "bulk:list_unsubscribe": "Newsletters & mailing lists", "bulk:precedence": "Bulk mail",
-    "bulk:no_reply_sender": "No-reply senders",
+    "bulk:bounce": "Bounce notices", "bulk:no_reply_sender": "No-reply senders (being re-synced)",
     "security:subject": "Security & 2FA codes", "security:body": "Security & 2FA codes",
     "sensitive:sender_domain": "Banks, tax & health senders", "sensitive:sender_keyword": "Banks, tax & health senders",
     "sensitive:subject": "Statements, tax & medical subjects or titles",

@@ -330,7 +330,7 @@ def test_privacy_report_per_source(backend):
     r = backend.privacy_report()
     by = {x["id"]: (x["kept"], x["dropped"]) for x in r["by_source"]}
     assert by["gcal"] == (6, 2) and by["gmail"] == backend._store.counts("gmail")
-    assert r["kept"] == 12
+    assert r["kept"] == 13
 
 
 def test_unknown_source(backend):

@@ -304,7 +304,7 @@ def test_list_sources(both):
     r = run_tool(both, "list_sources", {})
     by = {s["source"]: s for s in r["sources"]}
     assert by["gcal"]["name"] == "Google Calendar" and by["gcal"]["items"] == 6 and by["gcal"]["connected"]
-    assert by["gmail"]["items"] == 6
+    assert by["gmail"]["items"] == 7
 
 
 def test_kind_filter_and_bad_values(both):

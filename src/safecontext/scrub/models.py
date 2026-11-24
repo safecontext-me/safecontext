@@ -53,7 +53,7 @@ class ScrubbedMessage:
 
 
 # Kinds of item a source can produce. "message" means email: only email gets
-# the email-only drop rules (labels, List-Unsubscribe, no-reply senders).
+# the email-only drop rules (labels, List-Unsubscribe, bounce notices).
 KIND_MESSAGE, KIND_EVENT, KIND_CHAT, KIND_TRANSCRIPT = "message", "event", "chat", "transcript"
 KINDS = (KIND_MESSAGE, KIND_EVENT, KIND_CHAT, KIND_TRANSCRIPT)
 

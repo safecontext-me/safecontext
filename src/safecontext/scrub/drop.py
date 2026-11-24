@@ -21,10 +21,11 @@ CATEGORY_LABELS = {
     "CATEGORY_FORUMS": "category:forums",
 }
 
-_NO_REPLY_LOCAL = re.compile(
-    r"^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply|mailer-daemon|postmaster|bounces?)(?:[-+_.].*)?$",
-    re.I,
-)
+# Delivery-failure notices. No-reply senders are deliberately not dropped:
+# they send receipts, bookings and shipping notices people want their AI to
+# see, and the risky ones (sign-in codes, statements, health notices) are
+# caught by the security and sensitive-sender rules whatever the address.
+_BOUNCE_LOCAL = re.compile(r"^(?:mailer-daemon|postmaster|bounces?)(?:[-+_.].*)?$", re.I)
 
 _SECURITY_SUBJECT = re.compile(
     r"\b(?:verification code|verify your (?:email|account|identity)|confirm your (?:email|account)|"
@@ -120,8 +121,8 @@ def check_bulk(msg: RawMessage, config: DropConfig = DEFAULT_CONFIG) -> Optional
         return "bulk:list_unsubscribe"
     if msg.header("precedence").strip().lower() in {"bulk", "junk"}:
         return "bulk:precedence"
-    if _NO_REPLY_LOCAL.match(_sender_local(msg.header("from"))):
-        return "bulk:no_reply_sender"
+    if _BOUNCE_LOCAL.match(_sender_local(msg.header("from"))):
+        return "bulk:bounce"
     return None
 
 
@@ -255,9 +256,8 @@ def check_sensitive_text(text: str, config: DropConfig = DEFAULT_CONFIG) -> Opti
 # --- which rules apply to which kind of item --------------------------------
 #
 # Email-only rules read things only email has: Gmail labels (spam, drafts,
-# Promotions…) and bulk-mail headers (List-Unsubscribe, Precedence, no-reply
-# senders). A chat or a calendar invite never carries them, and a friend's
-# text from a "noreply"-looking handle must not be dropped.
+# Promotions…), bulk-mail headers (List-Unsubscribe, Precedence) and bounce
+# senders (mailer-daemon). A chat or a calendar invite never carries them.
 #
 # Universal rules protect what the product exists to protect, so they apply to
 # every source: security / one-time-code content, and banking, tax and health
