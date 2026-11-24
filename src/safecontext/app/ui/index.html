@@ -51,13 +51,21 @@
     <nav class="nav">
       <button data-view="removed">
         <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
-        Dashboard
+        Security Dashboard
       </button>
       <button data-view="sources">
         <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>
         Sources
       </button>
       <div class="nav-children" id="nav-sources" role="group" aria-label="Your sources"></div>
+      <button data-view="mcp">
+        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z"/><path d="M9 8V2"/></svg>
+        MCP
+      </button>
+      <button data-view="review">
+        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
+        AI access review
+      </button>
     </nav>
     <!-- Sync status, pinned to the bottom of the sidebar. Clicking it (not Sync now) opens the sync modal. -->
     <div class="sync" id="sync" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="sync-modal" title="Show sync details">
@@ -73,7 +81,7 @@
       <div class="sync-note muted" id="sync-note" hidden></div>
       <button class="btn small" id="sync-now" title="SafeContext checks on its own every few minutes, at launch and when you come back to this window.">Check now</button>
     </div>
-    <!-- Account: the email at the very bottom opens a menu with Settings and MCP (app.js) -->
+    <!-- Account: the email at the very bottom opens a menu with Settings (app.js) -->
     <div class="acct">
       <div class="acct-menu" id="acct-menu" role="menu" aria-label="Account" hidden>
         <div class="acct-menu-email" id="acct-menu-email"></div>
@@ -81,10 +89,6 @@
         <button role="menuitem" data-menu-view="settings">
           <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
           Settings
-        </button>
-        <button role="menuitem" data-menu-view="mcp">
-          <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z"/><path d="M9 8V2"/></svg>
-          MCP
         </button>
       </div>
       <button class="acct-btn" id="acct-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="acct-menu">
@@ -211,9 +215,9 @@
       </div>
     </section>
 
-    <!-- Dashboard: what the scrubber removed -->
+    <!-- Security Dashboard: what the scrubber removed -->
     <section id="view-removed" class="view" hidden>
-      <h2>Dashboard</h2>
+      <h2>Security Dashboard</h2>
       <p class="muted">Everything below was removed on this Mac before anything was saved.</p>
       <div class="tiles">
         <div class="tile"><div class="num" id="t-kept">0</div><div class="lbl">items kept (scrubbed)</div></div>

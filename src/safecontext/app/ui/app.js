@@ -265,7 +265,7 @@ function markNav() {
   for (const b of document.querySelectorAll(".nav [data-view]"))  // a source's page counts as Sources
     b.classList.toggle("active", b.dataset.view === state.view || (b.dataset.view === "sources" && state.view === "source"));
   for (const b of document.querySelectorAll("[data-menu-view]")) b.classList.toggle("active", b.dataset.menuView === state.view);
-  $("acct-btn").classList.toggle("active", state.view === "settings" || state.view === "mcp");
+  $("acct-btn").classList.toggle("active", state.view === "settings");
   for (const b of document.querySelectorAll(".nav [data-source]")) {
     const on = state.view === "mail" && b.dataset.source === mail.source;
     b.classList.toggle("active", on);
