@@ -219,10 +219,11 @@ function show(view) {
   if (view === "mail" && !pickSource()) view = "sources";  // nothing to browse yet
   state.view = view;
   markNav();
-  for (const v of ["mail", "sources", "mcp", "removed", "settings"]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["mail", "sources", "mcp", "removed", "review", "settings"]) $(`view-${v}`).hidden = v !== view;
   if (view === "mail") mailShow();
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "removed") loadRemoved();
+  if (view === "review") loadReview();
   if (view === "mcp") loadMcp();
 }
 
@@ -560,6 +561,63 @@ async function loadRemoved() {
   bars($("by-source"), by);
 }
 
+// ---------- AI access review ----------
+const RV_PILLS = { risk: ["Fix", "risk"], warn: ["Worth a look", "warn"], todo: ["Not checked", "todo"], info: ["Note", ""], ok: ["OK", "ok"] };
+const RV_ANSWERS = [["ok", "Looks fine"], ["fixed", "I fixed it"], ["issue", "Found a problem"], ["skip", "Don't use this"]];
+
+async function loadReview(r) {
+  r = r || await api().review();
+  if (!r.ok) return toast(r.error);
+  const c = r.counts;
+  $("rv-verdict").textContent = r.verdict;
+  $("rv-verdict").className = `rv-verdict ${r.tone}`;
+  $("rv-counts").textContent = `${c.risk} to fix · ${c.warn} worth a look · ${c.todo} not checked · ${c.ok + c.info} fine`;
+  $("rv-scan").checked = r.scan_on;
+  $("rv-groups").replaceChildren(...r.groups.filter((g) => g.checks.length).map((g) =>
+    el("div", { class: "card rv-group" }, el("h3", {}, g.title), ...g.checks.map(reviewRow))));
+}
+
+function reviewRow(c) {
+  const [label, cls] = RV_PILLS[c.status] || RV_PILLS.info;
+  const row = el("div", { class: `rv-row ${c.status}` },
+    el("div", { class: "rv-head" }, el("span", { class: "rv-title" }, c.title), el("span", { class: `pill ${cls}` }, label)),
+    c.detail ? el("p", { class: "rv-detail" }, c.detail) : null,
+    c.items.length ? el("ul", { class: "rv-items" }, ...c.items.map((i) => el("li", {}, i))) : null,
+    c.fix && ["risk", "warn", "todo"].includes(c.status) ? el("p", { class: "rv-fix" }, el("b", {}, "What to do: "), c.fix) : null);
+  if (c.manual) {
+    const acts = el("div", { class: "rv-actions" });
+    if (c.link) acts.append(el("button", { class: "btn small primary", onclick: () => reviewOpen(c.id) },
+      c.link.startsWith("x-apple") ? "Open System Settings" : "Open page"));
+    for (const [a, text] of RV_ANSWERS) {
+      acts.append(el("button", { class: `btn small${c.answer === a ? " chosen" : ""}`, "aria-pressed": String(c.answer === a),
+        onclick: () => reviewAnswer(c.id, c.answer === a ? "" : a) }, text));
+    }
+    if (c.answered_ms) acts.append(el("span", { class: "muted rv-when" }, `Checked ${new Date(c.answered_ms).toLocaleDateString()}`));
+    row.append(acts);
+  }
+  return row;
+}
+
+async function reviewOpen(id) {
+  const r = await api().review_open(id);
+  if (!r.ok) toast(r.error);
+  else if (!r.opened) toast(state.status && state.status.demo ? "Demo mode doesn't open pages." : "Couldn't open it.");
+}
+
+async function reviewAnswer(id, answer) { loadReview(await api().review_answer(id, answer)); }
+
+async function reviewScan(e) {
+  const r = await api().review_set_scan(e.target.checked);
+  loadReview(r);
+  if (r.ok && e.target.checked) toast("Checked Claude Desktop and Claude Code.");
+}
+
+async function reviewSave() {
+  const r = await api().review_save_report();
+  if (!r.ok) return toast(r.error);
+  toast(r.opened ? "Report saved and opened. Use File → Print to save it as a PDF." : `Report saved to ${r.path}`);
+}
+
 // ---------- settings ----------
 async function loadMcp() {
   const r = await api().mcp_config();
@@ -693,6 +751,8 @@ function wire() {
   $("ga-ok").addEventListener("click", () => mcpAnswer(true));
   $("ga-deny").addEventListener("click", () => mcpAnswer(false));
   $("mcp-approve").addEventListener("cancel", (e) => e.preventDefault());
+  $("rv-scan").addEventListener("change", reviewScan);
+  $("rv-save").addEventListener("click", reviewSave);
   $("u-check").addEventListener("click", updateCheck);
   $("u-install").addEventListener("click", updateInstall);
   $("update-now").addEventListener("click", updateInstall);
