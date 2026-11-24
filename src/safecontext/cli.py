@@ -180,15 +180,33 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
     if args.cmd is None:  # double-clicking the packaged .app runs with no arguments
         args = p.parse_args(([] if argv is None else list(argv)) + ["app"])
-    try:
-        migrate.migrate_data_dir()
-    except OSError as e:
-        # Don't carry on with an empty mailbox while the real one sits under the old name.
-        print(f"Couldn't move your data from {migrate.LEGACY_DATA_DIR} to {DEFAULT_DATA_DIR}: {e}",
-              file=sys.stderr)
-        return 1
+    # Moving the old MyContext folder touches the real data location, so only do it when this
+    # command uses that location: never in demo mode or with an explicit --data-dir.
+    if uses_default_data_dir(args):
+        try:
+            migrate.migrate_data_dir()
+        except OSError as e:
+            # Don't carry on with an empty mailbox while the real one sits under the old name.
+            print(f"Couldn't move your data from {migrate.LEGACY_DATA_DIR} to {DEFAULT_DATA_DIR}: {e}",
+                  file=sys.stderr)
+            return 1
     return {"connect": cmd_connect, "sync": cmd_sync, "status": cmd_status, "sources": cmd_sources, "search": cmd_search,
             "disconnect": cmd_disconnect, "mcp": cmd_mcp, "app": cmd_app}[args.cmd](args)
+
+
+def uses_default_data_dir(args) -> bool:
+    """Whether this run uses the real data folder, so moving the old MyContext folder is its business.
+    False for demo runs and for --data-dir pointing anywhere else (a test or scratch folder).
+    True for --data-dir …/MyContext, which MCP configs written by MyContext still pass."""
+    from . import migrate
+    from .store import DEFAULT_DATA_DIR
+    if getattr(args, "demo", False):
+        return False
+    d = getattr(args, "data_dir", None)
+    if not d:
+        return True
+    real = {Path(p).expanduser().absolute() for p in (DEFAULT_DATA_DIR, migrate.LEGACY_DATA_DIR)}
+    return Path(d).expanduser().absolute() in real
 
 
 def legacy_main(argv=None) -> int:

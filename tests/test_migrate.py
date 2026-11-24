@@ -232,3 +232,16 @@ def test_old_console_script_entry_point_still_resolves(capsys):
     assert old_main(["status"]) == 0
     captured = capsys.readouterr()
     assert "now SafeContext" in captured.err and "now SafeContext" not in captured.out
+
+
+def test_demo_and_data_dir_runs_never_move_the_real_data_folder(monkeypatch, tmp_path):
+    from safecontext import cli
+    called = []
+    monkeypatch.setattr(migrate, "migrate_data_dir", lambda *a, **k: called.append(1) or "moved")
+    monkeypatch.setattr(cli, "cmd_status", lambda args: 0)
+    monkeypatch.setattr(cli, "cmd_app", lambda args: 0)
+    assert cli.main(["app", "--demo"]) == 0
+    assert cli.main(["--data-dir", str(tmp_path), "status"]) == 0
+    assert called == []
+    assert cli.main(["status"]) == 0
+    assert called == [1]
