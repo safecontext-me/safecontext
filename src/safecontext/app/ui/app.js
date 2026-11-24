@@ -602,6 +602,72 @@ async function connect(btn, errEl) {
   refreshStatus();
 }
 
+// ---------- updates (updater.py) ----------
+const UPDATE_PHASES = { checking: "Checking…", downloading: "Downloading", verifying: "Checking the signature…",
+  installing: "Restarting to finish the update…" };
+
+async function refreshUpdate() {
+  const r = await api().update_status();
+  if (!r.ok) return;
+  state.update = r;
+  renderUpdate(r);
+}
+
+function renderUpdate(u) {
+  $("u-current").textContent = u.current || "—";
+  if (u.disabled) {
+    $("u-state").textContent = "Updates are off in demo mode.";
+    for (const id of ["u-check", "u-install", "u-download", "u-auto"]) $(id).disabled = true;
+    $("update-banner").hidden = true;
+    return;
+  }
+  const busy = ["checking", "downloading", "verifying", "installing"].includes(u.phase);
+  const working = busy && u.phase !== "checking";  // downloading or installing: keep the banner up
+  let text;
+  if (busy) {
+    text = UPDATE_PHASES[u.phase] + (u.phase === "downloading" && u.progress != null ? ` ${Math.round(u.progress * 100)}%` : "");
+  } else if (u.phase === "error") {
+    text = u.error;
+  } else if (u.available) {
+    text = `SafeContext ${u.version} is available.` + (u.can_install ? "" : ` ${u.cant_install_reason || ""}`);
+  } else if (u.checked_ms) {
+    text = `You're up to date (checked ${ago(u.checked_ms)}).`;
+  } else {
+    text = "Not checked yet.";
+  }
+  if (u.rolled_back && !busy) text = `The update to ${u.rolled_back} didn't start, so SafeContext went back to ${u.current}. ${text}`;
+  $("u-state").textContent = text;
+  $("u-notes").hidden = !(u.available && u.notes);
+  $("u-notes").textContent = u.notes || "";
+  $("u-auto").checked = !!u.auto_check;
+  $("u-check").disabled = busy;
+  $("u-install").hidden = !(u.available && u.can_install);
+  $("u-install").disabled = busy;
+  $("u-download").hidden = !(u.available && !u.can_install);
+
+  $("update-banner").hidden = !(working || (u.available && !u.skipped && !state.updateDismissed));
+  $("update-banner-text").textContent = working ? text : `SafeContext ${u.version} is available.`;
+  $("update-now").textContent = u.can_install ? "Update and restart" : "Download";
+  $("update-now").disabled = busy;
+  $("update-later").hidden = working;
+}
+
+async function updateInstall() {
+  const u = state.update || {};
+  if (!u.can_install) { await api().update_open_download(); return; }
+  const r = await api().update_install();
+  if (!r.ok) toast(r.error);
+  refreshUpdate();
+}
+
+async function updateCheck() {
+  $("u-state").textContent = UPDATE_PHASES.checking;
+  const r = await api().update_check();
+  if (!r.ok) toast(r.error);
+  state.updateDismissed = false;
+  refreshUpdate();
+}
+
 // ---------- wiring ----------
 function wire() {
   for (const b of document.querySelectorAll(".nav [data-view]")) b.addEventListener("click", () => show(b.dataset.view));
@@ -627,6 +693,12 @@ function wire() {
   $("ga-ok").addEventListener("click", () => mcpAnswer(true));
   $("ga-deny").addEventListener("click", () => mcpAnswer(false));
   $("mcp-approve").addEventListener("cancel", (e) => e.preventDefault());
+  $("u-check").addEventListener("click", updateCheck);
+  $("u-install").addEventListener("click", updateInstall);
+  $("update-now").addEventListener("click", updateInstall);
+  $("u-download").addEventListener("click", () => api().update_open_download());
+  $("update-later").addEventListener("click", () => { state.updateDismissed = true; $("update-banner").hidden = true; });
+  $("u-auto").addEventListener("change", async (e) => { await api().update_set_auto(e.target.checked); refreshUpdate(); });
   showMcpApp(savedMcpApp(), false);
   $("mcp-copy").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText($("mcp-json").textContent); toast("Copied."); }
@@ -640,6 +712,8 @@ function start() {
   refreshMcp();
   setInterval(refreshStatus, 1500);
   setInterval(refreshMcp, 1500);
+  refreshUpdate();
+  setInterval(refreshUpdate, 1500);
 }
 
 if (window.pywebview && window.pywebview.api) start();

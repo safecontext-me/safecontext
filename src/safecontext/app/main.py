@@ -29,15 +29,20 @@ def build_html() -> str:
 def run(demo: bool = False, data_dir: Optional[Path] = None, debug: bool = False) -> None:
     import webview
 
+    from .. import updater
+
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     if demo:
         from .demo import demo_backend_kwargs
         backend = Backend(**demo_backend_kwargs(data_dir))
     else:
         backend = Backend(data_dir)
+    if not demo:
+        updater.mark_launched()  # an update helper waiting on this version knows it started
     title = ("SafeContext (demo)" if demo else "SafeContext") + label()
-    webview.create_window(title, html=build_html(), js_api=backend, width=1180, height=780,
-                          min_size=(860, 560), text_select=True)
+    window = webview.create_window(title, html=build_html(), js_api=backend, width=1180, height=780,
+                                   min_size=(860, 560), text_select=True)
+    backend._quit_fn = window.destroy  # "Update and restart" closes the window; the helper does the rest
     try:
         webview.start(debug=debug, private_mode=True)
     finally:

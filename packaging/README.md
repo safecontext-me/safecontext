@@ -45,6 +45,55 @@ later: Apple silicon (M1 or later) Macs. Intel Macs are not supported. To check 
 build: `lipo -archs build/safecontext/macos/app/SafeContext.app/Contents/MacOS/SafeContext`
 should print `arm64`.
 
+## Auto-update
+
+The app updates itself (`src/safecontext/updater.py`). Once a day and on **Settings →
+Check for updates** it GETs `https://safecontext.me/update.json`. If that lists a newer
+version, a banner offers **Update and restart**. The app then downloads the DMG from
+`/download`, checks the SHA-256, copies the app out of the DMG next to the installed one,
+and checks it: `codesign --verify --deep --strict`, a Developer ID certificate with Team ID
+`VYY267ZENY`, Gatekeeper (notarization), bundle ID `me.safecontext.safecontext`, and the
+version in the bundled `safecontext/__init__.py`. Then it quits, and a helper swaps the
+app in and opens it. If the new app doesn't start within 90 s, the helper puts the old
+one back. Its log is in `~/Library/Caches/SafeContext/updates/install.log`.
+
+There's no update signing key: trust comes from the Developer ID signature that
+`briefcase package` already applies. A wrong or tampered manifest can't install anything
+we didn't sign. At worst it points at a DMG that fails the checks.
+
+Notes:
+- **Version:** the updater reads the version from the bundled code, not Info.plist.
+  Briefcase only writes `CFBundleShortVersionString` on `briefcase create`, so after a
+  plain `build` it stays stale. The 0.1.3 app says 0.1.0 there, which is also what
+  Finder's Get Info shows.
+- **Never downgrade:** the app only offers versions newer than itself.
+- **Pulling a bad release:** re-upload the previous `update.json`. Clients that haven't
+  updated stop being offered the bad version. Clients that already have it need a newer
+  fixed version, because the app never downgrades.
+- **Rollback:** if a version didn't start, the old app says so and stops offering that
+  version on its own. **Check for updates** still shows it.
+- **AI apps running SafeContext's local MCP server** (stdio) keep the old process until
+  that AI app restarts it. It's the same as a manual drag-and-replace today.
+
+### Releasing (after `briefcase package`)
+
+1. Write the manifest. This mounts the DMG and runs the same checks the app will:
+   ```bash
+   .venv/bin/python scripts/make_update_manifest.py dist/SafeContext-X.Y.Z.dmg --notes "One or two plain sentences."
+   ```
+2. Upload the DMG under `SafeContext.dmg`, as described in "Download (R2)" below.
+3. **Only after the DMG is live**, upload the manifest:
+   ```bash
+   npx wrangler r2 object put safecontext-downloads/update.json --remote --file dist/update.json --content-type application/json
+   ```
+4. Check it: `curl -s https://safecontext.me/update.json` shows the new version.
+   Then on a Mac running the previous version, **Settings → Check for updates →
+   Update and restart**.
+
+Order matters. Between steps 2 and 3, clients still see the old manifest, and if
+one downloads during that window the SHA-256 won't match. That fails safely with
+"Try again in a few minutes".
+
 ## Before you ship
 
 - Run the full test suite under 3.12: `.venv312/bin/pip install -e '.[dev]' && .venv312/bin/pytest`.
