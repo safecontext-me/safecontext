@@ -104,7 +104,9 @@ The first run asks to create the `safecontext` project; answer with production b
 
 After that, `.github/workflows/deploy-site.yml` runs the same deploy on every push to `main`
 that changes `site/`, `functions/` or `wrangler.toml`. It needs two repository secrets:
-`CLOUDFLARE_API_TOKEN` (an API token with **Cloudflare Pages: Edit**) and `CLOUDFLARE_ACCOUNT_ID`.
+`CLOUDFLARE_API_TOKEN` (an API token for this account with **Cloudflare Pages: Edit** and
+**Workers R2 Storage: Read**) and `CLOUDFLARE_ACCOUNT_ID`. Until both are set, the workflow
+skips the deploy with a notice instead of failing. `relay/` is never deployed by CI.
 (Connecting the repo with **Connect to Git** also works, with build output directory
 `site` and no build command; Pages reads the same `wrangler.toml`.)
 
