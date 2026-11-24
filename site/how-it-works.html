@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>How SafeContext works</title>
-<meta name="description" content="How SafeContext copies your Gmail and Google Calendar to your Mac, scrubs them there, and lets Grok, Claude or another AI app you choose search the result.">
+<meta name="description" content="How SafeContext copies your Gmail, Google Calendar and iMessage to your Mac, scrubs them there, and lets Grok, Claude or another AI app you choose search the result.">
 <meta name="color-scheme" content="light dark">
 <link rel="canonical" href="https://safecontext.me/how-it-works">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -34,16 +34,16 @@
 
       <ol class="steps">
         <li>
-          <h3>Connect Gmail and Calendar</h3>
-          <p>Sign in with Google and grant read-only access. Choose full messages or headers only. Add Google Calendar whenever you like.</p>
+          <h3>Connect your sources</h3>
+          <p>Sign in with Google and grant read-only access. Choose full messages or headers only. Add Google Calendar or iMessage from Sources whenever you like; iMessage needs Full Disk Access, which you turn on in System Settings.</p>
         </li>
         <li>
           <h3>It's scrubbed on your Mac</h3>
-          <p>Each message and event is cleaned in memory, before anything is saved. Only the scrubbed copy is stored, on your Mac.</p>
+          <p>Each email, event and text is cleaned in memory, before anything is saved. Only the scrubbed copy is stored, on your Mac.</p>
         </li>
         <li>
           <h3>Connect your AI</h3>
-          <p>Turn on <b>Use in Grok</b>, add your private link as a Grok connector and click Approve once. Or copy the MCP config from Settings into Claude Desktop or another MCP app.</p>
+          <p>Turn on <b>MCP</b>, add your private link as a connector in Grok or Claude, and click Approve once. Or copy the local MCP config into Claude Desktop or another MCP app on your Mac.</p>
         </li>
         <li>
           <h3>Just ask</h3>
@@ -57,7 +57,7 @@
     <div class="wrap">
       <figure class="diagram">
         <svg class="wide" viewBox="0 0 960 240" role="img" aria-labelledby="dw-t">
-          <title id="dw-t">Gmail and Google Calendar flow into your Mac, where they are scrubbed and stored. Grok's searches reach your Mac through a relay that stores nothing, and scrubbed results go back the same way.</title>
+          <title id="dw-t">Gmail and Google Calendar flow into your Mac, where they are scrubbed and stored. Searches from Grok or Claude reach your Mac through a relay that stores nothing, and scrubbed results go back the same way.</title>
           <defs>
             <marker id="aw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-head" d="M0 0L10 5 0 10z"/></marker>
           </defs>
@@ -90,12 +90,12 @@
           <path class="d-line" d="M778 132H814" marker-end="url(#aw)"/>
 
           <rect class="d-box" x="820" y="70" width="139" height="100" rx="12"/>
-          <text class="d-t" x="889" y="112" text-anchor="middle">Grok</text>
+          <text class="d-t" x="889" y="112" text-anchor="middle">Grok · Claude</text>
           <text class="d-s" x="889" y="134" text-anchor="middle">read-only search</text>
         </svg>
 
         <svg class="tall" viewBox="0 0 340 640" role="img" aria-labelledby="dt-t">
-          <title id="dt-t">Gmail and Google Calendar flow into your Mac, where they are scrubbed and stored. Grok's searches reach your Mac through a relay that stores nothing, and scrubbed results go back the same way.</title>
+          <title id="dt-t">Gmail and Google Calendar flow into your Mac, where they are scrubbed and stored. Searches from Grok or Claude reach your Mac through a relay that stores nothing, and scrubbed results go back the same way.</title>
           <defs>
             <marker id="at" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-head" d="M0 0L10 5 0 10z"/></marker>
           </defs>
@@ -126,10 +126,10 @@
           <path class="d-line" d="M185 510V548" marker-end="url(#at)"/>
 
           <rect class="d-box" x="70" y="554" width="200" height="84" rx="12"/>
-          <text class="d-t" x="170" y="590" text-anchor="middle">Grok</text>
+          <text class="d-t" x="170" y="590" text-anchor="middle">Grok · Claude</text>
           <text class="d-s" x="170" y="614" text-anchor="middle">read-only search</text>
         </svg>
-        <figcaption>Grok's search goes to the relay, the relay hands it to SafeContext on your Mac, and the scrubbed results travel back the same way. The relay only works while your Mac is awake, SafeContext is open and Use in Grok is on. AI apps on your Mac, like Claude Desktop, search the local copy directly, with no relay.</figcaption>
+        <figcaption>A search from Grok or Claude goes to the relay, the relay hands it to SafeContext on your Mac, and the scrubbed results travel back the same way. The relay only works while your Mac is awake, SafeContext is open and MCP is on. AI apps on your Mac, like Claude Desktop, search the local copy directly, with no relay.</figcaption>
       </figure>
     </div>
   </section>
@@ -137,7 +137,7 @@
   <section class="section" aria-labelledby="removed">
     <div class="wrap">
       <h2 id="removed">What gets removed</h2>
-      <p class="section-intro">Scrubbing runs before anything is written to disk. Raw mail is never kept.</p>
+      <p class="section-intro">Scrubbing runs before anything is written to disk. Raw mail and messages are never kept.</p>
       <div class="cols">
         <div>
           <h3>Skipped entirely</h3>
@@ -148,6 +148,7 @@
             <li>Spam, trash and drafts</li>
           </ul>
           <p class="example">Calendar events follow the same security, banking, tax and health rules. Dial-in PINs and meeting passcodes are never read.</p>
+          <p class="example">Texts from short codes, sender IDs and toll-free numbers (banks, pharmacies, delivery and sign-in codes) are skipped, even if the number is saved in Contacts, and so is any text that reads like a bank, tax or health notice.</p>
         </div>
         <div>
           <h3>Redacted in what's kept</h3>
@@ -164,7 +165,7 @@
             <li>Phone numbers</li>
             <li>Street addresses</li>
           </ul>
-          <p class="example">Each one becomes a placeholder such as <code>[REDACTED:CREDIT_CARD]</code>. Quoted replies and signatures are trimmed, and attachments are never downloaded, only their file names.</p>
+          <p class="example">Each one becomes a placeholder such as <code>[REDACTED:CREDIT_CARD]</code>. Quoted replies and signatures are trimmed, and attachments are never read, only their file names.</p>
         </div>
       </div>
     </div>
@@ -175,12 +176,12 @@
       <h2 id="leaves">What leaves your Mac, and when</h2>
       <ul class="facts">
         <li><b>Until you connect an AI</b><span>Nothing. Your scrubbed copy stays on your Mac.</span></li>
-        <li><b>With Use in Grok on</b><span>Only the scrubbed results for each search Grok makes. Grok gets read-only search tools and can't change, send or delete anything.</span></li>
-        <li><b>Through the relay</b><span>Grok reaches your Mac through <code>relay.safecontext.me</code>, which passes searches and results through in memory and doesn't store or log them. It keeps only a random link ID and one-way hashes of the secrets that recognise your Mac and Grok.</span></li>
-        <li><b>Grok, only while it's running</b><span>When your Mac is asleep or SafeContext is closed, Grok can't reach anything. An optional setting keeps your Mac awake while it's plugged in.</span></li>
-        <li><b>See what Grok asked</b><span>The app keeps an activity list on your Mac of what Grok asked for and how many results it got. Never the results themselves.</span></li>
+        <li><b>With MCP on</b><span>Only the scrubbed results for each search Grok or Claude makes. They get read-only search tools and can't change, send or delete anything.</span></li>
+        <li><b>Through the relay</b><span>Grok and Claude reach your Mac through <code>relay.safecontext.me</code>, which passes searches and results through in memory and doesn't store or log them. It keeps only a random link ID and one-way hashes of the secrets that recognise your Mac and the apps you approved.</span></li>
+        <li><b>Only while it's running</b><span>When your Mac is asleep or SafeContext is closed, Grok and Claude can't reach anything. An optional setting keeps your Mac awake while it's plugged in.</span></li>
+        <li><b>See what was asked</b><span>The app keeps an activity list on your Mac of what each app asked for and how many results it got. Never the results themselves.</span></li>
         <li><b>AI apps on your Mac</b><span>An app you connect through MCP, like Claude Desktop, gets the same read-only search tools and reads your scrubbed copy directly on your Mac, with no relay. You choose whether to connect one.</span></li>
-        <li><b>After it reaches the AI</b><span>Results Grok receives are handled by xAI under its own terms and privacy policy. An app you connect on your Mac handles results under its own terms, which may include sending them to its AI service.</span></li>
+        <li><b>After it reaches the AI</b><span>Results Grok receives are handled by xAI, and results Claude receives by Anthropic, each under its own terms and privacy policy. An app you connect on your Mac handles results under its own terms, which may include sending them to its AI service.</span></li>
       </ul>
     </div>
   </section>
@@ -189,10 +190,10 @@
     <div class="wrap">
       <h2 id="off">How to turn it off</h2>
       <ul class="facts">
-        <li><b>Pause Grok</b><span>Turn the Use in Grok switch off. Nothing more is sent.</span></li>
+        <li><b>Pause access</b><span>Turn the MCP switch off. Nothing more is sent.</span></li>
         <li><b>Disconnect a Mac app</b><span>Remove SafeContext from that app's MCP settings.</span></li>
-        <li><b>Cut Grok off for good</b><span>Click <b>Regenerate link</b>. The old link stops working and every sign-in Grok held is forgotten. You can also remove the connector in Grok.</span></li>
-        <li><b>Delete everything</b><span>In Settings, <b>Disconnect and delete local mail</b> removes your local copy and revokes SafeContext's access to your Google account. You can also revoke access at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</span></li>
+        <li><b>Cut an app off for good</b><span>Click <b>Regenerate link</b>. The old link stops working and every sign-in Grok or Claude held is forgotten. You can also remove the connector in Grok or Claude.</span></li>
+        <li><b>Delete everything</b><span>On the Sources screen, disconnect each source and delete its local copy. For Gmail, <b>Disconnect and delete local mail</b> also revokes SafeContext's access to your Google account. You can also revoke access at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</span></li>
       </ul>
       <div class="next">
         <a class="button" href="/download">
