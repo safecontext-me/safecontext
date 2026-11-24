@@ -36,8 +36,10 @@ Briefcase asks for an app-specific password for `notarytool`. The result is a
 `.dmg` in `dist/`.
 
 The unsigned app built by `build` is at `build/safecontext/macos/app/SafeContext.app`
-(ad-hoc signed, runs on this Mac only). After changing dependencies, run
-`briefcase update macOS -r` before `build`.
+(ad-hoc signed, runs on this Mac only). For each release, run
+`briefcase update macOS -r --update-resources` before `build`: `-r` picks up dependency
+changes and `--update-resources` copies the app icon (`packaging/icons/safecontext.icns`)
+into the existing bundle, which a plain `update` leaves as it was at `create`.
 
 ### Apple silicon only
 
