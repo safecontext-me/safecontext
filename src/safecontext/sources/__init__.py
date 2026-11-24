@@ -2,26 +2,19 @@
 CLI and tools use to reach them. See base.py for the connector interface."""
 from __future__ import annotations
 
-from typing import Any, Dict, Iterator, List, Sequence
+from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 from .. import auth
 from ..store import Store
-from .base import (FOLDER, MACOS_PERMISSION, OAUTH_SCOPE, BaseSource, ReaderSource, Requirement, Source,
-                   SourceStatus)
+from .base import (FOLDER, MACOS_PERMISSION, NEEDS_PERMISSION, OAUTH_SCOPE, BaseSource, ReaderSource,
+                   Requirement, Source, SourceStatus)
 from .gcal import GCAL, GoogleCalendarSource
 from .gmail import GmailSource
+from .imessage import IMESSAGE, IMessageSource
 
 # Shown on the Sources screen as disabled cards until their connectors land.
 # Their readers live in safecontext/readers/ and are wrapped with ReaderSource.
 COMING_SOON: List[Dict[str, Any]] = [
-    {"id": "imessage", "name": "iMessage", "kinds": ["chat"],
-     "description": "Your Messages conversations on this Mac, scrubbed before they're stored.",
-     "requirements": [
-         Requirement(MACOS_PERMISSION, "full_disk_access", "Full Disk Access",
-                     "macOS keeps Messages history in a protected folder; SafeContext reads it there, "
-                     "read-only, and never sends a message."),
-         Requirement(MACOS_PERMISSION, "contacts", "Contacts",
-                     "To show names instead of phone numbers. Contacts stay on this Mac.")]},
     {"id": "whatsapp", "name": "WhatsApp", "kinds": ["chat"],
      "description": "Chats from WhatsApp for Mac, read from its local database and scrubbed.",
      "requirements": [
@@ -72,28 +65,34 @@ class Sources:
         out = []
         for s in self:
             d = s.status().to_dict()
+            help_ = s.missing_permission() if d["state"] == NEEDS_PERMISSION else None
             d.update(description=s.description, kinds=list(s.kinds), available=True,
-                     requirements=[r.__dict__ for r in s.requirements])
+                     requirements=[r.__dict__ for r in s.requirements],
+                     permission=help_.to_dict() if help_ else None)
             out.append(d)
         for c in COMING_SOON:
             if c["id"] in self._by_id:
                 continue
             out.append({**SourceStatus(id=c["id"], name=c["name"], state="coming_soon").to_dict(),
                         "description": c["description"], "kinds": c["kinds"], "available": False,
-                        "requirements": [r.__dict__ for r in c["requirements"]]})
+                        "requirements": [r.__dict__ for r in c["requirements"]], "permission": None})
         return out
 
 
 def default_sources(store: Store, *, gmail_factory=None, gmail_connect=None, calendar_factory=None,
-                    calendar_connect=None, revoke_fn=None) -> Sources:
+                    calendar_connect=None, revoke_fn=None,
+                    imessage_options: Optional[Dict[str, Any]] = None) -> Sources:
+    """`imessage_options` go to IMessageSource (db_path, access_fn, settings_fn, names_fn):
+    tests and demo mode point it at a fixture database instead of ~/Library/Messages."""
     return Sources(store, [
         GmailSource(store, api_factory=gmail_factory, connect_fn=gmail_connect, revoke_fn=revoke_fn),
         GoogleCalendarSource(store, api_factory=calendar_factory, connect_fn=calendar_connect, revoke_fn=revoke_fn),
+        IMessageSource(store, **(imessage_options or {})),
     ])
 
 
 # id -> display name, for every source that may have items in the store.
-SOURCE_NAMES: Dict[str, str] = {"gmail": "Gmail", GCAL: "Google Calendar",
+SOURCE_NAMES: Dict[str, str] = {"gmail": "Gmail", GCAL: "Google Calendar", IMESSAGE: "iMessage",
                                 **{c["id"]: c["name"] for c in COMING_SOON}}
 
 

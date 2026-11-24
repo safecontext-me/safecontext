@@ -235,6 +235,11 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .pill.busy { background: var(--accent-soft); color: var(--accent); }
 .pill.warn { background: var(--warn-bg); color: #9a7300; border: 1px solid var(--warn-line); }
 .src-msg { font-size: 12.5px; background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 8px; padding: 7px 10px; }
+.perm { font-size: 12.5px; background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 8px;
+        padding: 10px 12px; display: grid; gap: 6px; justify-items: start; }
+.perm-title { font-weight: 600; }
+.perm p { margin: 0; }
+.perm ol { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
 .needs { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .needs li { font-size: 12.5px; }
 .needs b { font-weight: 600; margin-right: 6px; }

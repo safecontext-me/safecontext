@@ -357,7 +357,9 @@ function renderSources(list) {
 }
 
 function sourceCard(x) {
-  const [label, tone] = STATE_LABELS[x.state] || [x.state, ""];
+  let [label, tone] = STATE_LABELS[x.state] || [x.state, ""];
+  const perm = x.state === "needs_permission" ? x.permission : null;
+  if (perm) label = `Needs ${perm.title}`;
   const soon = x.state === "coming_soon";
   const connected = !!x.account && !soon;
   const card = el("div", { class: "card src-card" + (soon ? " soon" : "") },
@@ -365,9 +367,10 @@ function sourceCard(x) {
       el("div", { class: "src-name" }, el("span", { class: "src-icon", "aria-hidden": "true" }, SOURCE_ICONS[x.id] || "•"), x.name),
       el("span", { class: `pill ${tone}` }, label)),
     el("p", { class: "src-desc" }, x.description),
-    x.message ? el("div", { class: "src-msg" }, x.message) : null,
-    el("div", { class: "needs-k" }, "Access it needs"),
-    el("ul", { class: "needs" }, (x.requirements || []).map((q) =>
+    x.message && !perm ? el("div", { class: "src-msg" }, x.message) : null,
+    perm ? permissionBox(x, perm) : null,
+    perm ? null : el("div", { class: "needs-k" }, "Access it needs"),
+    perm ? null : el("ul", { class: "needs" }, (x.requirements || []).map((q) =>
       el("li", {}, el("b", {}, q.label), el("span", { class: "muted" }, REQ_KINDS[q.kind] || ""), el("span", { class: "why" }, q.why)))));
   if (connected) {
     card.append(el("div", { class: "src-stats" },
@@ -379,6 +382,11 @@ function sourceCard(x) {
   const actions = el("div", { class: "actions" });
   if (soon) {
     actions.append(el("button", { class: "btn", disabled: "" }, "Coming soon"));
+  } else if (perm) {
+    // The permission box carries Open System Settings; here: try again, or back out.
+    actions.append(el("button", { class: "btn", onclick: (e) => connectSource(x, e.target) }, "Check again"));
+    if (connected) actions.append(el("button", { class: "btn danger", onclick: () => disconnectSource(x) }, "Disconnect"));
+    else actions.append(el("button", { class: "btn", onclick: () => cancelSource(x) }, "Not now"));
   } else if (!connected) {
     actions.append(el("button", { class: "btn primary", onclick: (e) => connectSource(x, e.target) }, `Connect ${x.name}`));
   } else {
@@ -392,14 +400,41 @@ function sourceCard(x) {
   return card;
 }
 
+// A missing macOS permission (Full Disk Access): what it is, why, the steps, and a button
+// that opens the right System Settings pane. Nothing is requested until the user clicks.
+function permissionBox(x, perm) {
+  return el("div", { class: "perm" },
+    el("div", { class: "perm-title" }, x.message || `SafeContext needs ${perm.title}.`),
+    el("p", {}, perm.explain),
+    el("ol", {}, perm.steps.map((step) => el("li", {}, step))),
+    el("button", { class: "btn primary", onclick: (e) => openSourceSettings(x, e.target) }, perm.button));
+}
+
+async function openSourceSettings(x, btn) {
+  btn.disabled = true;
+  const r = await api().open_source_settings(x.id);
+  btn.disabled = false;
+  if (!r.ok) toast(r.error);
+}
+
 async function connectSource(x, btn) {
   state.sourcesBusy = true;
   btn.disabled = true;
-  btn.textContent = x.requirements.some((q) => q.kind === "oauth_scope") ? "Waiting for Google sign-in…" : "Connecting…";
+  btn.textContent = x.requirements.some((q) => q.kind === "oauth_scope") ? "Waiting for Google sign-in…"
+    : x.requirements.some((q) => q.kind === "macos_permission") ? "Checking access…" : "Connecting…";
   const opts = x.id === "gmail" ? { mode: (state.status && state.status.mode) || "full" } : {};
   const r = await api().connect_source(x.id, opts);
   state.sourcesBusy = false;
-  toast(r.ok ? `Connected ${x.name}` : r.error);
+  // A missing permission isn't an error to dismiss: the card now shows what to do.
+  if (r.ok) toast(`Connected ${x.name}`);
+  else if (r.needs_permission) toast(`${x.name} needs ${x.requirements.find((q) => q.value === r.requirement)?.label || "a Mac permission"}. See the ${x.name} card.`);
+  else toast(r.error);
+  refreshStatus();
+}
+
+async function cancelSource(x) {
+  const r = await api().disconnect_source(x.id, true);  // nothing was synced yet; this only forgets the attempt
+  if (!r.ok) toast(r.error);
   refreshStatus();
 }
 

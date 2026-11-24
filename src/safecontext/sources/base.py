@@ -19,6 +19,7 @@ To wrap a module in `readers/` (a plain iterator of dataclasses), subclass
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -54,6 +55,46 @@ class Requirement:
     value: str   # scope URL, permission name, or path
     label: str   # short: "Read-only access to Google Calendar"
     why: str     # one sentence: what SafeContext does with it
+
+
+FULL_DISK_ACCESS = "full_disk_access"
+
+
+@dataclass(frozen=True)
+class PermissionHelp:
+    """What the Sources screen shows when a macOS permission is missing: a
+    plain-language reason and the steps, plus a button that opens the right
+    System Settings pane (the source's `open_settings`). Nothing is requested
+    silently: macOS has no prompt for Full Disk Access, the user turns it on."""
+
+    requirement: str            # "full_disk_access"
+    title: str                  # "Full Disk Access"
+    explain: str                # why, in plain language
+    steps: Tuple[str, ...]      # what to do, in order
+    button: str = "Open System Settings"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {**asdict(self), "steps": list(self.steps)}
+
+
+def responsible_app_name() -> str:
+    """macOS grants Full Disk Access to the app that started the process:
+    SafeContext.app when packaged, otherwise the terminal (or the app) it was run from."""
+    from ..env import is_app_launcher
+    return "SafeContext" if is_app_launcher(sys.executable) else "the app you run SafeContext from (e.g. Terminal)"
+
+
+def full_disk_access_help(what: str) -> PermissionHelp:
+    """Full Disk Access help for a reader of `what` ("your Messages history", ...)."""
+    app = responsible_app_name()
+    return PermissionHelp(
+        requirement=FULL_DISK_ACCESS, title="Full Disk Access",
+        explain=(f"macOS keeps {what} in a protected folder. To read it, SafeContext needs Full Disk Access. "
+                 "SafeContext only reads that folder and scrubs what it copies, on this Mac. It never sends, "
+                 "changes or deletes anything, and you can turn the access off again at any time."),
+        steps=("Click Open System Settings. It opens Privacy & Security → Full Disk Access.",
+               f"Turn on {app}. If it isn't in the list, add it with the + button.",
+               f"Quit and reopen {app.split(' (')[0]}, then click Check again."))
 
 
 @dataclass
@@ -140,7 +181,11 @@ class BaseSource:
                            first_sync_done=self.first_sync_done(), syncing=hb is not None, progress=hb)
         auth_state = st.get("auth_state")
         if not self.connected:
-            out.state = NOT_CONNECTED
+            # A first connect that stopped at a missing macOS permission shows as such until resolved.
+            if auth_state == NEEDS_PERMISSION:
+                out.state, out.message = NEEDS_PERMISSION, st.get("last_error") or f"{self.name} needs permission."
+            else:
+                out.state = NOT_CONNECTED
         elif hb is not None:
             out.state = SYNCING
         elif auth_state == NEEDS_RECONNECT:
@@ -157,6 +202,27 @@ class BaseSource:
         self.state.set("account", account)
         self.state.set("auth_state", "ok")
         self.state.set("last_error", None)
+        self.state.set("permission_needed", None)
+
+    def _mark_needs_permission(self, e: NeedsPermission) -> None:
+        self.state.set("auth_state", NEEDS_PERMISSION)
+        self.state.set("last_error", e.message)
+        self.state.set("permission_needed", e.requirement or None)
+
+    # --- macOS permissions -------------------------------------------------
+    # requirement value -> PermissionHelp, for the permissions this source can ask the user for
+    permission_help: Dict[str, PermissionHelp] = {}
+
+    def missing_permission(self) -> Optional[PermissionHelp]:
+        """Help for the permission the last connect or sync found missing, if any."""
+        if self.state.get("auth_state") != NEEDS_PERMISSION:
+            return None
+        req = self.state.get("permission_needed") or ""
+        return self.permission_help.get(req) or next(iter(self.permission_help.values()), None)
+
+    def open_settings(self, requirement: str) -> bool:
+        """Open the System Settings pane for `requirement`. False if this source has none."""
+        return False
 
     # --- sync --------------------------------------------------------------
     def sync(self, progress: Optional[ProgressFn] = None) -> SyncResult:
@@ -170,7 +236,7 @@ class BaseSource:
                 self.state.set("auth_state", NEEDS_RECONNECT)
                 result = SyncResult(status="needs_reconnect", message=e.message)
             elif isinstance(e, NeedsPermission):
-                self.state.set("auth_state", NEEDS_PERMISSION)
+                self._mark_needs_permission(e)
                 result = SyncResult(status="needs_permission", message=e.message)
             elif isinstance(e, (auth.TransientAuthError, auth.NotConfigured)):
                 result = SyncResult(status="retry_later", message=str(e) or "Couldn't reach Google.")
@@ -244,7 +310,13 @@ class ReaderSource(BaseSource):
         return None
 
     def connect(self, **options: Any) -> str:
-        self.check_access()
+        """Check access first. A missing permission is remembered (the Sources card shows it
+        with its help) and raised, so nothing is marked connected until access works."""
+        try:
+            self.check_access()
+        except NeedsPermission as e:
+            self._mark_needs_permission(e)
+            raise
         self._mark_connected(self.account_label)
         return self.account_label
 
