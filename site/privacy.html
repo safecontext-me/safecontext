@@ -38,7 +38,8 @@ to this website, <a href="https://safecontext.me/">safecontext.me</a>.</p>
 <ul>
   <li>Your email, events and text messages are processed and stored <b>only on your Mac</b>. The developer never stores or keeps a copy of them.</li>
   <li>Sensitive data is removed <b>before</b> anything is saved.</li>
-  <li>Nothing leaves your Mac unless <b>you</b> turn on <b>MCP</b> or connect an AI app, and then only scrubbed results for that AI's searches are shared.</li>
+  <li>None of your data leaves your Mac unless <b>you</b> turn on <b>MCP</b> or connect an AI app, and then only scrubbed results for that AI's searches are shared.</li>
+  <li>Once a day SafeContext checks safecontext.me for a new version. The check sends none of your data, and you can turn it off.</li>
   <li>With MCP on, those scrubbed results pass through SafeContext's relay on their way to the AI app you connected, such as Grok or Claude. The relay <b>does not store or log</b> them.</li>
   <li>SafeContext only reads. It cannot send, delete or change email, events or messages.</li>
   <li>Your Google data is never sold, never used for advertising, and never used to train AI models.</li>
@@ -90,7 +91,7 @@ It never downloads the contents of attachments; it records only each attachment'
 </ul>
 
 <h2>When data leaves your Mac</h2>
-<p>Only in the cases below, each started by you. Sharing with an AI assistant is the feature you are asking SafeContext to perform.</p>
+<p>Only in the cases below. Apart from update checks, each one is started by you. Sharing with an AI assistant is the feature you are asking SafeContext to perform.</p>
 <ul>
   <li><b>MCP (Grok, Claude and other AI apps).</b> Off until you turn it on. When it is on, you add a private link as a connector in an AI app such as Grok or Claude and approve that app once in SafeContext. After that, when you ask the app something, it sends its search to SafeContext's relay (<code>relay.safecontext.me</code>), the relay passes it to SafeContext on your Mac, your Mac answers from the scrubbed copy, and the relay passes the scrubbed results back to the app. Then those results are with that app's provider (xAI for Grok, Anthropic for Claude), which handles them under its own terms and privacy policy.
     <ul>
@@ -102,6 +103,7 @@ It never downloads the contents of attachments; it records only each attachment'
   </li>
   <li><b>AI apps you connect on your Mac.</b> If you connect another AI app to SafeContext on your Mac (through the Model Context Protocol), that app can search and read your scrubbed copy when you use it. You choose whether to connect an app, and you can disconnect it at any time. The app handles that data under its own terms.</li>
   <li><b>Opening a message in Gmail</b> opens it in your web browser at Google.</li>
+  <li><b>Update checks.</b> Once a day, and when you click <b>Check for updates</b>, SafeContext downloads a small file from safecontext.me that lists the latest version. The request sends none of your data: no account, email address, device identifier or usage information, only what any web request carries (your IP address, which Cloudflare handles to deliver the site). If you choose <b>Update and restart</b>, SafeContext downloads the new version from safecontext.me, checks that it is signed by SafeContext's developer, and replaces the app. Your data folder and Keychain items are not touched. You can turn automatic checks off in Settings.</li>
 </ul>
 <p>The developer never keeps your Google or Messages data. With MCP on, scrubbed results pass through the developer's relay only in transit, as described above.</p>
 
