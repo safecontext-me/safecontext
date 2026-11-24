@@ -704,11 +704,18 @@ class Store:
         return d, (1 if t else 0), r
 
     @staticmethod
-    def _after(alias: str, t: int, cur) -> tuple:
-        """SQL condition (and args) for rows of kind `t` that come after `cur` in the order."""
+    def _after(alias: str, t: int, cur, oldest: bool = False) -> tuple:
+        """SQL condition (and args) for rows of kind `t` that come after `cur` in the order.
+        Newest first sorts by (date_ms, kind, rowid) descending; oldest first is the exact reverse."""
         if cur is None:
             return "", []
         d, ct, r = cur
+        if oldest:
+            if t == ct:
+                return f"AND {alias}.date_ms >= ? AND ({alias}.date_ms > ? OR {alias}.rowid > ?) ", [d, d, r]
+            if t > ct:  # kept rows sort after dropped rows of the same date: all still to come
+                return f"AND {alias}.date_ms >= ? ", [d]
+            return f"AND {alias}.date_ms > ? ", [d]  # dropped before a kept row of the same date: all shown
         if t == ct:  # same table: plain keyset on (date_ms, rowid)
             return f"AND {alias}.date_ms <= ? AND ({alias}.date_ms < ? OR {alias}.rowid < ?) ", [d, d, r]
         if t > ct:  # kept rows sort before dropped rows of the same date: those were all shown
@@ -737,19 +744,21 @@ class Store:
                 "link": gmail_link(self.account, "", r["thread_id"]) if r["source"] == GMAIL else "",
                 "cursor": f"{r['date_ms']}.0.{r['rid']}"}
 
-    def _kept_threads(self, sources: Sequence[str], cur, limit: int) -> List[sqlite3.Row]:
-        after, args = self._after("m", 1, cur)
+    def _kept_threads(self, sources: Sequence[str], cur, limit: int, oldest: bool = False) -> List[sqlite3.Row]:
+        after, args = self._after("m", 1, cur, oldest)
+        way = "ASC" if oldest else "DESC"
         sql = (f"SELECT {self._THREAD_COLS}, substr(m.body, 1, {self._SNIPPET_CHARS}) AS snip FROM items m "
                f"WHERE m.source IN ({self._marks(sources)}) {after}"
                "AND NOT EXISTS (SELECT 1 FROM items x WHERE x.source = m.source AND x.thread_id = m.thread_id "
                "  AND (x.date_ms > m.date_ms OR (x.date_ms = m.date_ms AND x.rowid > m.rowid))) "
-               "ORDER BY m.date_ms DESC, m.rowid DESC LIMIT ?")
+               f"ORDER BY m.date_ms {way}, m.rowid {way} LIMIT ?")
         with self._lock:
             return self._db.execute(sql, [*sources, *args, limit]).fetchall()
 
     def _dropped_items(self, sources: Sequence[str], reasons: Optional[Sequence[str]], cur,
-                       limit: int) -> List[sqlite3.Row]:
-        after, args = self._after("d", 0, cur)
+                       limit: int, oldest: bool = False) -> List[sqlite3.Row]:
+        after, args = self._after("d", 0, cur, oldest)
+        way = "ASC" if oldest else "DESC"
         where = f"d.source IN ({self._marks(sources)}) "
         params: List[object] = list(sources)
         if reasons is not None:
@@ -758,17 +767,21 @@ class Store:
         sql = ("SELECT d.rowid AS rid, d.source, d.id, d.thread_id, d.date_ms, d.reason, "
                "(SELECT i.title FROM items i WHERE i.source = d.source AND i.thread_id = d.thread_id "
                " ORDER BY i.date_ms LIMIT 1) AS thread_title "
-               f"FROM dropped d WHERE {where}{after}ORDER BY d.date_ms DESC, d.rowid DESC LIMIT ?")
+               f"FROM dropped d WHERE {where}{after}ORDER BY d.date_ms {way}, d.rowid {way} LIMIT ?")
         with self._lock:
             return self._db.execute(sql, [*params, *args, limit]).fetchall()
 
     def browse(self, sources: Sequence[str], *, view: str = "all", reasons: Optional[Sequence[str]] = None,
-               cursor: Optional[str] = None, limit: int = 100) -> Dict[str, object]:
+               cursor: Optional[str] = None, limit: int = 100, order: str = "newest") -> Dict[str, object]:
         """One page of the Mail view's list. view: 'all' (kept threads and dropped items,
         interleaved by date), 'synced' (kept threads) or 'not_synced' (dropped items,
-        optionally only these reason codes). Returns {"rows": [...], "next": cursor | None}."""
+        optionally only these reason codes). order: 'newest' (default) or 'oldest' first.
+        Returns {"rows": [...], "next": cursor | None}."""
         if view not in ("all", "synced", "not_synced"):
             raise ValueError(f"unknown view {view!r}")
+        if order not in ("newest", "oldest"):
+            raise ValueError(f"unknown order {order!r}")
+        oldest = order == "oldest"
         limit = max(1, min(int(limit), 500))
         sources = list(sources)
         if not sources or (reasons is not None and not reasons):
@@ -777,21 +790,21 @@ class Store:
         merged: List[tuple] = []
         full = False
         if view in ("all", "synced"):
-            kept = self._kept_threads(sources, cur, limit)
+            kept = self._kept_threads(sources, cur, limit, oldest)
             full |= len(kept) == limit
             merged += [((r["date_ms"], 1, r["rid"]), self._thread_row(r)) for r in kept]
         if view in ("all", "not_synced"):
-            dropped = self._dropped_items(sources, reasons if view == "not_synced" else None, cur, limit)
+            dropped = self._dropped_items(sources, reasons if view == "not_synced" else None, cur, limit, oldest)
             full |= len(dropped) == limit
             merged += [((r["date_ms"], 0, r["rid"]), self._dropped_row(r)) for r in dropped]
-        merged.sort(key=lambda kv: kv[0], reverse=True)
+        merged.sort(key=lambda kv: kv[0], reverse=not oldest)
         more = full or len(merged) > limit
         rows = [row for _, row in merged[:limit]]
         return {"rows": rows, "next": rows[-1]["cursor"] if more and rows else None}
 
     def search_threads(self, query: str, sources: Sequence[str], *, offset: int = 0,
-                       limit: int = 100) -> Dict[str, object]:
-        """Threads with an item matching `query` (FTS), newest first; each row shows the
+                       limit: int = 100, order: str = "newest") -> Dict[str, object]:
+        """Threads with an item matching `query` (FTS), newest (or oldest) first; each row shows the
         thread's newest matching item with a highlighted snippet. Offset-paged."""
         q = fts_query(query)
         sources = list(sources)
@@ -801,7 +814,9 @@ class Store:
         # A bare column next to max() takes its value from the row holding the max (SQLite).
         sql = ("SELECT m.rowid AS rid, max(m.date_ms) AS last FROM items_fts JOIN items m ON m.rowid = items_fts.rowid "
                f"WHERE items_fts MATCH ? AND m.source IN ({self._marks(sources)}) "
-               "GROUP BY m.source, m.thread_id ORDER BY last DESC, rid DESC LIMIT ? OFFSET ?")
+               "GROUP BY m.source, m.thread_id "
+               + ("ORDER BY last ASC, rid ASC " if order == "oldest" else "ORDER BY last DESC, rid DESC ")
+               + "LIMIT ? OFFSET ?")
         with self._lock:
             rids = [r["rid"] for r in self._db.execute(sql, [q, *sources, limit, offset])]
             if not rids:

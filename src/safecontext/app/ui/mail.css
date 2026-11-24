@@ -1,70 +1,73 @@
 /* ---------- Mail view (mail.js) ---------- */
 #view-mail { display: flex; flex-direction: column; overflow: hidden; padding: 14px 16px; }
-.mail-shell { flex: 1; min-height: 0; display: grid; grid-template-columns: 188px 1fr; gap: 14px; }
+.mail-shell { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr; }
 .mail-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 
-/* folders */
-.mail-folders { display: flex; flex-direction: column; gap: 2px; overflow: auto; min-height: 0; }
-.mf-k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 12px 10px 4px; }
-.mf-k:first-child { margin-top: 2px; }
-.mf { font: inherit; display: flex; align-items: center; gap: 8px; text-align: left; border: 0; background: transparent;
-      color: var(--text); padding: 7px 10px; border-radius: 8px; cursor: pointer; min-width: 0; }
-.mf:hover { background: var(--line); }
-.mf.active { background: var(--panel); font-weight: 600; box-shadow: 0 0 0 1px var(--line); }
-.mf-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mf-name small { display: block; font-weight: 400; overflow: hidden; text-overflow: ellipsis; }
-.mf-n { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 400; }
-.mf-ico { width: 18px; text-align: center; flex: none; font-size: 13px; }
-.mf-ico.dot-ok { color: var(--ok); }
-.mf-ico.dot-skip { color: var(--muted); }
+/* search field, with its shortcut inside on the right */
+.mail-search { position: relative; display: flex; align-items: center; }
+.mail-search input { flex: 1 1 auto; padding-left: 34px; padding-right: 64px; border-radius: 10px; }
+.mail-search input::-webkit-search-cancel-button { display: none; }
+.mail-search-ico { position: absolute; left: 11px; color: var(--muted); pointer-events: none; }
+.mail-search-keys { position: absolute; right: 8px; display: flex; gap: 3px; pointer-events: none; }
+.mail-search-keys kbd { font: 11.5px -apple-system, BlinkMacSystemFont, system-ui, sans-serif; color: var(--muted);
+                        min-width: 20px; height: 20px; display: grid; place-items: center; padding: 0 5px; margin: 0;
+                        border: 1px solid var(--line); border-radius: 5px; background: transparent; }
+.mail-search:focus-within .mail-search-keys { display: none; }  /* hide the hint while typing */
 
-/* toolbar */
-.mail-top { display: flex; gap: 8px; align-items: center; }
-.mail-top input { flex: 1 1 auto; }
-.mail-folder-select { display: none; font: inherit; color: var(--text); background: var(--panel);
-                      border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; max-width: 46%; }
-.mail-keys { font-size: 12px; white-space: nowrap; }
+/* All mail / Synced / Not synced tabs at the top of the message list; reason dropdown below them on Not synced */
+.mail-tabbar { display: flex; align-items: center; gap: 8px; padding-right: 6px; border-bottom: 1px solid var(--line); }
+.mail-tools { margin-left: auto; display: flex; gap: 2px; }
+.mail-tabs { display: flex; gap: 2px; padding: 0 6px; }
+.mtab { font: inherit; font-size: 13px; color: var(--muted); background: none; border: 0; cursor: pointer;
+        padding: 8px 8px 7px; border-bottom: 2px solid transparent; }
+.mtab:hover { color: var(--text); }
+.mtab.active { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
 kbd { font: 11px ui-monospace, "SF Mono", Menlo, monospace; border: 1px solid var(--line); border-bottom-width: 2px;
       border-radius: 4px; padding: 0 4px; margin: 0 1px; background: var(--panel); color: var(--text); }
 
-/* coverage */
-.coverage { display: grid; gap: 6px; }
-.cov { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; font-size: 12.5px; }
-.cov-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
-.cov-name { font-weight: 650; display: flex; align-items: center; gap: 6px; }
-.cov-name small { font-weight: 400; color: var(--muted); }
-.cov-stat b { font-variant-numeric: tabular-nums; font-weight: 650; }
-.cov-stat { color: var(--muted); white-space: nowrap; }
-.cov-stat b.ok { color: var(--ok); }
-.cov-toggle { margin-left: auto; font: inherit; font-size: 12px; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; }
-.cov-progress { height: 4px; border-radius: 99px; background: var(--line); overflow: hidden; margin-top: 7px; }
+/* coverage, shown per source in the sync modal */
+.coverage { display: grid; gap: 14px; }
+.cov { display: grid; gap: 14px; font-size: 13px; }
+.cov + .cov { border-top: 1px solid var(--line); padding-top: 16px; }
+.cov-head { display: flex; align-items: center; gap: 12px; }
+.cov-ico { width: 36px; height: 36px; flex: none; display: grid; place-items: center; font-size: 18px;
+           background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+.cov-who { flex: 1; min-width: 0; }
+.cov-name { font-weight: 650; font-size: 14.5px; }
+.cov-sub { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cov-status { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); white-space: nowrap;
+              background: var(--bg); border: 1px solid var(--line); border-radius: 99px; padding: 4px 10px; }
+
+.cov-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.cov-tile { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.cov-num { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.cov-num.ok { color: var(--ok); }
+.cov-lbl { color: var(--muted); font-size: 12px; margin-top: 1px; }
+
+.cov-run { display: grid; gap: 6px; }
+.cov-run-text { color: var(--muted); font-size: 12px; }
+.cov-progress { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
 .cov-progress > div { height: 100%; background: var(--accent); border-radius: 99px; transition: width .4s; }
 .cov-progress.indeterminate > div { width: 30%; animation: cov-slide 1.4s infinite ease-in-out; }
 @keyframes cov-slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
-.cov-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 18px; margin-top: 10px;
-              padding-top: 10px; border-top: 1px solid var(--line); }
-.cov-detail h4 { margin: 0 0 6px; font-size: 12px; font-weight: 650; }
-.cov-detail ul { margin: 0; padding-left: 16px; color: var(--muted); }
-.cov-detail li { margin-bottom: 3px; }
-.cov-detail .bar-row { cursor: pointer; font-size: 12.5px; }
-.cov-detail .bar-row:hover span:first-child { color: var(--accent); }
-.cov-warn { color: var(--danger); }
 
-/* reason chips */
-.reason-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.rchip { font: inherit; font-size: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
-         padding: 3px 10px; border-radius: 99px; cursor: pointer; white-space: nowrap; }
-.rchip:hover { border-color: var(--accent); }
-.rchip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
-.rchip b { font-weight: 600; font-variant-numeric: tabular-nums; margin-left: 5px; opacity: .7; }
+.cov-detail { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 12px; }
+.cov-block { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.cov-block h4 { margin: 0 0 10px; font-size: 11.5px; font-weight: 650; color: var(--muted);
+                text-transform: uppercase; letter-spacing: .04em; }
+.cov-block ul { margin: 0; padding-left: 16px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.cov-block li + li { margin-top: 6px; }
+.cov-detail .bar-row { cursor: pointer; font-size: 12.5px; border-radius: 6px; padding: 2px 4px; margin: 0 -4px; }
+.cov-detail .bar-row:hover span:first-child, .cov-detail .bar-row:focus-visible span:first-child { color: var(--accent); }
+.cov-detail .bar-row:focus-visible { outline: 2px solid var(--accent); }
+.cov-warn { color: var(--danger); margin: 0; font-size: 12.5px; }
 
 /* panes */
 .mail-panes { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 40%) 1fr; gap: 12px; }
 .mail-list-wrap { display: flex; flex-direction: column; min-height: 0; background: var(--panel);
-                  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.mail-list-head { padding: 7px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line);
-                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mail-list { flex: 1; min-height: 0; overflow: auto; position: relative; outline: none; }
+                  border: 1px solid var(--line); border-radius: var(--radius); }  /* no overflow clip: menus pop out of it */
+.mail-list { flex: 1; min-height: 0; overflow: auto; position: relative; outline: none;
+             border-radius: 0 0 var(--radius) var(--radius); }
 .mail-spacer { position: relative; width: 100%; }
 .mrow { position: absolute; left: 0; right: 0; height: 74px; padding: 8px 12px 0 14px; border-bottom: 1px solid var(--line);
         cursor: pointer; overflow: hidden; }
@@ -111,13 +114,6 @@ kbd { font: 11px ui-monospace, "SF Mono", Menlo, monospace; border: 1px solid va
 .skip-note { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
 .mr-dropped dl { margin: 12px 0; }
 
-/* narrower windows: folders become a dropdown */
-@media (max-width: 1080px) {
-  .mail-shell { grid-template-columns: 1fr; }
-  .mail-folders { display: none; }
-  .mail-folder-select { display: block; }
-  .mail-keys { display: none; }
-}
 /* small windows: list or reader, one at a time */
 @media (max-width: 760px) {
   #view-mail { padding: 10px; }

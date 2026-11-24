@@ -20,8 +20,8 @@ def test_ids_are_unique():
 
 def test_mcp_card_has_link_and_a_tab_per_app():
     assert "Use in Grok" not in HTML
-    # MCP is its own screen in the sidebar, holding the relay card and the local config.
-    assert '<button data-view="mcp">MCP</button>' in HTML
+    # MCP is its own screen, opened from the account menu, holding the relay card and the local config.
+    assert 'data-view="mcp"' in HTML  # MCP is in the main nav
     mcp = HTML[HTML.index('<section id="view-mcp"'):]
     mcp = mcp[:mcp.index("</section>")]
     assert 'id="mcp-card"' in mcp and 'id="mcp-json"' in mcp
@@ -40,7 +40,7 @@ def test_open_buttons_only_name_apps_with_a_connectors_page():
 
 def test_search_screen_is_gone():
     assert 'id="view-search"' not in HTML and 'data-view="search"' not in HTML
-    assert '<section id="view-mail" class="view">' in HTML  # shown at start, not hidden
+    assert '<section id="view-mail" class="view" hidden>' in HTML  # not the start screen any more
     for gone in ("loadRecent", "doSearch", "renderResults", "openThread", "api().search(", "api().recent("):
         assert gone not in JS
 
@@ -48,11 +48,21 @@ def test_search_screen_is_gone():
 def test_sources_is_a_parent_with_each_source_under_it():
     nav = HTML[HTML.index('<nav class="nav">'):]
     nav = nav[:nav.index("</nav>")]
-    # Sources, then the per-source entries (filled in by app.js), then the other screens.
-    assert nav.index('data-view="sources"') < nav.index('id="nav-sources"') < nav.index('data-view="mcp"')
+    # Security Dashboard, then Sources and the per-source entries (filled in by app.js), then MCP and AI access review.
+    assert (nav.index('data-view="removed"') < nav.index('data-view="sources"') < nav.index('id="nav-sources"')
+            < nav.index('data-view="mcp"') < nav.index('data-view="review"'))
     assert 'data-view="mail"' not in nav  # each source opens the browse page instead
-    assert '<button data-view="removed">Security Dashboard</button>' in nav
+    assert "Security Dashboard" in nav and "<h2>Security Dashboard</h2>" in HTML
     assert "What was removed" not in HTML
+
+
+def test_settings_lives_in_the_account_menu_and_mcp_in_the_nav():
+    nav = HTML[HTML.index('<nav class="nav">'):]
+    nav = nav[:nav.index("</nav>")]
+    assert 'data-view="mcp"' in nav and 'data-view="settings"' not in nav
+    menu = HTML[HTML.index('id="acct-menu"'):]
+    menu = menu[:menu.index('id="acct-btn"')]
+    assert 'data-menu-view="settings"' in menu and 'data-menu-view="mcp"' not in menu
 
 
 def _panel(app):
@@ -71,3 +81,17 @@ def test_approve_dialog_names_the_app_it_was_sent():
     assert '<h2><span id="ga-title">' in HTML and 'id="ga-client"' in HTML
     assert '$("ga-title").textContent = who;' in JS and '$("ga-client").textContent = who;' in JS
     assert 'const who = g.approval.client || "An AI app";' in JS
+
+
+def test_app_opens_on_the_security_dashboard():
+    assert '<section id="view-removed" class="view">' in HTML  # the only view not hidden at start
+    assert 'view: "removed"' in JS  # state.view, shown by the first status refresh
+    assert "mailInit();  // the mail list may not have been shown yet" in JS  # openSource before mail was ever shown
+
+
+def test_lucide_licence_ships_with_the_app():
+    # Briefcase copies src/safecontext into the app, so the notice travels with the icons.
+    notice = (UI.parent.parent / "THIRD_PARTY_NOTICES.txt").read_text()
+    assert "ISC License" in notice and "Lucide Icons and Contributors" in notice
+    assert "Cole Bemis" in notice  # the MIT notice for icons derived from Feather (database, search, ...)
+    assert "THIRD_PARTY_NOTICES.txt" in HTML

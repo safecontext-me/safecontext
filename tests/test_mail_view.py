@@ -79,6 +79,25 @@ def test_paging_visits_every_row_once_even_with_equal_dates(store, view, page):
     assert keys == sorted(keys, reverse=True)
 
 
+@pytest.mark.parametrize("view", ["all", "synced", "not_synced"])
+@pytest.mark.parametrize("page", [1, 2, 3, 7, 100])
+def test_oldest_first_pages_every_row_once_in_exact_reverse(store, view, page):
+    items = [kept(i, f"t{i % 9}", 1000 + (i // 4)) for i in range(40)]  # many equal dates
+    drops = [dropped(i, f"x{i}", 1000 + (i // 3)) for i in range(25)]
+    store.put_many(items + drops)
+    newest = store.browse(["gmail"], view=view, limit=500)["rows"]
+    rows = walk(store, page=page, view=view, order="oldest")
+    assert [r["cursor"] for r in rows] == [r["cursor"] for r in reversed(newest)]
+
+
+def test_oldest_first_search_and_bad_order(store):
+    store.put_many([kept(1, "a", 100, body="dinner plans"), kept(2, "b", 300, body="dinner again")])
+    assert [r["thread_id"] for r in store.search_threads("dinner", ["gmail"])["rows"]] == ["b", "a"]
+    assert [r["thread_id"] for r in store.search_threads("dinner", ["gmail"], order="oldest")["rows"]] == ["a", "b"]
+    with pytest.raises(ValueError):
+        store.browse(["gmail"], order="sideways")
+
+
 def test_reason_filter_and_source_scope(store):
     store.put_many([dropped(1, "x", 10, "security:body"), dropped(2, "y", 20, "bulk:list_unsubscribe")])
     store.put_many([dropped(3, "z", 30, "security:body")], source="gcal")
@@ -275,6 +294,15 @@ def test_backend_rejects_unknown_source(backend):
 def test_every_reason_code_has_a_label():
     from safecontext.app.backend import REASON_LABELS
     assert set(REASON_LABELS) == set(REASON_SHORT)
+
+
+def test_components_are_inlined_and_build_dom_as_text():
+    html = build_html()
+    assert 'customElements.define("sc-menu"' in html and ".sc-menu-panel" in html
+    assert html.index("customElements.define") < html.index("function mailInit")  # defined before use
+    from pathlib import Path
+    js = (Path(build_html.__code__.co_filename).parent / "ui" / "components.js").read_text()
+    assert "innerHTML" not in js and "insertAdjacentHTML" not in js and "eval(" not in js
 
 
 def test_mail_ui_is_inlined():

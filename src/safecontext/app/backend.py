@@ -368,8 +368,8 @@ class Backend:
 
     @_safe
     def mail_list(self, view: str = "all", source: str = "", query: str = "", reasons: Optional[list] = None,
-                  cursor: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
-        return self._mail.list(view, source, query, reasons or None, cursor, limit)
+                  cursor: Optional[str] = None, limit: int = 100, order: str = "newest") -> Dict[str, Any]:
+        return self._mail.list(view, source, query, reasons or None, cursor, limit, order)
 
     @_safe
     def mail_thread(self, source: str, thread_id: str) -> Dict[str, Any]:
