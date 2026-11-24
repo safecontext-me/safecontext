@@ -1,4 +1,4 @@
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 from .tls import use_bundled_ca_certs as _use_bundled_ca_certs
 
