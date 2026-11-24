@@ -20,8 +20,8 @@ def test_ids_are_unique():
 
 def test_mcp_card_has_link_and_a_tab_per_app():
     assert "Use in Grok" not in HTML
-    # MCP is its own screen in the sidebar, holding the relay card and the local config.
-    assert '<button data-view="mcp">MCP</button>' in HTML
+    # MCP is its own screen, opened from the account menu, holding the relay card and the local config.
+    assert 'data-menu-view="mcp"' in HTML  # MCP opens from the account menu
     mcp = HTML[HTML.index('<section id="view-mcp"'):]
     mcp = mcp[:mcp.index("</section>")]
     assert 'id="mcp-card"' in mcp and 'id="mcp-json"' in mcp
@@ -48,11 +48,20 @@ def test_search_screen_is_gone():
 def test_sources_is_a_parent_with_each_source_under_it():
     nav = HTML[HTML.index('<nav class="nav">'):]
     nav = nav[:nav.index("</nav>")]
-    # Sources, then the per-source entries (filled in by app.js), then the other screens.
-    assert nav.index('data-view="sources"') < nav.index('id="nav-sources"') < nav.index('data-view="mcp"')
+    # Dashboard, then Sources, then the per-source entries (filled in by app.js).
+    assert nav.index('data-view="removed"') < nav.index('data-view="sources"') < nav.index('id="nav-sources"')
     assert 'data-view="mail"' not in nav  # each source opens the browse page instead
-    assert '<button data-view="removed">Security Dashboard</button>' in nav
+    assert "Dashboard" in nav and "Security Dashboard" not in HTML
     assert "What was removed" not in HTML
+
+
+def test_settings_and_mcp_live_in_the_account_menu():
+    nav = HTML[HTML.index('<nav class="nav">'):]
+    nav = nav[:nav.index("</nav>")]
+    assert 'data-view="mcp"' not in nav and 'data-view="settings"' not in nav
+    menu = HTML[HTML.index('id="acct-menu"'):]
+    menu = menu[:menu.index('id="acct-btn"')]
+    assert 'data-menu-view="settings"' in menu and 'data-menu-view="mcp"' in menu
 
 
 def _panel(app):

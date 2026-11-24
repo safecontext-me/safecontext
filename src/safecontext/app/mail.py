@@ -15,7 +15,7 @@ from ..sync import read_heartbeat
 ERROR_GROUP = "Couldn't be processed"
 
 # Reason code -> (short label for a row, one sentence on why). Groups for the
-# filter chips are backend.REASON_LABELS, the same names the Security Dashboard uses.
+# filter chips are backend.REASON_LABELS, the same names the Dashboard uses.
 REASON_SHORT: Dict[str, tuple] = {
     "spam_trash": ("Spam or Trash", "It was in Spam or Trash."),
     "draft": ("Draft", "Drafts aren't synced."),
@@ -107,16 +107,16 @@ class MailView:
         return rows
 
     def list(self, view: str = "all", source: str = "", query: str = "", reasons: Optional[Sequence[str]] = None,
-             cursor: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
+             cursor: Optional[str] = None, limit: int = 100, order: str = "newest") -> Dict[str, Any]:
         scope = self._scope(source)
         query = (query or "").strip()
         if query:
             if view == "not_synced":  # dropped items have no stored text to search
                 return {"rows": [], "next": None, "searched": False}
-            page = self.store.search_threads(query, scope, offset=int(cursor or 0), limit=limit)
+            page = self.store.search_threads(query, scope, offset=int(cursor or 0), limit=limit, order=order)
             return {**page, "rows": self._decorate(page["rows"]), "searched": True}
         page = self.store.browse(scope, view=view, reasons=self._codes_for(scope, reasons) if view == "not_synced"
-                                 else None, cursor=cursor, limit=limit)
+                                 else None, cursor=cursor, limit=limit, order=order)
         return {**page, "rows": self._decorate(page["rows"]), "searched": False}
 
     def thread(self, source: str, thread_id: str) -> Dict[str, Any]:

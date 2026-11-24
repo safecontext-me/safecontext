@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- SafeContext app icon: the site's 32px shield mark on Apple's macOS icon grid
+       (824px rounded square, 100px margin). Rebuild the .icns with packaging/icons/build_icons.sh. -->
+  <g transform="translate(100 100) scale(25.75)">
+    <rect width="32" height="32" rx="7.2" fill="#8ea3ff"/>
+    <path d="M16 6.5l7.5 2.8v5.6c0 4.8-3.2 8.6-7.5 10.6-4.3-2-7.5-5.8-7.5-10.6V9.3z" fill="#0c0f1d"/>
+  </g>
+</svg>

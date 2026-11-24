@@ -1,0 +1,66 @@
+/* Styles for components.js (<sc-menu>, <sc-filter-list>, <sc-icon>). Uses the app's color tokens. */
+
+.sc-svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
+          stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- <sc-menu> ---------- */
+sc-menu { position: relative; display: inline-block; }
+.sc-menu-btn { position: relative; display: grid; place-items: center; width: 30px; height: 30px; padding: 0;
+               border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+.sc-menu-btn:hover, .sc-menu-btn.on { background: var(--line); color: var(--text); }
+.sc-menu-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sc-menu-badge { position: absolute; top: 1px; right: 1px; min-width: 14px; height: 14px; padding: 0 3px;
+                 border-radius: 99px; background: var(--accent); color: var(--accent-ink);
+                 font-size: 9.5px; font-weight: 700; line-height: 14px; text-align: center; }
+.sc-menu-badge[hidden] { display: none; }
+.sc-menu-panel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; min-width: 260px;
+                 background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 12px;
+                 box-shadow: 0 12px 32px rgba(0,0,0,.28); }
+.sc-menu-panel[hidden] { display: none; }
+sc-menu[align="end"] .sc-menu-panel { left: auto; right: 0; }
+
+/* rows inside a menu panel: a label on the left, a control on the right */
+.sc-section { padding: 6px; }
+.sc-section + .sc-section { border-top: 1px solid var(--line); }
+.sc-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 6px 8px;
+          font-size: 13.5px; color: var(--muted); }
+.sc-select { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+             border-radius: 8px; padding: 5px 8px; cursor: pointer; }
+.sc-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ---------- <sc-filter-list> ---------- */
+sc-filter-list { display: block; position: relative; width: 280px; }
+.sc-filter-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.sc-filter-q { flex: 1; border: 0; background: transparent; padding: 2px 0; font-size: 14px; }
+.sc-filter-q:focus { outline: none; }
+.sc-filter-head kbd { font: 11.5px -apple-system, BlinkMacSystemFont, system-ui, sans-serif; color: var(--muted);
+                      min-width: 20px; height: 20px; display: grid; place-items: center; padding: 0 5px;
+                      border: 1px solid var(--line); border-radius: 5px; background: transparent; }
+.sc-filter-items, .sc-filter-fly, .sc-filter-foot { padding: 6px; }
+.sc-filter-foot:empty { display: none; }
+.sc-filter-foot { border-top: 1px solid var(--line); }
+
+.sc-filter-cat, .sc-filter-opt, .sc-filter-clear {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.sc-filter-cat:hover, .sc-filter-cat.open, .sc-filter-opt:hover, .sc-filter-clear:hover,
+.sc-filter-cat:focus-visible, .sc-filter-opt:focus-visible, .sc-filter-clear:focus-visible { background: var(--line); outline: none; }
+.sc-filter-cat > .sc-svg:first-child { color: var(--muted); }
+.sc-filter-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-filter-label small { margin-left: 6px; color: var(--muted); font-size: 11.5px; }
+.sc-chev { width: 14px; height: 14px; color: var(--muted); }
+.sc-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sc-count.on { color: var(--accent); font-weight: 650; }
+.sc-muted { color: var(--muted); }
+.sc-empty { padding: 8px; color: var(--muted); font-size: 13px; }
+.sc-filter-clear { color: var(--muted); }
+
+.sc-check { width: 16px; height: 16px; flex: none; display: grid; place-items: center; border-radius: 4px;
+            border: 1px solid var(--line); }
+.sc-check.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.sc-check .sc-svg { width: 12px; height: 12px; stroke-width: 3; }
+
+/* the options flyout, to the right of the list */
+.sc-filter-fly { position: absolute; left: calc(100% + 6px); width: 300px; max-width: calc(100vw - 16px); background: var(--panel);
+                 border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.28); }
+.sc-filter-fly[hidden] { display: none; }

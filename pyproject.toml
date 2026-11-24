@@ -39,6 +39,7 @@ license-files = ["LICENSE"]
 formal_name = "SafeContext"
 description = "A private context layer for AI. Your data, scrubbed on your Mac."
 sources = ["src/safecontext"]
+icon = "packaging/icons/safecontext"  # Briefcase adds .icns; rebuild with packaging/icons/build_icons.sh
 requires = [
     "phonenumbers>=8.13",
     "google-auth>=2.30",

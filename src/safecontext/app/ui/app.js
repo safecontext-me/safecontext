@@ -155,8 +155,13 @@ async function refreshStatus() {
 
   $("demo-badge").hidden = !r.demo;
   const accounts = [...new Set((r.sources || []).filter((x) => x.account).map((x) => x.account))];
-  $("account").textContent = r.account || accounts.join(", ");
+  const who = r.account || accounts.join(", ");
+  $("account").textContent = who;
+  $("acct-menu-email").textContent = who;
+  $("acct-btn").title = who;
+  $("acct-avatar").textContent = (who.trim()[0] || "?").toUpperCase();
   if (state.view === "sources") renderSources(r.sources || []);
+  if (state.view === "source") renderSourcePage();
   $("banner").hidden = !r.needs_reconnect;
   $("banner-text").textContent = r.reconnect_message;
 
@@ -222,9 +227,10 @@ function show(view) {
   if (view === "mail" && !pickSource()) view = "sources";  // nothing to browse yet
   state.view = view;
   markNav();
-  for (const v of ["mail", "sources", "mcp", "removed", "review", "settings"]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["mail", "sources", "source", "mcp", "removed", "review", "settings"]) $(`view-${v}`).hidden = v !== view;
   if (view === "mail") mailShow();
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
+  if (view === "source") renderSourcePage();
   if (view === "removed") loadRemoved();
   if (view === "review") loadReview();
   if (view === "mcp") loadMcp();
@@ -250,13 +256,16 @@ function renderNavSources() {
   if (box.dataset.sig !== sig) {
     box.dataset.sig = sig;
     box.replaceChildren(...list.map((x) => el("button", { class: "nav-child", "data-source": x.id, onclick: () => openSource(x.id) },
-      el("span", { class: "nav-ico", "aria-hidden": "true" }, SOURCE_ICONS[x.id] || "•"), x.name)));
+      sourceIcon(x.id, "nav-ico"), x.name)));
   }
   markNav();
 }
 
 function markNav() {
-  for (const b of document.querySelectorAll(".nav [data-view]")) b.classList.toggle("active", b.dataset.view === state.view);
+  for (const b of document.querySelectorAll(".nav [data-view]"))  // a source's page counts as Sources
+    b.classList.toggle("active", b.dataset.view === state.view || (b.dataset.view === "sources" && state.view === "source"));
+  for (const b of document.querySelectorAll("[data-menu-view]")) b.classList.toggle("active", b.dataset.menuView === state.view);
+  $("acct-btn").classList.toggle("active", state.view === "settings" || state.view === "mcp");
   for (const b of document.querySelectorAll(".nav [data-source]")) {
     const on = state.view === "mail" && b.dataset.source === mail.source;
     b.classList.toggle("active", on);
@@ -315,54 +324,101 @@ function eventCard(m) {
 }
 
 // ---------- sources ----------
-function renderSources(list) {
-  const grid = $("source-grid");
-  if (state.sourcesBusy) return;  // don't redraw under a pending click
-  grid.replaceChildren(...list.map(sourceCard));
+// ---------- sources: a grid of tiles, and a page per source ----------
+// A source's icon: an SVG from a <template id="icon-<id>"> in index.html when there is one, else its emoji.
+function sourceIcon(id, cls = "src-icon") {
+  const t = document.getElementById(`icon-${id}`);
+  return el("span", { class: cls, "aria-hidden": "true" }, t ? t.content.cloneNode(true) : (SOURCE_ICONS[id] || "•"));
 }
 
-function sourceCard(x) {
+// [label, tone, missing permission or null] for a source's status pill.
+function sourceStatus(x) {
   let [label, tone] = STATE_LABELS[x.state] || [x.state, ""];
   const perm = x.state === "needs_permission" ? x.permission : null;
   if (perm) label = `Needs ${perm.title}`;
+  return [label, tone, perm];
+}
+
+function renderSources(list) {
+  if (state.sourcesBusy) return;  // don't redraw under a pending click
+  $("source-grid").replaceChildren(...list.map(sourceTile));
+}
+
+// The Sources grid shows only icon, name, description and status; everything else is on the source's page.
+function sourceTile(x) {
+  const [label, tone] = sourceStatus(x);
+  return el("button", { class: "src-tile" + (x.state === "coming_soon" ? " soon" : ""), type: "button",
+    onclick: () => openSourcePage(x.id) },
+  sourceIcon(x.id, "src-icon lg"),
+  el("span", { class: "src-tile-main" }, el("span", { class: "src-tile-name" }, x.name),
+    el("span", { class: "src-tile-desc" }, x.description)),
+  el("span", { class: `pill ${tone}` }, tone === "ok" ? "✓ " : "", label));
+}
+
+function openSourcePage(id) {
+  state.sourceId = id;
+  show("source");
+}
+
+// One source's page: header with its actions, then what's on this Mac and the access it needs,
+// with the facts (status, account, access, last sync) in a side column.
+function renderSourcePage() {
+  if (state.sourcesBusy) return;
+  const x = ((state.status && state.status.sources) || []).find((s) => s.id === state.sourceId);
+  const page = $("view-source");
+  if (!x) { page.replaceChildren(); return; }
+  const [label, tone, perm] = sourceStatus(x);
   const soon = x.state === "coming_soon";
   const connected = !!x.account && !soon;
-  const card = el("div", { class: "card src-card" + (soon ? " soon" : "") },
-    el("div", { class: "src-head" },
-      el("div", { class: "src-name" }, el("span", { class: "src-icon", "aria-hidden": "true" }, SOURCE_ICONS[x.id] || "•"), x.name),
-      el("span", { class: `pill ${tone}` }, label)),
-    el("p", { class: "src-desc" }, x.description),
-    x.message && !perm ? el("div", { class: "src-msg" }, x.message) : null,
-    perm ? permissionBox(x, perm) : null,
-    perm ? null : el("div", { class: "needs-k" }, "Access it needs"),
-    perm ? null : el("ul", { class: "needs" }, (x.requirements || []).map((q) =>
-      el("li", {}, el("b", {}, q.label), el("span", { class: "muted" }, REQ_KINDS[q.kind] || ""), el("span", { class: "why" }, q.why)))));
-  if (connected) {
-    card.append(el("div", { class: "src-stats" },
-      el("div", {}, el("b", {}, n(x.item_count)), el("span", {}, "kept")),
-      el("div", {}, el("b", {}, n(x.dropped_count)), el("span", {}, "skipped")),
-      el("div", {}, el("b", {}, x.syncing ? "now" : x.last_sync_ms ? ago(x.last_sync_ms) : "—"), el("span", {}, "last sync"))),
-      el("div", { class: "muted", style: "font-size:12px" }, x.account));
-  }
-  const actions = el("div", { class: "actions" });
+
+  const actions = el("div", { class: "sp-actions" });
   if (soon) {
-    actions.append(el("button", { class: "btn", disabled: "" }, "Coming soon"));
+    actions.append(el("button", { class: "btn lg-ish", disabled: "" }, "Coming soon"));
   } else if (perm) {
     // The permission box carries Open System Settings; here: try again, or back out.
     actions.append(el("button", { class: "btn", onclick: (e) => connectSource(x, e.target) }, "Check again"));
     if (connected) actions.append(el("button", { class: "btn danger", onclick: () => disconnectSource(x) }, "Disconnect"));
     else actions.append(el("button", { class: "btn", onclick: () => cancelSource(x) }, "Not now"));
   } else if (!connected) {
-    actions.append(el("button", { class: "btn primary", onclick: (e) => connectSource(x, e.target) }, `Connect ${x.name}`));
+    actions.append(el("button", { class: "btn primary lg-ish", onclick: (e) => connectSource(x, e.target) }, `Connect ${x.name}`));
   } else {
-    if (x.state === "needs_reconnect" || x.state === "needs_permission")
+    if (x.state === "needs_reconnect")
       actions.append(el("button", { class: "btn primary", onclick: (e) => connectSource(x, e.target) }, "Reconnect"));
     // No per-source sync button: every source checks itself (launch, focus, wake, every few minutes),
     // and the sidebar's Check now covers "right now".
     actions.append(el("button", { class: "btn danger", onclick: () => disconnectSource(x) }, "Disconnect"));
   }
-  card.append(actions);
-  return card;
+
+  const main = el("div", { class: "sp-main" });
+  if (x.message && !perm) main.append(el("div", { class: "src-msg" }, x.message));
+  if (perm) main.append(permissionBox(x, perm));
+  if (connected) {
+    const tile = (num, lbl) => el("div", { class: "sp-tile" }, el("div", { class: "sp-num" }, num), el("div", { class: "sp-lbl" }, lbl));
+    main.append(el("h3", {}, "On this Mac"),
+      el("div", { class: "sp-tiles" }, tile(n(x.item_count), "kept, scrubbed"), tile(n(x.dropped_count), "skipped"),
+        tile(x.syncing ? "now" : x.last_sync_ms ? ago(x.last_sync_ms) : "—", "last sync")),
+      navSources().some((s) => s.id === x.id)
+        ? el("button", { class: "linkish sp-browse", onclick: () => openSource(x.id) }, `Browse ${x.name} →`) : null);
+  }
+  main.append(el("h3", {}, "Access it needs"),
+    el("ul", { class: "sp-needs" }, (x.requirements || []).map((q) => el("li", {},
+      el("div", { class: "sp-need-head" }, el("b", {}, q.label), REQ_KINDS[q.kind] ? el("span", { class: "chip" }, REQ_KINDS[q.kind]) : null),
+      el("p", {}, q.why)))));
+
+  const meta = (k, v) => v ? el("div", { class: "sp-meta-row" }, el("div", { class: "sp-k" }, k), el("div", {}, v)) : null;
+  const kinds = [...new Set((x.requirements || []).map((q) => REQ_KINDS[q.kind]).filter(Boolean))].join(", ");
+  const aside = el("aside", { class: "sp-meta" },
+    meta("Status", el("span", { class: `pill ${tone}` }, label)),
+    meta("Account", x.account || null),
+    meta("Access", kinds || null),
+    connected ? meta("Last sync", x.syncing ? "Syncing now" : x.last_sync_ms ? ago(x.last_sync_ms) : "Never") : null,
+    meta("Stored", soon ? null : "On this Mac, scrubbed before it's saved"));
+
+  page.replaceChildren(el("div", { class: "sp" },
+    el("button", { class: "sp-back linkish", onclick: () => show("sources") }, "← Sources"),
+    el("div", { class: "sp-head" }, sourceIcon(x.id, "src-icon xl"),
+      el("div", { class: "sp-title" }, el("h1", {}, x.name), el("p", {}, x.description)), actions),
+    el("div", { class: "sp-body" }, main, aside)));
 }
 
 // A missing macOS permission (Full Disk Access): what it is, why, the steps, and a button
@@ -392,7 +448,7 @@ async function connectSource(x, btn) {
   state.sourcesBusy = false;
   // A missing permission isn't an error to dismiss: the card now shows what to do.
   if (r.ok) toast(`Connected ${x.name}`);
-  else if (r.needs_permission) toast(`${x.name} needs ${x.requirements.find((q) => q.value === r.requirement)?.label || "a Mac permission"}. See the ${x.name} card.`);
+  else if (r.needs_permission) toast(`${x.name} needs ${x.requirements.find((q) => q.value === r.requirement)?.label || "a Mac permission"}. See its page for the steps.`);
   else toast(r.error);
   refreshStatus();
 }
@@ -730,7 +786,35 @@ async function updateCheck() {
 }
 
 // ---------- wiring ----------
+// ---------- account menu (the email at the bottom of the sidebar) ----------
+function acctMenu(open) {
+  const menu = $("acct-menu"), btn = $("acct-btn");
+  open = open ?? menu.hidden;
+  menu.hidden = !open;
+  btn.setAttribute("aria-expanded", String(open));
+  if (open) menu.querySelector("[role=menuitem]").focus();
+}
+
+function wireAcctMenu() {
+  const menu = $("acct-menu"), btn = $("acct-btn");
+  btn.addEventListener("click", () => acctMenu());
+  for (const b of menu.querySelectorAll("[data-menu-view]")) {
+    b.addEventListener("click", () => { acctMenu(false); show(b.dataset.menuView); });
+  }
+  document.addEventListener("click", (e) => {  // click anywhere else closes it
+    if (!menu.hidden && !menu.contains(e.target) && !btn.contains(e.target)) acctMenu(false);
+  });
+  menu.addEventListener("keydown", (e) => {
+    const items = [...menu.querySelectorAll("[role=menuitem]")];
+    const i = items.indexOf(document.activeElement);
+    if (e.key === "Escape") { e.preventDefault(); acctMenu(false); btn.focus(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+  });
+}
+
 function wire() {
+  wireAcctMenu();
   for (const b of document.querySelectorAll(".nav [data-view]")) b.addEventListener("click", () => show(b.dataset.view));
   for (const b of document.querySelectorAll("[data-goto]")) b.addEventListener("click", (e) => { e.preventDefault(); show(b.dataset.goto); });
   $("sync-now").addEventListener("click", async () => { await api().sync_now(); refreshStatus(); });
