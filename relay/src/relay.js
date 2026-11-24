@@ -1,10 +1,11 @@
-// SafeContext relay (src/index.js re-exports the entry points): lets Grok's custom connectors reach the SafeContext app on a user's Mac.
+// SafeContext relay (src/index.js re-exports the entry points): lets cloud AI apps' custom MCP connectors
+// (Grok, Claude, ...) reach the SafeContext app on a user's Mac.
 //
-//   Grok (xAI cloud) --HTTPS, MCP Streamable HTTP--> this Worker --> LinkRelay Durable Object
+//   AI app (cloud) --HTTPS, MCP Streamable HTTP--> this Worker --> LinkRelay Durable Object
 //                                                                   (one per link) --WebSocket--> the Mac
 //
 // The Mac holds an outbound WebSocket to its link's Durable Object, authenticated with a per-device
-// secret. Grok signs in with OAuth 2.1 (authorization code + PKCE, dynamic client registration):
+// secret. The AI app signs in with OAuth 2.1 (authorization code + PKCE, dynamic client registration):
 // the sign-in page asks the user to click Approve in SafeContext on their Mac. Each MCP request is
 // checked (token, size, rate, method and tool allowlist) and passed down the socket; the Mac's answer
 // is passed back.
@@ -34,7 +35,11 @@ export const METHODS = new Set(["initialize", "ping", "tools/list", "tools/call"
   "notifications/initialized", "notifications/cancelled"]);
 export const OFFLINE_MESSAGE = "SafeContext isn't running on your Mac. Open SafeContext on your Mac " +
   "(it works while your Mac is awake and SafeContext is open), then try again.";
-const STATIC_CLIENT = "grok";  // for connector forms that ask for a Client ID instead of registering
+// Public client IDs for connector forms that ask for a Client ID instead of registering. Both accept
+// any allowed callback. "grok" is kept so existing Grok connectors and their tokens keep working.
+const STATIC_CLIENTS = { grok: "Grok", safecontext: "" };
+const DEFAULT_REDIRECT_HOSTS = "grok.com,*.grok.com,x.ai,*.x.ai,claude.ai";
+const MAX_NAME = 40;
 const SCOPE = "safecontext.read";
 
 // ---------------------------------------------------------------------------------------------
@@ -290,12 +295,13 @@ export class LinkRelay extends DurableObject {
     let u;
     try { u = new URL(uri); } catch { return false; }
     if (u.protocol !== "https:" || u.username || u.password || u.hash) return false;
-    const hosts = String(this.env.ALLOWED_REDIRECT_HOSTS || "grok.com,x.ai").split(",").map((h) => h.trim()).filter(Boolean);
-    return hosts.some((h) => u.hostname === h || u.hostname.endsWith(`.${h}`));
+    return hostAllowed(u, this.env.ALLOWED_REDIRECT_HOSTS || DEFAULT_REDIRECT_HOSTS);
   }
 
   async client(clientId) {
-    if (clientId === STATIC_CLIENT) return { client_id: STATIC_CLIENT, client_name: "Grok", redirect_uris: null };
+    if (typeof clientId === "string" && Object.hasOwn(STATIC_CLIENTS, clientId)) {
+      return { client_id: clientId, client_name: STATIC_CLIENTS[clientId], redirect_uris: null };
+    }
     if (typeof clientId !== "string" || !/^c_[A-Za-z0-9_-]{22}$/.test(clientId)) return null;
     return (await this.ctx.storage.get(`client:${clientId}`)) || null;
   }
@@ -315,7 +321,7 @@ export class LinkRelay extends DurableObject {
     const uris = meta && meta.redirect_uris;
     if (!Array.isArray(uris) || !uris.length || uris.length > 5 || !uris.every((u) => typeof u === "string" && this.redirectAllowed(u))) {
       return json({ error: "invalid_redirect_uri",
-        error_description: "Only https callbacks on grok.com or x.ai are accepted." }, 400);
+        error_description: "Only https callbacks of supported AI apps are accepted." }, 400);
     }
     if (meta.token_endpoint_auth_method && meta.token_endpoint_auth_method !== "none") {
       return json({ error: "invalid_client_metadata", error_description: "Public clients only (PKCE)." }, 400);
@@ -328,7 +334,7 @@ export class LinkRelay extends DurableObject {
     }
     const client = {
       client_id: `c_${randomId(16)}`,
-      client_name: typeof meta.client_name === "string" ? meta.client_name.slice(0, 60) : "Grok",
+      client_name: cleanName(meta.client_name),
       redirect_uris: uris,
       created: now(),
     };
@@ -340,13 +346,15 @@ export class LinkRelay extends DurableObject {
 
   async authorize(request, ctx) {
     if (request.method !== "GET") return json({ error: "invalid_request" }, 405, { Allow: "GET" });
-    if (!this.take("auth")) return page("Too many attempts", "<p>Wait a minute, then try connecting again from Grok.</p>", 429);
+    if (!this.take("auth")) return page("Too many attempts", "<p>Wait a minute, then try connecting again from your AI app.</p>", 429);
     const q = ctx.url.searchParams;
     const client = await this.client(q.get("client_id"));
     const redirect = q.get("redirect_uri") || "";
     if (!client || !this.redirectOk(client, redirect)) {
-      return page("Can't connect", "<p>This sign-in request didn't come from a known Grok connector. Start again from Grok's Connectors page.</p>", 400);
+      return page("Can't connect", "<p>This sign-in request didn't come from a known connector. Start again from your AI app's connector settings.</p>", 400);
     }
+    const name = cleanName(client.client_name);
+    const app = name || "your AI app";
     const state = q.get("state");
     const fail = (error) => Response.redirect(withParams(redirect, { error, state, iss: ctx.issuer }), 302);
     if (q.get("response_type") !== "code") return fail("unsupported_response_type");
@@ -357,8 +365,8 @@ export class LinkRelay extends DurableObject {
 
     if (!this.mac()) {
       return page("Open SafeContext on your Mac",
-        `<p>Grok wants to connect, but SafeContext isn't running on your Mac right now.</p>
-         <p>Open SafeContext, make sure <b>Use in Grok</b> is on, then reload this page.</p>
+        `<p>${esc(name || "An AI app")} wants to connect, but SafeContext isn't running on your Mac right now.</p>
+         <p>Open SafeContext, make sure <b>MCP</b> is on, then reload this page.</p>
          <p><a class="btn" href="${esc(ctx.url.pathname + ctx.url.search)}">Reload</a></p>`, 503);
     }
     const reqId = randomId(16);
@@ -367,14 +375,14 @@ export class LinkRelay extends DurableObject {
       challenge, code, exp: Date.now() + APPROVAL_TTL_MS });
     const ws = this.mac();
     try {
-      ws.send(JSON.stringify({ t: "approve", id: reqId, client: client.client_name || "Grok", code }));
+      ws.send(JSON.stringify({ t: "approve", id: reqId, client: name, code }));
     } catch {}
     const nonce = randomId(12);
     const waitUrl = `${ctx.url.pathname}/wait?req=${reqId}`;
     return page("Approve on your Mac",
       `<p>Switch to <b>SafeContext</b> on your Mac and click <b>Approve</b>.</p>
        <p class="code" aria-label="Matching code">${esc(code)}</p>
-       <p class="muted">Check that SafeContext shows the same number. Grok gets read-only access to your scrubbed data,
+       <p class="muted">Check that SafeContext shows the same number. ${esc(name || "The app")} gets read-only access to your scrubbed data,
        and only while SafeContext is open.</p>
        <p id="status" class="muted" role="status">Waiting for approval…</p>
        <script nonce="${nonce}">
@@ -384,8 +392,8 @@ export class LinkRelay extends DurableObject {
            await new Promise((r) => setTimeout(r, 1500));
            let r;
            try { r = await (await fetch(${JSON.stringify(waitUrl)}, { cache: "no-store" })).json(); } catch { continue; }
-           if (r.redirect) { s.textContent = r.status === "approved" ? "Approved. Returning to Grok…" : "Declined."; location.replace(r.redirect); return; }
-           if (r.status === "expired") { s.textContent = "This request expired. Start again from Grok."; return; }
+           if (r.redirect) { s.textContent = r.status === "approved" ? ${jsStr(`Approved. Returning to ${app}…`)} : "Declined."; location.replace(r.redirect); return; }
+           if (r.status === "expired") { s.textContent = ${jsStr(`This request expired. Start again from ${app}.`)}; return; }
          }
        })();
        </script>`, 200, nonce);
@@ -591,6 +599,28 @@ function equal(a, b) {
   const x = new TextEncoder().encode(String(a)), y = new TextEncoder().encode(String(b));
   if (x.length !== y.length) return false;
   return crypto.subtle.timingSafeEqual(x, y);
+}
+
+// Exact host match ("claude.ai"); a "*.example.com" entry allows subdomains of example.com only.
+// https on the default port only (checked by the caller for the scheme).
+export function hostAllowed(u, list) {
+  if (u.port) return false;
+  const host = u.hostname;
+  return String(list).split(",").map((h) => h.trim().toLowerCase()).filter(Boolean).some((h) =>
+    h.startsWith("*.") ? host.endsWith(h.slice(1)) && host.length > h.length - 1 : host === h);
+}
+
+// A registered app's name, safe to show: no control, format (bidi) or separator characters,
+// whitespace collapsed, at most MAX_NAME characters. "" when there is no usable name.
+export function cleanName(v) {
+  if (typeof v !== "string") return "";
+  const s = v.normalize("NFKC").replace(/\s+/gu, " ").replace(/[\p{Cc}\p{Cf}]/gu, "").replace(/ +/g, " ").trim();
+  return [...s].slice(0, MAX_NAME).join("").trim();
+}
+
+// A string literal safe inside an inline <script>.
+function jsStr(s) {
+  return JSON.stringify(String(s)).replace(/[<>&\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
 
 function esc(s) {

@@ -9,7 +9,6 @@ export default defineWorkersConfig({
         isolatedStorage: false,
         singleWorker: true,
         wrangler: { configPath: "./wrangler.toml" },
-        miniflare: { bindings: { ALLOWED_REDIRECT_HOSTS: "grok.com,x.ai" } },
       },
     },
   },

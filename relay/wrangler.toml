@@ -1,4 +1,4 @@
-# SafeContext relay: forwards Grok's MCP requests to the SafeContext app on the user's Mac.
+# SafeContext relay: forwards AI apps' MCP requests to the SafeContext app on the user's Mac.
 # See README.md for the deploy steps. Nothing here creates resources until you run `wrangler deploy`.
 name = "safecontext-relay"
 main = "src/index.js"
@@ -23,8 +23,10 @@ tag = "v1"
 new_sqlite_classes = ["LinkRelay"]
 
 [vars]
-# OAuth callbacks Grok may use (https only; subdomains included).
-ALLOWED_REDIRECT_HOSTS = "grok.com,x.ai"
+# OAuth callback hosts of the AI apps that may connect (https only). Exact host match;
+# "*.x.ai" allows subdomains of x.ai only. Grok: grok.com / x.ai (exact callback not yet seen, so
+# subdomains stay allowed). Claude: claude.ai/api/mcp/auth_callback (Anthropic docs).
+ALLOWED_REDIRECT_HOSTS = "grok.com,*.grok.com,x.ai,*.x.ai,claude.ai"
 
 [observability]
 enabled = false

@@ -1,10 +1,11 @@
 // Run with `npm test` (Miniflare via @cloudflare/vitest-pool-workers). Nothing is deployed.
 import { SELF, env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { OFFLINE_MESSAGE, route, s256 } from "../src/relay.js";
+import { OFFLINE_MESSAGE, cleanName, hostAllowed, route, s256 } from "../src/relay.js";
 
 const ORIGIN = "https://relay.safecontext.me";
 const REDIRECT = "https://grok.com/connectors/oauth/callback";
+const CLAUDE_REDIRECT = "https://claude.ai/api/mcp/auth_callback";
 
 function rand() {
   const b = crypto.getRandomValues(new Uint8Array(32));
@@ -45,13 +46,17 @@ async function connectMac(link, secret = rand(), { answer = true } = {}) {
   return { status: 101, ws, inbox, next, secret, send: (m) => ws.send(JSON.stringify(m)) };
 }
 
-async function signIn(link, mac) {
-  const reg = await SELF.fetch(`${ORIGIN}/g/${link}/register`, {
-    method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ client_name: "Grok", redirect_uris: [REDIRECT], token_endpoint_auth_method: "none" }),
-  });
-  expect(reg.status).toBe(201);
-  const { client_id } = await reg.json();
+async function signIn(link, mac, { name = "Grok", redirect: REDIRECT_ = REDIRECT, clientId = null } = {}) {
+  const REDIRECT = REDIRECT_;
+  let client_id = clientId;
+  if (!client_id) {
+    const reg = await SELF.fetch(`${ORIGIN}/g/${link}/register`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_name: name, redirect_uris: [REDIRECT], token_endpoint_auth_method: "none" }),
+    });
+    expect(reg.status).toBe(201);
+    ({ client_id } = await reg.json());
+  }
   const verifier = rand() + rand();
   const q = new URLSearchParams({ response_type: "code", client_id, redirect_uri: REDIRECT, state: "xyz",
     code_challenge: await s256(verifier), code_challenge_method: "S256", resource: `${ORIGIN}/g/${link}/mcp` });
@@ -60,6 +65,8 @@ async function signIn(link, mac) {
   const html = await page.text();
   const ask = await mac.next("approve");
   expect(html).toContain(ask.code);  // the browser and the Mac show the same number
+  mac.lastAsk = ask;
+  mac.lastHtml = html;
   const reqId = html.match(/wait\?req=([A-Za-z0-9_-]+)/)[1];
   let w = await (await SELF.fetch(`${ORIGIN}/g/${link}/authorize/wait?req=${reqId}`)).json();
   expect(w.status).toBe("pending");
@@ -138,7 +145,7 @@ describe("OAuth", () => {
     expect((await call(l, "made-up", toolCall("search"))).headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
   });
 
-  it("signs Grok in after Approve on the Mac, then forwards requests", async () => {
+  it("signs an app in after Approve on the Mac, then forwards requests", async () => {
     const l = rand();
     const mac = await connectMac(l);
     const t = await signIn(l, mac);
@@ -149,7 +156,7 @@ describe("OAuth", () => {
     expect((await res.json()).result.content[0].text).toBe("ran search");
     const fwd = await mac.next("http");
     expect(fwd.headers["mcp-protocol-version"]).toBeUndefined();
-    expect(fwd.headers.authorization).toBeUndefined();  // Grok's token never reaches the Mac
+    expect(fwd.headers.authorization).toBeUndefined();  // the app's token never reaches the Mac
   });
 
   it("codes work once and need the right verifier", async () => {
@@ -176,7 +183,7 @@ describe("OAuth", () => {
     expect(r2.error).toBe("invalid_grant");
   });
 
-  it("denied approval goes back to Grok as access_denied", async () => {
+  it("denied approval goes back to the app as access_denied", async () => {
     const l = rand();
     const mac = await connectMac(l);
     const verifier = rand() + rand();
@@ -195,15 +202,76 @@ describe("OAuth", () => {
     expect(new URL(w.redirect).searchParams.get("error")).toBe("access_denied");
   });
 
-  it("refuses callbacks outside grok.com / x.ai and plain-http ones", async () => {
-    for (const uri of ["https://evil.example/cb", "http://grok.com/cb", "https://grok.com.evil.example/cb"]) {
+  it("signs Claude in with its documented callback and names it on the page and the Mac", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    const t = await signIn(l, mac, { name: "Claude", redirect: CLAUDE_REDIRECT });
+    expect(t.access_token).toBeTruthy();
+    expect(mac.lastAsk.client).toBe("Claude");
+    expect(mac.lastHtml).toContain("Approved. Returning to Claude…");
+    expect(mac.lastHtml).not.toContain("Grok");
+  });
+
+  it("falls back to a neutral name when the app gives none", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    await signIn(l, mac, { name: null, redirect: CLAUDE_REDIRECT });
+    expect(mac.lastAsk.client).toBe("");
+    expect(mac.lastHtml).toContain("Returning to your AI app…");
+  });
+
+  it("cleans and shortens registered names before showing them", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    await signIn(l, mac, { name: "Evil\u202e</script><b>\n" + "x".repeat(80), redirect: CLAUDE_REDIRECT });
+    expect(mac.lastAsk.client).toBe("Evil</script><b> " + "x".repeat(23));
+    expect(mac.lastHtml).not.toContain("</script><b>");
+    expect(cleanName("  Claude\u200b  Desktop\u0000 ")).toBe("Claude Desktop");
+    expect(cleanName(42)).toBe("");
+  });
+
+  it("keeps the static client grok working and adds safecontext", async () => {
+    for (const clientId of ["grok", "safecontext"]) {
+      const l = rand();
+      const mac = await connectMac(l);
+      const t = await signIn(l, mac, { clientId, redirect: clientId === "grok" ? REDIRECT : CLAUDE_REDIRECT });
+      expect((await call(l, t.access_token, toolCall("search", { query: "x" }))).status).toBe(200);
+      expect(mac.lastAsk.client).toBe(clientId === "grok" ? "Grok" : "");
+      const r = await (await SELF.fetch(`${ORIGIN}/g/${l}/token`, { method: "POST",
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: clientId }) })).json();
+      expect(r.access_token).toBeTruthy();
+    }
+  });
+
+  it("matches callback hosts exactly; wildcards only where listed", () => {
+    const list = "grok.com,*.grok.com,x.ai,*.x.ai,claude.ai";
+    const ok = (uri) => hostAllowed(new URL(uri), list);
+    for (const uri of [CLAUDE_REDIRECT, REDIRECT, "https://x.ai/cb", "https://auth.x.ai/cb", "https://CLAUDE.AI/cb"]) {
+      expect(ok(uri), uri).toBe(true);
+    }
+    for (const uri of ["https://claude.ai.evil.com/cb", "https://evilclaude.ai/cb", "https://www.claude.ai/cb",
+      "https://claude.com/cb", "https://evilx.ai/cb", "https://claude.ai:8443/cb", "https://agent.meta.ai/cb"]) {
+      expect(ok(uri), uri).toBe(false);
+    }
+  });
+
+  it("refuses look-alike, unlisted and plain-http callbacks", async () => {
+    for (const uri of ["https://evil.example/cb", "http://grok.com/cb", "https://grok.com.evil.example/cb",
+      "https://claude.ai.evil.com/api/mcp/auth_callback", "https://evilclaude.ai/api/mcp/auth_callback",
+      "http://claude.ai/api/mcp/auth_callback", "https://sub.claude.ai/api/mcp/auth_callback",
+      "https://claude.ai:444/api/mcp/auth_callback", "https://user@claude.ai/api/mcp/auth_callback",
+      "https://claude.ai/api/mcp/auth_callback#frag", "javascript:alert(1)"]) {
       const res = await SELF.fetch(`${ORIGIN}/g/${rand()}/register`, { method: "POST",
         body: JSON.stringify({ redirect_uris: [uri] }) });
       expect(res.status).toBe(400);
     }
-    const q = new URLSearchParams({ response_type: "code", client_id: "grok", redirect_uri: "https://evil.example/cb",
-      code_challenge: "a".repeat(43), code_challenge_method: "S256" });
-    expect((await SELF.fetch(`${ORIGIN}/g/${rand()}/authorize?${q}`)).status).toBe(400);
+    for (const client_id of ["grok", "safecontext"]) {
+      for (const redirect_uri of ["https://evil.example/cb", "https://claude.ai.evil.com/cb", "http://claude.ai/cb"]) {
+        const q = new URLSearchParams({ response_type: "code", client_id, redirect_uri,
+          code_challenge: "a".repeat(43), code_challenge_method: "S256" });
+        expect((await SELF.fetch(`${ORIGIN}/g/${rand()}/authorize?${q}`)).status).toBe(400);
+      }
+    }
   });
 
   it("asks the user to open the app when the Mac is offline", async () => {
