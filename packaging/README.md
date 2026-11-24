@@ -85,8 +85,8 @@ in is through the function. Create the bucket once (R2 must be enabled on the ac
 npx wrangler r2 bucket create safecontext-downloads
 ```
 
-For each release, upload under the same key so the URL never changes, then update the
-version and size shown on `site/index.html`:
+For each release, upload under the same key so the URL never changes. The site shows no
+version or size, so nothing else needs updating (tell the marketing-site coordinator anyway):
 
 ```bash
 npx wrangler r2 object put safecontext-downloads/SafeContext.dmg --remote --file dist/SafeContext-X.Y.Z.dmg --content-type application/x-apple-diskimage
