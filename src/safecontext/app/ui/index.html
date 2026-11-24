@@ -64,6 +64,7 @@
       <button data-view="search" class="active">Search</button>
       <button data-view="mail">Mail</button>
       <button data-view="sources">Sources</button>
+      <button data-view="mcp">MCP</button>
       <button data-view="removed">What was removed</button>
       <button data-view="settings">Settings</button>
     </nav>
@@ -77,6 +78,31 @@
 
     <!-- Search (home) -->
     <section id="view-search" class="view">
+      <form class="toolbar" id="search-form" autocomplete="off">
+        <input id="q" type="search" placeholder="Search your scrubbed mail and calendar" aria-label="Search">
+        <select id="f-source" aria-label="Source"><option value="">All sources</option></select>
+        <input id="f-from" placeholder="From (name, address or @domain)" aria-label="From">
+        <label class="date">After <input id="f-after" type="date"></label>
+        <label class="date">Before <input id="f-before" type="date"></label>
+        <button class="btn primary" type="submit">Search</button>
+      </form>
+      <div class="panes">
+        <div class="list" id="results" role="list"></div>
+        <div class="reader" id="reader"><div class="empty">Select an item to read it.</div></div>
+      </div>
+    </section>
+
+    <!-- Sources -->
+    <section id="view-sources" class="view" hidden>
+      <h2>Sources</h2>
+      <p class="muted">Each source is copied to this Mac and scrubbed before it's saved. Nothing leaves your Mac unless you turn on MCP or connect an AI app on this Mac.</p>
+      <div class="source-grid" id="source-grid"></div>
+    </section>
+
+    <!-- MCP: the relay link for cloud AI apps, and the local config for apps on this Mac -->
+    <section id="view-mcp" class="view" hidden>
+      <h2>MCP</h2>
+      <p class="muted">Let AI apps search your scrubbed mail and calendar, read-only.</p>
       <!-- MCP: a link AI apps (Grok, Claude, Muse) connect to through the relay -->
       <div class="card mcp-card" id="mcp-card">
         <div class="mcp-row">
@@ -84,7 +110,7 @@
             <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 18 18 4M9 4h9v9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
           <div class="mcp-main">
-            <div class="mcp-title">MCP</div>
+            <div class="mcp-title">MCP link</div>
             <div class="mcp-status"><span class="dot" id="mcp-dot"></span><span id="mcp-status-text">Off</span></div>
           </div>
           <label class="switch" title="Turn the MCP link on or off">
@@ -142,7 +168,7 @@
                 <li>Choose <b>No sign-in</b>, then click <b>Add</b>.</li>
               </ol>
               <label class="check"><input type="checkbox" class="link-only-box"> Connect with just the link. Anyone with the link can search your scrubbed data, so keep it private.</label>
-              <p class="mcp-soon">Signing in with Approve is coming for Claude. Connectors you add on claude.ai also work in the Claude desktop app. Claude Desktop can also use SafeContext on this Mac with no link at all: see <a href="#" data-goto="settings">Settings</a>.</p>
+              <p class="mcp-soon">Signing in with Approve is coming for Claude. Connectors you add on claude.ai also work in the Claude desktop app. Claude Desktop can also use SafeContext on this Mac with no link at all: see <b>Apps on this Mac</b> below.</p>
               <button class="btn small" data-open-app="claude">Open Claude connectors</button>
             </div>
 
@@ -159,25 +185,12 @@
         </div>
         <p class="mcp-note">Works while your Mac is awake and SafeContext is open.</p>
       </div>
-      <form class="toolbar" id="search-form" autocomplete="off">
-        <input id="q" type="search" placeholder="Search your scrubbed mail and calendar" aria-label="Search">
-        <select id="f-source" aria-label="Source"><option value="">All sources</option></select>
-        <input id="f-from" placeholder="From (name, address or @domain)" aria-label="From">
-        <label class="date">After <input id="f-after" type="date"></label>
-        <label class="date">Before <input id="f-before" type="date"></label>
-        <button class="btn primary" type="submit">Search</button>
-      </form>
-      <div class="panes">
-        <div class="list" id="results" role="list"></div>
-        <div class="reader" id="reader"><div class="empty">Select an item to read it.</div></div>
+      <div class="card setting">
+        <h3>Apps on this Mac (local MCP)</h3>
+        <p class="muted">Add this to a local MCP client's config (Claude Desktop, for example) to give it the same read-only, scrubbed search tools, with no link and nothing leaving this Mac.</p>
+        <pre id="mcp-json" class="code"></pre>
+        <button class="btn small" id="mcp-copy">Copy</button>
       </div>
-    </section>
-
-    <!-- Sources -->
-    <section id="view-sources" class="view" hidden>
-      <h2>Sources</h2>
-      <p class="muted">Each source is copied to this Mac and scrubbed before it's saved. Nothing leaves your Mac unless you turn on MCP or connect an AI app on this Mac.</p>
-      <div class="source-grid" id="source-grid"></div>
     </section>
 
     <!-- What was removed -->
@@ -209,12 +222,6 @@
           <button class="btn danger" id="s-wipe">Disconnect and delete local mail</button>
         </div>
         <p class="hint">Google Calendar and other sources are on the <a href="#" data-goto="sources">Sources</a> screen.</p>
-      </div>
-      <div class="card setting">
-        <h3>Use from AI apps on this Mac (local MCP)</h3>
-        <p class="muted">Add this to a local MCP client's config (Claude Desktop, for example) to give it the same read-only, scrubbed search tools, with no link and nothing leaving this Mac. For Grok, Claude on the web and Muse, use the MCP card on the <a href="#" data-goto="search">Search</a> screen.</p>
-        <pre id="mcp-json" class="code"></pre>
-        <button class="btn small" id="mcp-copy">Copy</button>
       </div>
     </section>
     <!-- Mail: browse what's synced, see what isn't (mail.js) -->

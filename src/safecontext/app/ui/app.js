@@ -229,11 +229,11 @@ function loadRecentThrottled() {
 function show(view) {
   state.view = view;
   for (const b of document.querySelectorAll(".nav button")) b.classList.toggle("active", b.dataset.view === view);
-  for (const v of ["search", "mail", "sources", "removed", "settings"]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["search", "mail", "sources", "mcp", "removed", "settings"]) $(`view-${v}`).hidden = v !== view;
   if (view === "mail") mailShow();
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "removed") loadRemoved();
-  if (view === "settings") loadMcp();
+  if (view === "mcp") loadMcp();
 }
 
 // ---------- search ----------

@@ -163,7 +163,7 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .att { font-size: 12px; border: 1px dashed var(--line); border-radius: 6px; padding: 3px 8px; color: var(--muted); }
 
 /* ---------- MCP (relay link for AI apps) ---------- */
-.mcp-card { padding: 14px 16px; flex: none; }
+.mcp-card { padding: 14px 16px; margin: 14px 0; max-width: 760px; }
 .mcp-card.is-on { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .mcp-row { display: flex; align-items: center; gap: 12px; }
 .mcp-logo { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; flex: none;
