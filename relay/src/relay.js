@@ -38,7 +38,8 @@ export const OFFLINE_MESSAGE = "SafeContext isn't running on your Mac. Open Safe
 // Public client IDs for connector forms that ask for a Client ID instead of registering. Both accept
 // any allowed callback. "grok" is kept so existing Grok connectors and their tokens keep working.
 const STATIC_CLIENTS = { grok: "Grok", safecontext: "" };
-const DEFAULT_REDIRECT_HOSTS = "grok.com,*.grok.com,x.ai,*.x.ai,claude.ai";
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+const DEFAULT_REDIRECT_HOSTS ="grok.com,*.grok.com,x.ai,*.x.ai,claude.ai";
 const MAX_NAME = 40;
 const SCOPE = "safecontext.read";
 
@@ -292,10 +293,7 @@ export class LinkRelay extends DurableObject {
   }
 
   redirectAllowed(uri) {
-    let u;
-    try { u = new URL(uri); } catch { return false; }
-    if (u.protocol !== "https:" || u.username || u.password || u.hash) return false;
-    return hostAllowed(u, this.env.ALLOWED_REDIRECT_HOSTS || DEFAULT_REDIRECT_HOSTS);
+    return callbackAllowed(uri, this.env.ALLOWED_REDIRECT_HOSTS || DEFAULT_REDIRECT_HOSTS);
   }
 
   async client(clientId) {
@@ -318,10 +316,19 @@ export class LinkRelay extends DurableObject {
     if (text.length > 8192) return json({ error: "invalid_client_metadata" }, 400);
     let meta;
     try { meta = JSON.parse(text); } catch { return json({ error: "invalid_client_metadata" }, 400); }
-    const uris = meta && meta.redirect_uris;
-    if (!Array.isArray(uris) || !uris.length || uris.length > 5 || !uris.every((u) => typeof u === "string" && this.redirectAllowed(u))) {
+    const sent = meta && meta.redirect_uris;
+    if (!Array.isArray(sent) || !sent.length || sent.length > 5 || !sent.every((u) => typeof u === "string")) {
       return json({ error: "invalid_redirect_uri",
         error_description: "Only https callbacks of supported AI apps are accepted." }, 400);
+    }
+    // Apps often send several callbacks (Grok sends grok.com plus Cursor and localhost ones). Keep
+    // the allowed ones and drop the rest (RFC 7591 lets the server change the metadata it returns).
+    // /authorize still requires an exact match with a kept callback.
+    const uris = [...new Set(sent.filter((u) => this.redirectAllowed(u)))];
+    if (!uris.length) {
+      const refused = sent.map((u) => [...u.replace(/[\p{Cc}\p{Cf}\p{Z}]/gu, "")].slice(0, 120).join("")).join(", ");
+      return json({ error: "invalid_redirect_uri",
+        error_description: `Only https callbacks of supported AI apps are accepted. Refused: ${refused}` }, 400);
     }
     if (meta.token_endpoint_auth_method && meta.token_endpoint_auth_method !== "none") {
       return json({ error: "invalid_client_metadata", error_description: "Public clients only (PKCE)." }, 400);
@@ -599,6 +606,17 @@ function equal(a, b) {
   const x = new TextEncoder().encode(String(a)), y = new TextEncoder().encode(String(b));
   if (x.length !== y.length) return false;
   return crypto.subtle.timingSafeEqual(x, y);
+}
+
+// An OAuth callback an app may register: https to a listed host, or (for desktop apps such as the
+// Grok Mac app, which get the result on the user's own computer) plain http to a loopback address,
+// any port (RFC 8252 section 7.3). The Mac still has to approve every sign-in.
+export function callbackAllowed(uri, list) {
+  let u;
+  try { u = new URL(uri); } catch { return false; }
+  if (u.username || u.password || u.hash) return false;
+  if (u.protocol === "http:") return LOOPBACK_HOSTS.has(u.hostname);
+  return u.protocol === "https:" && hostAllowed(u, list);
 }
 
 // Exact host match ("claude.ai"); a "*.example.com" entry allows subdomains of example.com only.

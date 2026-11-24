@@ -1,7 +1,7 @@
 // Run with `npm test` (Miniflare via @cloudflare/vitest-pool-workers). Nothing is deployed.
 import { SELF, env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { OFFLINE_MESSAGE, cleanName, hostAllowed, route, s256 } from "../src/relay.js";
+import { OFFLINE_MESSAGE, callbackAllowed, cleanName, hostAllowed, route, s256 } from "../src/relay.js";
 
 const ORIGIN = "https://relay.safecontext.me";
 const REDIRECT = "https://grok.com/connectors/oauth/callback";
@@ -253,6 +253,57 @@ describe("OAuth", () => {
       "https://claude.com/cb", "https://evilx.ai/cb", "https://claude.ai:8443/cb", "https://agent.meta.ai/cb"]) {
       expect(ok(uri), uri).toBe(false);
     }
+  });
+
+  it("keeps the allowed callbacks when Grok also sends Cursor ones", async () => {
+    const l = rand();
+    const sent = ["cursor://anysphere.cursor-mcp/oauth/callback", "https://www.cursor.com/agents/mcp/oauth/callback",
+      REDIRECT, "http://localhost:8787/callback", "http://127.0.0.1:8787/callback"];
+    const reg = await SELF.fetch(`${ORIGIN}/g/${l}/register`, { method: "POST",
+      body: JSON.stringify({ client_name: "Grok", redirect_uris: sent, token_endpoint_auth_method: "none" }) });
+    expect(reg.status).toBe(201);
+    const { client_id, redirect_uris } = await reg.json();
+    expect(redirect_uris).toEqual([REDIRECT, "http://localhost:8787/callback", "http://127.0.0.1:8787/callback"]);
+    // A dropped callback can't be used to sign in.
+    for (const redirect_uri of ["cursor://anysphere.cursor-mcp/oauth/callback", "https://www.cursor.com/agents/mcp/oauth/callback"]) {
+      const q = new URLSearchParams({ response_type: "code", client_id, redirect_uri,
+        code_challenge: "a".repeat(43), code_challenge_method: "S256" });
+      expect((await SELF.fetch(`${ORIGIN}/g/${l}/authorize?${q}`)).status).toBe(400);
+    }
+    // The kept one signs in end to end.
+    const mac = await connectMac(l);
+    const t = await signIn(l, mac, { clientId: client_id });
+    expect(t.access_token).toBeTruthy();
+  });
+
+  it("signs the Grok Mac app in through its localhost callback", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    const t = await signIn(l, mac, { name: "Grok", redirect: "http://localhost:8787/callback" });
+    expect(t.access_token).toBeTruthy();
+    const t2 = await signIn(l, mac, { name: "Grok", redirect: "http://[::1]:53682/cb" });
+    expect(t2.access_token).toBeTruthy();
+  });
+
+  it("allows loopback http only, never other http hosts", () => {
+    const ok = (uri) => callbackAllowed(uri, "grok.com,claude.ai");
+    for (const uri of ["http://localhost:8787/callback", "http://127.0.0.1/cb", "http://[::1]:9/cb"]) {
+      expect(ok(uri), uri).toBe(true);
+    }
+    for (const uri of ["http://localhost.evil.com/cb", "http://127.0.0.1.evil.com/cb", "http://evil.example/cb",
+      "http://0.0.0.0:8787/cb", "http://192.168.1.2/cb", "http://user@localhost/cb", "http://localhost/cb#x",
+      "ftp://localhost/cb", "cursor://anysphere.cursor-mcp/oauth/callback"]) {
+      expect(ok(uri), uri).toBe(false);
+    }
+  });
+
+  it("names the refused callbacks when none is allowed", async () => {
+    const res = await SELF.fetch(`${ORIGIN}/g/${rand()}/register`, { method: "POST",
+      body: JSON.stringify({ redirect_uris: ["http://evil.example/cb", "cursor://x/cb\u202e"] }) });
+    expect(res.status).toBe(400);
+    const { error_description } = await res.json();
+    expect(error_description).toContain("Refused: http://evil.example/cb, cursor://x/cb");
+    expect(error_description).not.toContain("\u202e");
   });
 
   it("refuses look-alike, unlisted and plain-http callbacks", async () => {
