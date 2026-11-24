@@ -204,3 +204,42 @@ h1 .line { display: block; }
 .soon { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
 .soon span { display: inline-block; font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
              color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2px 9px; margin-right: 6px; }
+
+/* Connectors page */
+.sources { list-style: none; margin: 32px 0 0; padding: 0; display: grid; gap: 10px; }
+.sources li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
+.sources b { font-size: 13px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); min-width: 8.5em; }
+.sources span { font-size: 15px; padding: 4px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); }
+.steps.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.rules { list-style: none; margin: 36px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+         gap: 28px 56px; counter-reset: rule; }
+.rules li { counter-increment: rule; position: relative; padding-left: 46px; margin: 0; }
+.rules li::before { content: counter(rule); position: absolute; left: 0; top: -2px; display: grid; place-items: center;
+                    width: 30px; height: 30px; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+                    font-weight: 700; font-size: 14px; }
+.rules b { display: block; font-weight: 650; }
+.rules span { display: block; margin-top: 4px; color: var(--muted); font-size: 16px; }
+.cols p { margin: 0; }
+.cols + .facts { margin-top: 32px; }
+.facts li > b code { font-weight: 500; }
+.code { margin: 36px 0 0; min-width: 0; }
+.code figcaption { font-size: 14px; color: var(--muted); margin-bottom: 10px; }
+.code pre { margin: 0; padding: 20px 22px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+            overflow-x: auto; font: 14px/1.6 ui-monospace, "SF Mono", Menlo, monospace; tab-size: 4; }
+.code pre code { font: inherit; background: none; border: 0; padding: 0; overflow-wrap: normal; white-space: pre; }
+.code + .cols { margin-top: 44px; }
+.sub { margin: 44px 0 14px; }
+.checks { columns: 2; column-gap: 56px; }
+.checks li { break-inside: avoid; }
+.next .button { justify-content: center; }
+@media (max-width: 900px) {
+  .steps.three { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+}
+@media (max-width: 760px) {
+  .rules { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .checks { columns: 1; }
+}
+@media (max-width: 520px) {
+  .code pre { padding: 16px; font-size: 13px; }
+  .sources b { min-width: 0; width: 100%; }
+}
