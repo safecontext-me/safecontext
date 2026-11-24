@@ -62,6 +62,57 @@ def test_security_bodies(body):
     assert reason(msg(1, subject="Hello", text=body)) == "security:body"
 
 
+ACCOUNT_SECURITY_NOTICES = [
+    "[GitHub] A third-party OAuth application has been added to your account",
+    "Slack was granted access to your Google Account",
+    "An app was connected to your Dropbox account",
+    "Zapier has been authorized to access your account",
+    "New device signed in to your account",
+    "Your Apple ID was used to sign in to a new device",
+    "You signed in on a new device",
+    "New login alert",
+    "[GitHub] A new SSH authentication public key was added to your account",
+    "A new GPG key was added to your account",
+    "A personal access token was created for your account",
+    "A passkey was added",
+    "Your recovery email was changed",
+    "Your recovery phone number has been updated",
+    "Your email address was changed",
+    "Two-factor authentication has been turned off",
+    "2-step verification is now enabled",
+]
+
+
+@pytest.mark.parametrize("subject", ACCOUNT_SECURITY_NOTICES)
+def test_account_security_subjects(subject):
+    assert reason(msg(1, subject=subject, text="hi")) == "security:subject"
+
+
+@pytest.mark.parametrize("body", [
+    "Hi Alex, a third-party OAuth application (Example CI) with read:org scope was recently authorized "
+    "to access your account.",
+    "A new SSH key was added to your account. If you did not do this, remove it now.",
+    "We noticed you signed in from a new browser. Was this you?",
+    "The application Zapier has been granted access to your Google Account.",
+    "Your backup phone number was removed from your account.",
+])
+def test_account_security_bodies(body):
+    assert reason(msg(1, subject="Security notification", text=body)) in {"security:subject", "security:body"}
+    assert reason(msg(1, subject="Hello", text=body)) == "security:body"
+
+
+@pytest.mark.parametrize("subject,body", [
+    ("How to rotate your API keys", "Best practice: rotate API keys every 90 days."),
+    ("Changelog: API key management", "We added API key management to the dashboard."),
+    ("New device lineup announced", "Our new phones ship Friday."),
+    ("New integrations this month", "Ten new app integrations were added to the marketplace."),
+    ("Your password manager questions answered", "Passkeys explained in plain English."),
+    ("Trip photos", "We connected to the hotel wifi from a new phone."),
+])
+def test_account_security_lookalikes_kept(subject, body):
+    assert reason(msg(1, subject=subject, text=body)) is None
+
+
 @pytest.mark.parametrize("frm,expected", [
     ("Chase <alerts@chase.com>", "sensitive:sender_domain"),
     ("alerts@notify.wellsfargo.com", "sensitive:sender_domain"),
@@ -74,6 +125,21 @@ def test_security_bodies(body):
 ])
 def test_sensitive_senders(frm, expected):
     assert reason(msg(1, frm=frm, text="hi")) == expected
+
+
+@pytest.mark.parametrize("frm", ["Hinge <hello@hinge.co>", "Tinder <noreply@mail.gotinder.com>",
+                                 "Bumble <no-reply@bumble.com>", "Match <info@match.com>",
+                                 "OkCupid <noreply@okcupid.com>", "Grindr <help@grindr.com>",
+                                 "Feeld <hello@feeld.co>", "CMB <hello@coffeemeetsbagel.com>",
+                                 "news@localsingles.example", "team@speeddating.example"])
+def test_dating_app_senders(frm):
+    assert reason(msg(1, frm=frm, subject="You have a new match", text="Say hi!")) == "sensitive:dating"
+
+
+@pytest.mark.parametrize("frm", ["tickets@matchday.example", "Hinged Doors <sales@hingeddoors.example>",
+                                 "Bumblebee Tuna <hi@bumblebee.example>"])
+def test_dating_lookalike_senders_kept(frm):
+    assert reason(msg(1, frm=frm, subject="Hello", text="hi")) is None
 
 
 def test_allow_list_overrides_sender_rules():

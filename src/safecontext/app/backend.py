@@ -41,6 +41,7 @@ REASON_LABELS = {
     "security:subject": "Security & 2FA codes", "security:body": "Security & 2FA codes",
     "sensitive:sender_domain": "Banks, tax & health senders", "sensitive:sender_keyword": "Banks, tax & health senders",
     "sensitive:subject": "Statements, tax & medical subjects or titles",
+    "sensitive:dating": "Dating apps",
     "business_sender": "Texts from businesses & shortcodes",
     "sensitive:text": "Bank, tax & health texts",
 }
@@ -51,6 +52,7 @@ REDACTION_LABELS = {
     "API_KEY": "API keys", "JWT": "Login tokens", "PRIVATE_KEY": "Private keys", "PASSWORD": "Passwords",
     "IBAN": "IBANs", "ROUTING_NUMBER": "Routing numbers", "BANK_ACCOUNT": "Bank account numbers",
     "DATE_OF_BIRTH": "Dates of birth", "PHONE": "Phone numbers", "STREET_ADDRESS": "Street addresses",
+    "BOOKING_CODE": "Booking & confirmation codes",
     "HEALTH": "Health details", "LEGAL": "Legal matters", "PERSONAL": "Personal matters",
 }
 

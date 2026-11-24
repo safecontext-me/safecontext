@@ -262,3 +262,36 @@ def test_full_sync_leaks_nothing_to_disk(tmp_path):
     leaks = [n for n in all_needles() if n.encode() in blob]
     assert not leaks, leaks
     assert b"BENIGN-MARKER" in blob
+
+
+# --- a removed drop rule: mail it hid comes back on the next sync ----------------
+
+def test_mail_dropped_by_retired_no_reply_rule_is_resynced(tmp_path, gmail):
+    from safecontext.scrub import Dropped
+    github = msg(950, frm="GitHub <noreply@github.com>",
+                 subject="[GitHub] A third-party OAuth application has been added to your account",
+                 text="A third-party OAuth application (Example CI) was recently authorized to access your account.")
+    united = msg(951, frm="United Airlines <no-reply@united.example>", subject="Your trip to Denver",
+                 text="Confirmation ABC123. Passenger Alex Kim. Seat 22C.")
+    for m in (github, united):
+        gmail.add(m, record=False)
+    path = tmp_path / "data" / "mail.db"
+    store = Store(path)
+    assert run(store, gmail).status == "ok"
+    # What an older SafeContext left behind: the no-reply rule dropped all three.
+    old = ["m0012", "m0950", "m0951"]
+    store.put_many(Dropped(i, f"t{i[1:]}", "bulk:no_reply_sender") for i in old)
+    store.close()
+
+    store = Store(path)  # the update's first start
+    assert sorted(store.stale_ids()) == old
+    gmail.fetched.clear()
+    assert run(store, gmail).status == "ok"
+    assert set(gmail.fetched) == set(old)  # only the retired rule's mail is downloaded again
+    assert store.read_message("m0012") is not None  # shipping receipt: kept
+    trip = store.read_message("m0951")
+    assert trip is not None and "ABC123" not in trip.body and "[REDACTED:BOOKING_CODE]" in trip.body
+    reasons = dict(store._db.execute("SELECT id, reason FROM dropped WHERE id IN ('m0950','m0951','m0012')"))
+    assert reasons == {"m0950": "security:subject"}  # the OAuth notice: dropped under its new reason
+    assert store.stale_ids() == []
+    store.close()

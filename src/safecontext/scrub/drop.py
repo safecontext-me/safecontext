@@ -37,6 +37,31 @@ _SECURITY_SUBJECT = re.compile(
     r"G-\d{5,8}|\d{4,8} is your|your (?:\w+ )?code(?: is\b|:|$))",
     re.I,
 )
+# Account-security notices: something gained access to, or changed how you
+# sign in to, an account. Each phrase pairs the thing (an app, device, key,
+# recovery address, 2FA) with what happened to it, and most need "your", so a
+# newsletter about API keys or a new phone launch doesn't match. Used on the
+# subject and the body.
+_ACCOUNT_SECURITY = re.compile(
+    r"\bthird[- ]party (?:OAuth )?(?:application|app)s?\b[^.\n]{0,80}?\b(?:added|authorized|granted)\b|"
+    r"\b(?:has been|was|were) (?:authorized|granted permission) to access your\b|"
+    r"\b(?:OAuth )?(?:app|application|integration)s? (?:[\w'-]+ ){0,3}?(?:has been |was |were |is )?"
+    r"(?:authorized|connected|added|granted access) (?:to|for|on) your\b|"
+    r"\bgranted access to your (?:\w+ )?account|"
+    r"\b(?:sign(?:ed)?|log(?:ged)?) in (?:on|to|from|with) a new (?:device|browser|computer|phone|location)|"
+    r"\bnew (?:device|browser|computer|phone)s? (?:[\w'-]+ ){0,3}?(?:added|signed in|logged in|registered|"
+    r"connected)(?: to| on| for)? (?:to |on |for )?your\b|"
+    r"\bnew (?:device|browser|login|log[- ]in) (?:sign[- ]?in|login|alert|detected)|"
+    r"\b(?:SSH|GPG|PGP|deploy|API|access|public|security|signing)(?: [\w-]+){0,3}? (?:key|token|passkey)s? "
+    r"(?:has been |was |were )?(?:added|created|generated|registered) (?:to|for|on) your\b|"
+    r"\b(?:a )?(?:new )?passkey (?:has been |was )?(?:added|created|removed)|"
+    r"\byour (?:recovery|backup|secondary|alternate) (?:email|phone)(?: address| number)? "
+    r"(?:has been |was )?(?:changed|updated|added|removed)|"
+    r"\byour (?:email address|phone number|password|username|sign[- ]?in email) (?:has been |was )(?:changed|updated)|"
+    r"\b(?:two[- ]factor|2-step|two[- ]step|2FA|multi[- ]factor|MFA)(?: authentication| verification)? "
+    r"(?:has been |was |is (?:now )?)(?:turned on|turned off|enabled|disabled|removed)",
+    re.I,
+)
 _PASSWORD_RESET_BODY = re.compile(r"\breset your password\b|\bpassword reset (?:link|request)\b", re.I)
 
 DEFAULT_SENSITIVE_DOMAINS: FrozenSet[str] = frozenset({
@@ -54,6 +79,17 @@ DEFAULT_SENSITIVE_DOMAINS: FrozenSet[str] = frozenset({
     "anthem.com", "aetna.com", "cigna.com", "uhc.com", "bcbs.com", "humana.com", "goodrx.com",
     "teladoc.com", "betterhelp.com", "talkspace.com", "23andme.com", "ancestry.com",
 })
+
+# Dating apps: who someone is matching with and messaging is as private as
+# health. Subdomains count too (mail.hinge.co).
+DEFAULT_DATING_DOMAINS: FrozenSet[str] = frozenset({
+    "hinge.co", "tinder.com", "gotinder.com", "bumble.com", "match.com", "okcupid.com", "grindr.com",
+    "her.app", "weareher.com", "feeld.co", "coffeemeetsbagel.com", "raya.app", "rayatheapp.com",
+    "eharmony.com", "zoosk.com", "pof.com", "plentyoffish.com", "hily.com", "theleague.com", "jdate.com",
+    "christianmingle.com", "elitesingles.com", "scruff.com", "taimi.com", "lex.app", "archer.app",
+    "badoo.com", "happn.com", "tantanapp.com", "boo.world", "thursday.social",
+})
+_DATING_DOMAIN_TOKENS = re.compile(r"dating|singles\b", re.I)
 
 # Tokens inside a sender domain's labels that signal a sensitive institution.
 _SENSITIVE_DOMAIN_TOKENS = re.compile(
@@ -77,6 +113,7 @@ _SENSITIVE_SUBJECT = re.compile(
 @dataclass(frozen=True)
 class DropConfig:
     sensitive_domains: FrozenSet[str] = field(default_factory=lambda: DEFAULT_SENSITIVE_DOMAINS)
+    dating_domains: FrozenSet[str] = field(default_factory=lambda: DEFAULT_DATING_DOMAINS)
     allow_domains: FrozenSet[str] = frozenset()  # user overrides: never drop for sender reasons
     drop_categories: bool = True
     drop_bulk: bool = True
@@ -134,13 +171,15 @@ def check_sensitive_sender(msg: RawMessage, config: DropConfig = DEFAULT_CONFIG)
         return "sensitive:sender_domain"
     # Only look at the registrable part, not the TLD, for keyword tokens.
     labels = domain.split(".")[:-1]
+    if _domain_matches(domain, config.dating_domains) or any(_DATING_DOMAIN_TOKENS.search(l) for l in labels):
+        return "sensitive:dating"
     if any(_SENSITIVE_DOMAIN_TOKENS.search(label) for label in labels):
         return "sensitive:sender_keyword"
     return None
 
 
 def check_subject(subject: str) -> Optional[str]:
-    if _SECURITY_SUBJECT.search(subject):
+    if _SECURITY_SUBJECT.search(subject) or _ACCOUNT_SECURITY.search(subject):
         return "security:subject"
     if _SENSITIVE_SUBJECT.search(subject):
         return "sensitive:subject"
@@ -148,7 +187,7 @@ def check_subject(subject: str) -> Optional[str]:
 
 
 def check_security_body(body: str) -> Optional[str]:
-    if looks_like_security_mail(body) or _PASSWORD_RESET_BODY.search(body):
+    if looks_like_security_mail(body) or _PASSWORD_RESET_BODY.search(body) or _ACCOUNT_SECURITY.search(body):
         return "security:body"
     return None
 

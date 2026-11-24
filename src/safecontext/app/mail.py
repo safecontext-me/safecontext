@@ -36,6 +36,7 @@ REASON_SHORT: Dict[str, tuple] = {
                                 "service."),
     "sensitive:sender_keyword": ("Bank/financial, tax or health sender", "The sender's domain looks like a bank, "
                                  "insurer, clinic or tax service."),
+    "sensitive:dating": ("Dating app", "It came from a dating app."),
     "business_sender": ("Business or automated text", "It came from a shortcode, a business sender ID or a "
                         "toll-free number, the way banks, pharmacies and sign-in codes are sent."),
     "sensitive:text": ("Bank, tax or health text", "It reads like a bank, tax or health notice (a balance, a "

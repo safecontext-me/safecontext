@@ -23,18 +23,25 @@ email-only rules such as `List-Unsubscribe` don't apply to them.
 
 - Spam, trash, drafts, chats, and Promotions/Social/Forums categories
 - Bulk mail: `List-Unsubscribe` or `Precedence: bulk/junk` headers, and bounce notices
-  (mailer-daemon). Mail from no-reply addresses (receipts, bookings) is kept and scrubbed
-- Security mail: verification/login codes, password resets, sign-in alerts, 2FA, magic links
+  (mailer-daemon). Mail from no-reply addresses (receipts, bookings) is kept and scrubbed,
+  unless another rule here drops it
+- Security mail: verification/login codes, password resets, sign-in alerts, 2FA, magic links,
+  and account-access notices: an app or OAuth application connected to your account, a new
+  device signed in, a new SSH/GPG/API key or passkey added, a recovery email or phone
+  changed, 2FA turned on or off
 - Sensitive senders: a built-in list of banks, brokerages, payment apps, tax, health,
   insurance and pharmacy domains, plus domains containing words like `bank`, `clinic`,
   `insurance`, `mortgage`
+- Dating apps: Hinge, Tinder, Bumble, Match, OkCupid, Grindr, Feeld and similar, plus
+  domains containing `dating`
 - Sensitive subjects: statements, tax forms (W-2, 1099…), direct deposit, pay stubs,
   lab results, prescriptions, explanation of benefits, appointment reminders, and similar
 
 **Redacted inline** as `[REDACTED:TYPE]` in subjects and bodies: credit cards, IBANs,
 SSNs, bank account and routing numbers, CVVs, dates of birth, phone numbers, street
-addresses, API keys, JWTs, private keys, passwords, one-time codes, TOTP secrets and
-backup codes. Quoted replies and signatures are stripped. Attachments are stored as
+addresses, API keys, JWTs, private keys, passwords, one-time codes, TOTP secrets,
+backup codes, and booking codes (airline record locators and hotel, rail and car-rental
+confirmation numbers, when they follow a word like "confirmation" or "reservation"). Quoted replies and signatures are stripped. Attachments are stored as
 filename, type and size only; there is no field that could hold their contents.
 
 The scrubber leans toward dropping: a wrongly dropped newsletter costs little, a wrongly
