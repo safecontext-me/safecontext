@@ -53,3 +53,21 @@ def test_sources_is_a_parent_with_each_source_under_it():
     assert 'data-view="mail"' not in nav  # each source opens the browse page instead
     assert '<button data-view="removed">Security Dashboard</button>' in nav
     assert "What was removed" not in HTML
+
+
+def _panel(app):
+    p = HTML[HTML.index(f'id="panel-{app}"'):]
+    return p[:p.index("</div>")]
+
+
+def test_claude_signs_in_with_approve_and_muse_stays_link_only():
+    claude, muse = _panel("claude"), _panel("muse")
+    assert "Approve" in claude and "safecontext" in claude
+    assert "link-only-box" not in claude and "coming" not in claude and "No sign-in" not in claude
+    assert "link-only-box" in muse and "coming for Muse" in muse
+
+
+def test_approve_dialog_names_the_app_it_was_sent():
+    assert '<h2><span id="ga-title">' in HTML and 'id="ga-client"' in HTML
+    assert '$("ga-title").textContent = who;' in JS and '$("ga-client").textContent = who;' in JS
+    assert 'const who = g.approval.client || "An AI app";' in JS

@@ -122,7 +122,7 @@
             <p class="hint">Only the time, the request and how many results are kept here. The results themselves aren't saved.</p>
           </div>
           <div class="mcp-help" id="mcp-help" hidden>
-            <p>If Grok asks for OAuth details, use Client ID <code>grok</code>, leave the secret blank, and these endpoints:</p>
+            <p>If an app asks for OAuth details, use Client ID <code>safecontext</code>, leave the secret blank, and these endpoints:</p>
             <dl class="kv"><dt>Authorization</dt><dd><code id="mcp-auth-url"></code></dd><dt>Token</dt><dd><code id="mcp-token-url"></code></dd></dl>
             <label class="check"><input type="checkbox" class="link-only-box"> Let apps connect with just the link (no Approve step). Anyone with the link can then search your scrubbed data, so keep it private.</label>
           </div>
@@ -145,13 +145,12 @@
 
             <div class="mcp-panel" id="panel-claude" role="tabpanel" aria-labelledby="tab-claude" data-app="claude" hidden>
               <ol>
-                <li>Turn on <b>Connect with just the link</b> below.</li>
                 <li>On claude.ai/customize/connectors, click <b>Add</b>, then <b>Add custom connector</b>.</li>
                 <li>Name it SafeContext, paste your link as the server URL, and click <b>Continue</b>.</li>
-                <li>Choose <b>No sign-in</b>, then click <b>Add</b>.</li>
+                <li>Keep the sign-in settings Claude marks <b>Detected</b> and click <b>Add</b>. If it asks for a Client ID, use <code>safecontext</code>.</li>
+                <li>Click <b>Connect</b>. When Claude's sign-in page shows a 4-digit code, click <b>Approve</b> here if SafeContext shows the same code.</li>
               </ol>
-              <label class="check"><input type="checkbox" class="link-only-box"> Connect with just the link. Anyone with the link can search your scrubbed data, so keep it private.</label>
-              <p class="mcp-soon">Signing in with Approve is coming for Claude. Connectors you add on claude.ai also work in the Claude desktop app. Claude Desktop can also use SafeContext on this Mac with no link at all: see <b>Apps on this Mac</b> below.</p>
+              <p class="mcp-soon">Leave <b>Connect with just the link</b> (under Trouble connecting?) off, or Claude skips signing in. Connectors you add on claude.ai also work in the Claude desktop app. Claude Desktop can also use SafeContext on this Mac with no link at all: see <b>Apps on this Mac</b> below.</p>
               <button class="btn small" data-open-app="claude">Open Claude connectors</button>
             </div>
 

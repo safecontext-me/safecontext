@@ -492,7 +492,7 @@ class GrokLink:
         if not ids:
             return {}
         root = f"{self.base_url}/g/{ids['link_id']}"
-        return {"client_id": "grok", "authorize": f"{root}/authorize", "token": f"{root}/token"}
+        return {"client_id": "safecontext", "authorize": f"{root}/authorize", "token": f"{root}/token"}
 
     # lifecycle
     def start(self) -> None:
