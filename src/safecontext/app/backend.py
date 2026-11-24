@@ -32,7 +32,13 @@ from .mail import MailView
 
 log = logging.getLogger("safecontext.app")
 
-AUTO_SYNC_SECONDS = 15 * 60
+# Automatic syncing: every source at launch, then every AUTO_SYNC_SECONDS. Bringing the window
+# forward or waking the Mac checks again, but never sooner than MIN_SYNC_GAP_SECONDS after the
+# source last started or finished a sync. The loop wakes every TICK_SECONDS; a wall-clock jump
+# much bigger than that means the Mac slept.
+AUTO_SYNC_SECONDS = 5 * 60
+MIN_SYNC_GAP_SECONDS = 2 * 60
+TICK_SECONDS = 30
 
 REASON_LABELS = {
     "spam_trash": "Spam & Trash", "draft": "Drafts", "chat": "Chats",
@@ -117,11 +123,14 @@ class Backend:
         self._sync_lock = threading.Lock()
         self._progress: Dict[str, SyncResult] = {}
         self._last_result: Dict[str, SyncResult] = {}
+        self._last_run: Dict[str, float] = {}  # source id -> wall time a sync last started or ended
+        self._last_tick: Optional[float] = None
         self._stop = threading.Event()
         # Demo mode never touches the network, so it gets no updater unless a test passes one.
         self._updater: Optional[upd.Updater] = updater if updater is not None else (
             None if demo else upd.Updater(self._store))
         self._quit_fn: Optional[Callable[[], None]] = None  # set by main.run: closes the window
+        self._auto_sync_on = auto_sync  # off: only clicks sync (tests)
         if auto_sync:
             threading.Thread(target=self._auto_sync_loop, daemon=True, name="auto-sync").start()
             self._grok.start()  # reconnect to the relay if Grok was left on
@@ -241,6 +250,11 @@ class Backend:
         started = [self._start_sync(s.id) for s in self._sources.connected()]
         return {"started": any(started)}
 
+    @_safe
+    def window_focused(self) -> Dict[str, Any]:
+        """The window came forward: check any source not checked in the last couple of minutes."""
+        return {"started": self._auto_sync(MIN_SYNC_GAP_SECONDS) if self._auto_sync_on else []}
+
     def _start_sync(self, source_id: str) -> bool:
         src = self._sources.get(source_id)
         with self._sync_lock:
@@ -249,6 +263,7 @@ class Backend:
                 return False
             t = threading.Thread(target=self._run_sync, args=(source_id,), daemon=True, name=f"sync-{source_id}")
             self._threads[source_id] = t
+            self._last_run[source_id] = time.time()
             t.start()
             return True
 
@@ -262,19 +277,40 @@ class Backend:
         if result.status != "busy":
             self._last_result[source_id] = result
         self._progress[source_id] = result
+        self._last_run[source_id] = time.time()  # a long first sync that stops waits a full gap, not none
 
     def _on_progress(self, source_id: str, r: SyncResult) -> None:
         self._progress[source_id] = SyncResult(status="running", phase=r.phase, fetched=r.fetched, kept=r.kept,
                                                dropped=r.dropped, deleted=r.deleted)
 
     def _auto_sync_loop(self) -> None:
-        while not self._stop.wait(AUTO_SYNC_SECONDS):
-            for src in self._sources.connected():  # each source on its own thread; one failing never blocks another
-                if src.state.get("auth_state") not in ("needs_reconnect", "needs_permission"):
-                    try:
-                        self._start_sync(src.id)
-                    except Exception:
-                        log.exception("couldn't start %s sync", src.id)
+        self._auto_tick()  # at launch: picks up new mail and resumes a paused first sync
+        while not self._stop.wait(TICK_SECONDS):
+            self._auto_tick()
+
+    def _auto_tick(self, now: Optional[float] = None) -> list:
+        now = time.time() if now is None else now
+        woke = self._last_tick is not None and now - self._last_tick > TICK_SECONDS + 60
+        self._last_tick = now
+        return self._auto_sync(MIN_SYNC_GAP_SECONDS if woke else AUTO_SYNC_SECONDS, now)
+
+    def _auto_sync(self, min_gap: float, now: Optional[float] = None) -> list:
+        """Start a sync for each connected source that last ran at least `min_gap` seconds ago.
+        Sources that need reconnecting or a Mac permission wait for the user."""
+        now = time.time() if now is None else now
+        started = []
+        for src in self._sources.connected():  # each source on its own thread; one failing never blocks another
+            if src.state.get("auth_state") in ("needs_reconnect", "needs_permission"):
+                continue
+            last = self._last_run.get(src.id)
+            if last is not None and now - last < min_gap:
+                continue
+            try:
+                if self._start_sync(src.id):
+                    started.append(src.id)
+            except Exception:
+                log.exception("couldn't start %s sync", src.id)
+        return started
 
     @_safe
     def disconnect(self, wipe: bool = False) -> Dict[str, Any]:

@@ -156,7 +156,7 @@ class MailView:
                     remaining = max(0, int(total) - c["kept"] - c["dropped"])
                 notes.append("First sync in progress: it works from newest to oldest, so older mail is still "
                              "to fetch." if hb else
-                             "First sync paused before reaching your oldest mail. Sync now to continue.")
+                             "First sync paused before reaching your oldest mail. It resumes automatically.")
             if (st.get("sync_mode") or "full") == "headers":
                 notes.append("Headers only: sender, recipients, subject and date are stored, no message text.")
             else:
