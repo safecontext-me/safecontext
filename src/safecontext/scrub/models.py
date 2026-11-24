@@ -69,6 +69,10 @@ class RawItem:
     `extra` holds short labelled fields shown with the item, e.g.
     {"Location": ..., "Join": ...}. `headers` and `labels` are only read by
     the email-only rules, for email-like sources.
+    `sender_handle` is the raw address a chat came from (phone number, email,
+    shortcode or alphanumeric sender ID) when `sender` shows a Contacts name
+    instead; "" for your own messages; None means `sender` is the handle.
+    It is only read by the chat drop rules and is never stored.
     """
 
     id: str
@@ -86,6 +90,7 @@ class RawItem:
     extra: Dict[str, str] = field(default_factory=dict)
     headers: Dict[str, str] = field(default_factory=dict)  # keys lower-cased
     labels: List[str] = field(default_factory=list)
+    sender_handle: Optional[str] = None
 
     @property
     def label_ids(self) -> List[str]:  # same shape as RawMessage for the label rule

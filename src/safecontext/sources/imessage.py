@@ -129,6 +129,12 @@ class IMessageSource(ReaderSource):
             extra["Service"] = m.service
         if m.edited:
             extra["Edited"] = "yes"
+        # The raw handle, for the chat drop rules (a bank saved in Contacts is still a shortcode).
+        # My own messages in a one-to-one chat count as that chat's: replies to a pharmacy go too.
+        if m.is_from_me:
+            handle = conv.identifier if conv is not None and not conv.is_group else ""
+        else:
+            handle = m.sender or ""
         ts = m.timestamp
         return RawItem(
             id=m.guid,
@@ -141,4 +147,5 @@ class IMessageSource(ReaderSource):
             text=m.text or "",
             attachments=[Attachment(a.name or "attachment", a.mime_type or "", 0) for a in m.attachments],
             extra=extra,
+            sender_handle=handle,
         )

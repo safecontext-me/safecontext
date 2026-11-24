@@ -41,6 +41,8 @@ REASON_LABELS = {
     "security:subject": "Security & 2FA codes", "security:body": "Security & 2FA codes",
     "sensitive:sender_domain": "Banks, tax & health senders", "sensitive:sender_keyword": "Banks, tax & health senders",
     "sensitive:subject": "Statements, tax & medical subjects or titles",
+    "business_sender": "Texts from businesses & shortcodes",
+    "sensitive:text": "Bank, tax & health texts",
 }
 
 REDACTION_LABELS = {

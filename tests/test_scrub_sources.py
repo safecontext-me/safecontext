@@ -4,7 +4,7 @@ health rules apply to every kind of item."""
 import pytest
 
 from safecontext.scrub import Dropped, RawItem, ScrubbedItem, scrub_item
-from safecontext.scrub.drop import EMAIL_ONLY_RULES, UNIVERSAL_RULES, rules_for
+from safecontext.scrub.drop import CHAT_ONLY_RULES, EMAIL_ONLY_RULES, UNIVERSAL_RULES, rules_for
 from safecontext.store import Store
 
 KINDS_NOT_EMAIL = ["event", "chat", "transcript"]
@@ -26,7 +26,8 @@ def kept(r):
 
 def test_rule_table():
     assert rules_for("message") == EMAIL_ONLY_RULES + UNIVERSAL_RULES
-    for k in KINDS_NOT_EMAIL:
+    assert rules_for("chat") == UNIVERSAL_RULES + CHAT_ONLY_RULES
+    for k in ("event", "transcript"):
         assert rules_for(k) == UNIVERSAL_RULES
     assert set(EMAIL_ONLY_RULES) == {"labels", "bulk"}
     assert set(UNIVERSAL_RULES) == {"sensitive_sender", "subject", "security_body"}

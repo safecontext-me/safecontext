@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from typing import Dict, Optional, Union
 
-from .drop import DEFAULT_CONFIG, DropConfig, check_headers, check_security_body
+from .drop import DEFAULT_CONFIG, DropConfig, check_headers, check_security_body, check_sensitive_text, rules_for
 from .models import KIND_MESSAGE, Attachment, Dropped, RawItem, RawMessage, ScrubbedItem, ScrubbedMessage
 from .normalize import html_to_text, normalize_text
 from .prose import NoProseClassifier, ProseClassifier, redact_prose
@@ -106,6 +106,8 @@ def scrub_item(
     extra = {normalize_text(k): normalize_text(v) for k, v in item.extra.items() if v and v.strip()}
 
     reason = check_security_body("\n".join([body, *extra.values()]))
+    if not reason and "sensitive_text" in rules_for(item.kind):
+        reason = check_sensitive_text(body, config)
     if reason:
         return Dropped(item.id, item.thread_id, reason, item.date_ms)
 
