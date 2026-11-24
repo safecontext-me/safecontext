@@ -75,6 +75,11 @@ kbd { font: 11px ui-monospace, "SF Mono", Menlo, monospace; border: 1px solid va
 .mrow-from { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mrow-from .cnt { font-weight: 400; color: var(--muted); margin-left: 4px; }
 .mrow-date { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* Date by default, time while the row is hovered. Both sit in one grid cell, so the column width never jumps. */
+.mrow-date.when { display: inline-grid; justify-items: end; }
+.mrow-date.when > span { grid-area: 1 / 1; }
+.mrow-date.when .when-t, .mrow:hover .mrow-date.when .when-d { visibility: hidden; }
+.mrow:hover .mrow-date.when .when-t { visibility: visible; }
 .mrow-subj { display: flex; gap: 6px; align-items: center; margin: 2px 0 1px; min-width: 0; }
 .mrow-subj > span:first-child { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .mrow-snip { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
