@@ -40,7 +40,7 @@ def test_open_buttons_only_name_apps_with_a_connectors_page():
 
 def test_search_screen_is_gone():
     assert 'id="view-search"' not in HTML and 'data-view="search"' not in HTML
-    assert '<section id="view-mail" class="view">' in HTML  # shown at start, not hidden
+    assert '<section id="view-mail" class="view" hidden>' in HTML  # not the start screen any more
     for gone in ("loadRecent", "doSearch", "renderResults", "openThread", "api().search(", "api().recent("):
         assert gone not in JS
 
@@ -81,3 +81,17 @@ def test_approve_dialog_names_the_app_it_was_sent():
     assert '<h2><span id="ga-title">' in HTML and 'id="ga-client"' in HTML
     assert '$("ga-title").textContent = who;' in JS and '$("ga-client").textContent = who;' in JS
     assert 'const who = g.approval.client || "An AI app";' in JS
+
+
+def test_app_opens_on_the_security_dashboard():
+    assert '<section id="view-removed" class="view">' in HTML  # the only view not hidden at start
+    assert 'view: "removed"' in JS  # state.view, shown by the first status refresh
+    assert "mailInit();  // the mail list may not have been shown yet" in JS  # openSource before mail was ever shown
+
+
+def test_lucide_licence_ships_with_the_app():
+    # Briefcase copies src/safecontext into the app, so the notice travels with the icons.
+    notice = (UI.parent.parent / "THIRD_PARTY_NOTICES.txt").read_text()
+    assert "ISC License" in notice and "Lucide Icons and Contributors" in notice
+    assert "Cole Bemis" in notice  # the MIT notice for icons derived from Feather (database, search, ...)
+    assert "THIRD_PARTY_NOTICES.txt" in HTML

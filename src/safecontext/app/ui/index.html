@@ -47,7 +47,7 @@
   <aside class="sidebar">
     <div class="brand"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect class="logo-bg" width="32" height="32" rx="8"/><path class="logo-fg" d="M16 6.5l7.5 2.8v5.6c0 4.8-3.2 8.6-7.5 10.6-4.3-2-7.5-5.8-7.5-10.6V9.3z"/></svg> SafeContext <span id="demo-badge" class="tag" hidden>Demo</span></div>
     <div class="brand-sub muted">Private context layer</div>
-    <!-- Icons are Lucide (lucide.dev, ISC license), inlined because the window loads nothing remote. -->
+    <!-- Icons are Lucide (lucide.dev, ISC license; notice in src/safecontext/THIRD_PARTY_NOTICES.txt), inlined because the window loads nothing remote. -->
     <nav class="nav">
       <button data-view="removed">
         <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
@@ -216,7 +216,7 @@
     </section>
 
     <!-- Security Dashboard: what the scrubber removed -->
-    <section id="view-removed" class="view" hidden>
+    <section id="view-removed" class="view">
       <h2>Security Dashboard</h2>
       <p class="muted">Everything below was removed on this Mac before anything was saved.</p>
       <div class="tiles">
@@ -280,7 +280,7 @@
       </div>
     </section>
     <!-- One source (picked under Sources in the sidebar): browse what's synced, see what isn't (mail.js) -->
-    <section id="view-mail" class="view">
+    <section id="view-mail" class="view" hidden>
       <div class="mail-shell">
         <div class="mail-main">
           <!-- Search, with its shortcut shown inside the field on the right (⌘K or /) -->

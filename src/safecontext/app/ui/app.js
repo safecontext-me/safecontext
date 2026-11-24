@@ -22,7 +22,8 @@ const REQ_KINDS = { oauth_scope: "Google permission", macos_permission: "Mac per
 
 const $ = (id) => document.getElementById(id);
 const api = () => window.pywebview.api;
-let state = { status: null, view: "mail", shown: false, mcp: null, mcpBusy: false };
+let state = { status: null, view: "removed", shown: false,  // opens on the Security Dashboard
+              mcp: null, mcpBusy: false };
 
 // ---------- DOM helpers ----------
 function el(tag, attrs = {}, ...children) {
@@ -274,6 +275,7 @@ function markNav() {
 }
 
 function openSource(id) {
+  mailInit();  // the mail list may not have been shown yet (the app opens on the Security Dashboard)
   if (mail.source !== id) {
     Object.assign(mail, { source: id, rows: [], next: null, sel: -1, openKey: null, query: "", reasons: [] });
     $("mail-q").value = "";
