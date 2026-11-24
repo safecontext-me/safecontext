@@ -14,8 +14,13 @@ shows as a "Reconnect Gmail" prompt instead of crashing.
 """
 from __future__ import annotations
 
+import contextlib
+import http.server
+import ipaddress
 import json
 import os
+import socketserver
+import threading
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -102,6 +107,59 @@ def required_scope_granted(creds: Credentials, mode: str) -> bool:
     return MODES[mode] in granted
 
 
+# --- loopback redirect server ----------------------------------------------
+#
+# `run_local_server` starts a wsgiref server, and `http.server.HTTPServer.server_bind`
+# sets `server_name = socket.getfqdn(host)`: a reverse DNS lookup of 127.0.0.1. On
+# recent macOS that lookup can go out over mDNS, which shows the "find devices on
+# local networks" privacy prompt in the middle of sign-in. The server only needs
+# its name for WSGI's SERVER_NAME, so for a loopback address we use the address
+# itself. Patched only while a sign-in is running.
+
+_ORIGINAL_SERVER_BIND = http.server.HTTPServer.server_bind
+_bind_patch_lock = threading.Lock()
+_bind_patch_users = 0
+
+
+def _is_loopback(host) -> bool:
+    try:
+        return ipaddress.ip_address(str(host).split("%", 1)[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def _server_bind_without_dns(self) -> None:
+    if not _is_loopback(self.server_address[0]):
+        return _ORIGINAL_SERVER_BIND(self)
+    socketserver.TCPServer.server_bind(self)
+    host, port = self.server_address[:2]
+    self.server_name = str(host)
+    self.server_port = port
+
+
+@contextlib.contextmanager
+def _no_reverse_dns_for_loopback():
+    global _bind_patch_users
+    with _bind_patch_lock:
+        if _bind_patch_users == 0:
+            http.server.HTTPServer.server_bind = _server_bind_without_dns
+        _bind_patch_users += 1
+    try:
+        yield
+    finally:
+        with _bind_patch_lock:
+            _bind_patch_users -= 1
+            if _bind_patch_users == 0:
+                http.server.HTTPServer.server_bind = _ORIGINAL_SERVER_BIND
+
+
+def _run_sign_in(flow, open_browser: bool, params: dict) -> Credentials:
+    """Browser sign-in through a loopback redirect on 127.0.0.1 (PKCE comes from the flow)."""
+    with _no_reverse_dns_for_loopback():
+        return flow.run_local_server(host="127.0.0.1", port=0, open_browser=open_browser,
+                                     timeout_seconds=600, **params)
+
+
 # --- token storage ---------------------------------------------------------
 
 KEYCHAIN_UNAVAILABLE = "Couldn't access the macOS Keychain, where the Gmail sign-in is stored."
@@ -139,8 +197,7 @@ def connect(mode: str = "full", login_hint: Optional[str] = None, *, client_conf
             tokens: Optional[TokenStore] = None, open_browser: bool = True) -> Tuple[Credentials, str]:
     """Run the browser sign-in. Returns (credentials, account email)."""
     flow = build_flow(client_config or load_client_config(), mode)
-    creds = flow.run_local_server(host="127.0.0.1", port=0, open_browser=open_browser,
-                                  timeout_seconds=600, **_auth_params(login_hint))
+    creds = _run_sign_in(flow, open_browser, _auth_params(login_hint))
     if not required_scope_granted(creds, mode):
         raise NeedsReconnect("scope_not_granted",
                              "Gmail access wasn't granted. On Google's consent screen, tick the box that lets "
@@ -209,8 +266,7 @@ def connect_calendar(login_hint: Optional[str] = None, *, client_config: Optiona
     flow = InstalledAppFlow.from_client_config(client_config or load_client_config(), scopes=[SCOPE_CALENDAR],
                                                autogenerate_code_verifier=True)
     params = {**_auth_params(login_hint), "include_granted_scopes": "true"}
-    creds = flow.run_local_server(host="127.0.0.1", port=0, open_browser=open_browser,
-                                  timeout_seconds=600, **params)
+    creds = _run_sign_in(flow, open_browser, params)
     if SCOPE_CALENDAR not in set(creds.granted_scopes or creds.scopes or []):
         raise NeedsReconnect("scope_not_granted",
                              "Calendar access wasn't granted. On Google's consent screen, tick the box that lets "

@@ -101,6 +101,75 @@ def test_client_config_from_env(tmp_path, monkeypatch):
     assert load_client_config()["installed"]["client_id"].startswith("123-")
 
 
+# --- the loopback redirect server ------------------------------------------------
+
+def _sign_in_through_real_loopback_server(monkeypatch, run):
+    """Run a sign-in with oauthlib's real 127.0.0.1 server. A fake browser follows the
+    redirect straight back with a code; the token exchange and Google calls are faked."""
+    import http.client
+    import socket
+    import threading
+    import webbrowser
+
+    from google_auth_oauthlib.flow import Flow, InstalledAppFlow
+
+    lookups = []
+    real_getfqdn, real_gethostbyaddr = socket.getfqdn, socket.gethostbyaddr
+    monkeypatch.setattr(socket, "getfqdn", lambda *a: lookups.append(("getfqdn", a)) or real_getfqdn(*a))
+    monkeypatch.setattr(socket, "gethostbyaddr",
+                        lambda *a: lookups.append(("gethostbyaddr", a)) or real_gethostbyaddr(*a))
+    opened = []
+
+    class FakeBrowser:
+        def open(self, url, new=0, autoraise=True):
+            opened.append(url)
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            redirect = urllib.parse.urlparse(q["redirect_uri"][0])
+            path = "/?" + urllib.parse.urlencode({"code": "4/test-code", "state": q["state"][0]})
+
+            def follow():  # http.client, not urllib: no proxy lookups
+                conn = http.client.HTTPConnection(redirect.hostname, redirect.port, timeout=10)
+                conn.request("GET", path)
+                conn.getresponse().read()
+                conn.close()
+            threading.Thread(target=follow, daemon=True).start()
+            return True
+
+    monkeypatch.setattr(webbrowser, "get", lambda browser=None: FakeBrowser())
+    tokens_fetched = []
+    monkeypatch.setattr(InstalledAppFlow, "fetch_token", lambda self, **kw: tokens_fetched.append(kw))
+    monkeypatch.setattr(Flow, "credentials", property(
+        lambda self: creds(auth.SCOPE_CALENDAR if auth.SCOPE_CALENDAR in self.oauth2session.scope
+                           else auth.SCOPE_READONLY)))
+    result = run()
+    assert len(opened) == 1 and urllib.parse.urlparse(opened[0]).hostname == "accounts.google.com"
+    assert "code_challenge" in urllib.parse.parse_qs(urllib.parse.urlparse(opened[0]).query)  # PKCE kept
+    assert "code=4%2Ftest-code" in tokens_fetched[0]["authorization_response"]
+    return result, lookups
+
+
+@pytest.mark.parametrize("which", ["gmail", "calendar"])
+def test_sign_in_server_does_no_reverse_dns_lookup(monkeypatch, which):
+    """A reverse lookup of 127.0.0.1 can go over mDNS and trigger macOS's Local Network prompt."""
+    import http.server
+
+    if which == "gmail":
+        monkeypatch.setattr(auth, "fetch_account_email", lambda c: "a@example.org")
+        run = lambda: auth.connect("full", "a@example.org", client_config=CLIENT)
+    else:
+        monkeypatch.setattr(auth, "fetch_calendar_account", lambda c: "a@example.org")
+        run = lambda: auth.connect_calendar("a@example.org", client_config=CLIENT)
+    (_, account), lookups = _sign_in_through_real_loopback_server(monkeypatch, run)
+    assert account == "a@example.org"
+    assert lookups == []
+    assert http.server.HTTPServer.server_bind is auth._ORIGINAL_SERVER_BIND  # patch is gone afterwards
+
+
+def test_only_loopback_addresses_skip_the_lookup():
+    assert auth._is_loopback("127.0.0.1") and auth._is_loopback("::1")
+    assert not auth._is_loopback("localhost") and not auth._is_loopback("192.168.1.2")
+
+
 # --- token storage --------------------------------------------------------------
 
 def test_tokens_live_in_keychain_not_files(mem_keyring, tmp_path):
