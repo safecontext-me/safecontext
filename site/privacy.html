@@ -80,7 +80,7 @@ It never downloads the contents of attachments; it records only each attachment'
   <li><b>Your Google sign-in token</b> and the private MCP link are stored in your Mac's Keychain, not in a plain file.</li>
   <li>A short <b>activity list</b> of what connected AI apps asked for through the MCP link (time, request and number of results, never the results) is kept on your Mac so you can see it in the app. You can clear it at any time.</li>
   <li>Your answers in the <b>AI access review</b> (which checks you've done, and when) and any report you save are kept on your Mac, in SafeContext's folder. A saved report contains no email addresses, no MCP link and no values from other apps' files.</li>
-  <li>The SafeContext app has <b>no analytics, tracking or telemetry</b>, and this website sets no cookies. SafeContext's relay and update check keep anonymous usage counts, described below.</li>
+  <li>The SafeContext app has <b>no analytics, tracking or telemetry</b>, and this website sets no cookies. SafeContext's relay keeps anonymous usage counts, described below.</li>
 </ul>
 
 <h2>How your data is protected</h2>
@@ -109,7 +109,7 @@ It never downloads the contents of attachments; it records only each attachment'
   </li>
   <li><b>AI apps you connect on your Mac.</b> If you connect another AI app to SafeContext on your Mac (through the Model Context Protocol), that app can search and read your scrubbed copy when you use it. You choose whether to connect an app, and you can disconnect it at any time. The app handles that data under its own terms.</li>
   <li><b>Opening a message in Gmail</b> opens it in your web browser at Google.</li>
-  <li><b>Update checks.</b> Once a day, and when you click <b>Check for updates</b>, SafeContext downloads a small file from safecontext.me that lists the latest version. The request sends none of your data: no account, email address, device identifier or usage information, only what any web request carries (your IP address, which Cloudflare handles to deliver the site). The site counts each check with only the app version and the date. If you choose <b>Update and restart</b>, SafeContext downloads the new version from safecontext.me, checks that it is signed by SafeContext's developer, and replaces the app. Your data folder and Keychain items are not touched. You can turn automatic checks off in Settings.</li>
+  <li><b>Update checks.</b> Once a day, and when you click <b>Check for updates</b>, SafeContext downloads a small file from safecontext.me that lists the latest version. The request sends none of your data: no account, email address, device identifier or usage information, only what any web request carries (your IP address, which Cloudflare handles to deliver the site). The check includes the app version, so the right update can be offered. If you choose <b>Update and restart</b>, SafeContext downloads the new version from safecontext.me, checks that it is signed by SafeContext's developer, and replaces the app. Your data folder and Keychain items are not touched. You can turn automatic checks off in Settings.</li>
 </ul>
 <p>The developer never keeps your Google or Messages data. With MCP on, scrubbed results pass through the developer's relay only in transit, as described above.</p>
 
