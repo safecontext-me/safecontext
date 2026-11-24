@@ -16,11 +16,12 @@ import os
 import sys
 import threading
 import subprocess
+import time
 import webbrowser
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from .. import auth, env, migrate, updater as upd
+from .. import __version__, auth, env, migrate, review, updater as upd
 from ..errors import NeedsPermission
 from ..grok_link import CONNECTOR_PAGES, GrokLink
 from ..sources import Sources, default_sources
@@ -93,9 +94,14 @@ class Backend:
                  grok_link: Optional[Callable[[Store, Path], GrokLink]] = None,
                  imessage_options: Optional[Dict[str, Any]] = None,
                  updater: Optional[upd.Updater] = None,
+                 review_home: Optional[Path] = None,
                  auto_sync: bool = True) -> None:
         self._demo = demo
         self._data_dir = Path(data_dir or DEFAULT_DATA_DIR)
+        # Where the opt-in review scan looks for other AI tools' config. Demo mode never looks
+        # in the real home folder: it gets a fixture (demo.py) or an empty folder.
+        self._review_home = Path(review_home) if review_home else (
+            self._data_dir / "demo-home" if demo else Path.home())
         self._store = Store(self._data_dir / "mail.db")
         self._connect_fn = connect_fn  # None: the real Google sign-in
         self._sources: Sources = default_sources(
@@ -435,6 +441,68 @@ class Backend:
             return True
         except (OSError, subprocess.SubprocessError):
             return False
+
+    # --- AI access review (review.py) --------------------------------------------------
+    def _review_data(self) -> Dict[str, Any]:
+        rows = self._source_statuses()
+        for x in rows:
+            if x["id"] == GMAIL:
+                x["mode"] = self._store.state(GMAIL).get("sync_mode") or "full"
+        answers = review.load_answers(self._store.get_meta(review.META_ANSWERS))
+        scan = review.scan_ai_configs(self._review_home) if self._store.get_meta(review.META_SCAN) == "1" else None
+        return review.build_review(rows, self._grok.status(), answers, scan)
+
+    @_safe
+    def review(self) -> Dict[str, Any]:
+        return self._review_data()
+
+    @_safe
+    def review_answer(self, check_id: str, answer: str = "") -> Dict[str, Any]:
+        """Record what the user found on a guided check ("" clears it)."""
+        if check_id not in review.GUIDED_BY_ID or answer not in ("", *review.ANSWERS):
+            return {"ok": False, "error": "Unknown check."}
+        answers = review.load_answers(self._store.get_meta(review.META_ANSWERS))
+        if answer:
+            answers[check_id] = {"answer": answer, "ts": int(time.time() * 1000)}
+        else:
+            answers.pop(check_id, None)
+        self._store.set_meta(review.META_ANSWERS, json.dumps(answers))
+        return self._review_data()
+
+    @_safe
+    def review_set_scan(self, on: bool) -> Dict[str, Any]:
+        """Opt in or out of reading Claude Desktop's and Claude Code's config files."""
+        self._store.set_meta(review.META_SCAN, "1" if on else None)
+        return self._review_data()
+
+    @_safe
+    def review_open(self, check_id: str) -> Dict[str, Any]:
+        """Open a guided check's page (only the fixed links in review.GUIDED)."""
+        url = review.guided_link(check_id) if isinstance(check_id, str) else None
+        if not url:
+            return {"ok": False, "error": "That check has no page to open."}
+        if self._demo:
+            return {"opened": False}  # demo mode never opens anything
+        if url.startswith("x-apple.systempreferences:"):
+            ok = subprocess.run(["/usr/bin/open", url], check=False, capture_output=True).returncode == 0
+        else:
+            ok = webbrowser.open(url)
+        return {"opened": bool(ok)}
+
+    @_safe
+    def review_save_report(self) -> Dict[str, Any]:
+        """Write the report as a self-contained HTML file in the data folder and open it, so it
+        can be printed to PDF or shared. It holds no addresses, link or config values."""
+        data = self._review_data()
+        folder = self._data_dir / "reports"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / review.report_filename(data["generated_ms"])
+        path.write_text(review.report_html(data, __version__), encoding="utf-8")
+        opened = False
+        if not self._demo:
+            opened = subprocess.run(["/usr/bin/open", str(path)], check=False,
+                                    capture_output=True).returncode == 0
+        return {"path": str(path), "opened": opened}
 
     # --- MCP -------------------------------------------------------------------------
     @_safe

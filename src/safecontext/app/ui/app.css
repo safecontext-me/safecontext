@@ -280,3 +280,27 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   .nav { grid-auto-flow: column; }
   .panes, .two-col, .tiles, .src-stats { grid-template-columns: 1fr; }
 }
+
+/* AI access review */
+.rv-summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.rv-verdict { font-size: 18px; font-weight: 650; }
+.rv-verdict.risk { color: var(--danger); }
+.rv-verdict.warn { color: #9a7300; }
+.rv-verdict.ok { color: var(--ok); }
+.rv-scan { margin-bottom: 12px; }
+.rv-scan-row { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.rv-scan-row input { margin-top: 3px; }
+.rv-group { margin-bottom: 12px; }
+.rv-group h3 { margin: 0 0 4px; }
+.rv-row { padding: 10px 0; border-top: 1px solid var(--line); }
+.rv-row:first-of-type { border-top: 0; }
+.rv-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.rv-title { font-weight: 600; }
+.rv-detail, .rv-fix { margin: 4px 0 0; font-size: 13px; }
+.rv-detail { color: var(--muted); }
+.rv-items { margin: 4px 0 0 18px; padding: 0; font-size: 12.5px; color: var(--muted); }
+.rv-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.rv-actions .btn.chosen { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.rv-when { font-size: 12px; }
+.pill.risk { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.pill.todo { background: var(--accent-soft); color: var(--accent); }
