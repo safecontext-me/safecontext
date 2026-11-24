@@ -190,7 +190,9 @@ async function refreshStatus() {
     const busy = others.some((x) => x.syncing);
     dot.className = "dot" + (busy ? " busy" : others.some((x) => ["error", "needs_reconnect", "needs_permission"].includes(x.state)) ? " warn" : "");
     $("sync-text").textContent = busy ? "Syncing…" : "Up to date";
-    $("sync-sub").textContent = `${n(r.total_items)} items · ${others.map((x) => x.name).join(", ")}`;
+    const lastOther = Math.max(0, ...others.map((x) => x.last_sync_ms || 0));
+    $("sync-sub").textContent = `${n(r.total_items)} items · ${others.map((x) => x.name).join(", ")}` +
+      (busy || !lastOther ? "" : ` · checked ${ago(lastOther)}`);
   } else if (r.needs_reconnect) {
     $("sync-text").textContent = "Paused";
     $("sync-sub").textContent = "Gmail needs reconnecting";
@@ -199,11 +201,11 @@ async function refreshStatus() {
     $("sync-sub").textContent = r.last_result.message;
   } else if (!r.first_sync_done) {
     $("sync-text").textContent = "Paused";
-    $("sync-sub").textContent = `${n(r.kept)} messages so far${r.oldest_ms ? " · back to " + monthYear(r.oldest_ms) : ""}. Sync now to continue.`;
+    $("sync-sub").textContent = `${n(r.kept)} messages so far${r.oldest_ms ? " · back to " + monthYear(r.oldest_ms) : ""}. Resumes automatically.`;
   } else {
     $("sync-text").textContent = "Up to date";
     const extra = r.total_items > r.kept ? ` · ${n(r.total_items - r.kept)} other items` : "";
-    $("sync-sub").textContent = `${n(r.kept)} messages${extra} · ${r.last_sync_ms ? ago(r.last_sync_ms) : "never synced"}`;
+    $("sync-sub").textContent = `${n(r.kept)} messages${extra} · ${r.last_sync_ms ? "checked " + ago(r.last_sync_ms) : "never synced"}`;
   }
   const anySyncing = (r.sources || []).some((x) => x.syncing);
   $("sync-now").disabled = anySyncing || (!!r.account && r.needs_reconnect && !(r.sources || []).some((x) => x.id !== "gmail" && x.account));
@@ -355,9 +357,9 @@ function sourceCard(x) {
   } else {
     if (x.state === "needs_reconnect" || x.state === "needs_permission")
       actions.append(el("button", { class: "btn primary", onclick: (e) => connectSource(x, e.target) }, "Reconnect"));
-    const sync = el("button", { class: "btn", onclick: async () => { await api().sync_source(x.id); refreshStatus(); } }, "Sync now");
-    if (x.syncing || x.state === "needs_reconnect" || x.state === "needs_permission") sync.disabled = true;
-    actions.append(sync, el("button", { class: "btn danger", onclick: () => disconnectSource(x) }, "Disconnect"));
+    // No per-source sync button: every source checks itself (launch, focus, wake, every few minutes),
+    // and the sidebar's Check now covers "right now".
+    actions.append(el("button", { class: "btn danger", onclick: () => disconnectSource(x) }, "Disconnect"));
   }
   card.append(actions);
   return card;
@@ -732,6 +734,10 @@ function wire() {
   for (const b of document.querySelectorAll(".nav [data-view]")) b.addEventListener("click", () => show(b.dataset.view));
   for (const b of document.querySelectorAll("[data-goto]")) b.addEventListener("click", (e) => { e.preventDefault(); show(b.dataset.goto); });
   $("sync-now").addEventListener("click", async () => { await api().sync_now(); refreshStatus(); });
+  // Coming back to the window checks for new mail (the backend skips anything checked in the last 2 min).
+  const focused = async () => { if (document.visibilityState === "visible") { await api().window_focused(); refreshStatus(); } };
+  window.addEventListener("focus", focused);
+  document.addEventListener("visibilitychange", focused);
   $("ob-connect").addEventListener("click", () => connect($("ob-connect"), $("ob-error")));
   $("reconnect").addEventListener("click", () => connect($("reconnect"), null));
   $("s-disconnect").addEventListener("click", () => disconnect(false));

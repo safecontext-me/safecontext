@@ -148,7 +148,7 @@ def test_window_cannot_reach_internals(backend):
                       "open_link", "mail_folders", "mail_list", "mail_thread", "mail_reasons",
                       "mail_coverage", "update_status", "update_check", "update_set_auto",
                       "update_install", "update_open_download", "review", "review_answer",
-                      "review_set_scan", "review_open", "review_save_report"}
+                      "review_set_scan", "review_open", "review_save_report", "window_focused"}
 
 
 def test_mcp_config_points_at_this_data(backend):
@@ -197,3 +197,65 @@ def test_html_is_self_contained_and_locked_down():
 
 def test_demo_gmail_has_mail():
     assert len(make_fake_gmail().messages) >= 16
+
+
+# --- automatic syncing: launch, every few minutes, window focus, Mac wake ------------------
+
+from safecontext.app import backend as backend_mod  # noqa: E402
+
+
+def _synced(backend):
+    backend.connect("full")
+    wait_sync(backend)
+    return backend._last_run["gmail"]
+
+
+def test_first_tick_syncs_at_launch(backend):
+    _synced(backend)
+    backend._last_run.clear()  # as after a fresh launch: nothing has run in this process
+    assert backend._auto_tick() == ["gmail"]
+    wait_sync(backend)
+
+
+def test_auto_sync_waits_the_interval(backend):
+    last = _synced(backend)
+    backend._last_tick = last
+    assert backend._auto_tick(last + 20) == []
+    assert backend._auto_tick(last + backend_mod.AUTO_SYNC_SECONDS + 1) == ["gmail"]
+    wait_sync(backend)
+
+
+def test_wake_checks_after_the_short_gap(backend):
+    last = _synced(backend)
+    backend._last_tick = last
+    # The clock jumped well past one tick: the Mac slept. Two and a half minutes is enough.
+    assert backend._auto_tick(last + backend_mod.MIN_SYNC_GAP_SECONDS + 30) == ["gmail"]
+    wait_sync(backend)
+
+
+def test_window_focus_checks_unless_just_checked(backend):
+    _synced(backend)
+    assert backend.window_focused() == {"ok": True, "started": []}  # auto sync off (tests, CLI)
+    backend._auto_sync_on = True
+    assert backend.window_focused()["started"] == []  # just synced
+    backend._last_run["gmail"] -= backend_mod.MIN_SYNC_GAP_SECONDS + 1
+    assert backend.window_focused()["started"] == ["gmail"]
+    wait_sync(backend)
+
+
+def test_auto_sync_leaves_sources_that_need_the_user(backend):
+    _synced(backend)
+    backend._last_run.clear()
+    backend._store.set_state("gmail", "auth_state", "needs_reconnect")
+    assert backend._auto_tick() == []
+    backend._store.set_state("gmail", "auth_state", "needs_permission")
+    assert backend._auto_sync(0) == []
+
+
+def test_a_finished_sync_counts_as_a_check(backend, monkeypatch):
+    """A long first sync that stops (network gone) must not be retried on the very next tick."""
+    _synced(backend)
+    monkeypatch.setattr(backend_mod.time, "time", lambda: 10_000_000.0)
+    backend._last_run["gmail"] = 0.0  # started long ago...
+    backend._run_sync("gmail")  # ...and just finished
+    assert backend._auto_sync(backend_mod.AUTO_SYNC_SECONDS, 10_000_000.0 + 60) == []
