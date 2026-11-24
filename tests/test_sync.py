@@ -84,6 +84,62 @@ def test_mail_arriving_during_backfill_is_caught(store, gmail):
     assert r.phase == "incremental" and store.read_message("m0900") is not None
 
 
+def _catching_up(store, gmail):
+    """A Syncer that catches up after every backfill page (as if each page took minutes)."""
+    sy = Syncer(store, gmail, batch_size=3)
+    sy.catch_up_seconds = 0
+    return sy
+
+
+def test_new_mail_shows_up_while_backfill_still_runs(store, gmail):
+    # Regression: a long first sync didn't fetch mail that arrived after it started until it
+    # finished the whole mailbox (days for a big one), so the newest mail looked missing.
+    seen_mid_backfill = []
+
+    def after_list(n):
+        if n == 1:
+            gmail.add(msg(900, subject="new during backfill", text="hello"))
+            gmail.delete("m0001")
+        elif n == 2:
+            seen_mid_backfill.append(store.read_message("m0900") is not None)
+
+    gmail.after_list = after_list
+    r = _catching_up(store, gmail).run()
+    assert r.status == "ok" and r.phase == "backfill"
+    assert seen_mid_backfill == [True]                        # stored before the backfill ended
+    assert store.read_message("m0900") is not None            # and the final prune kept it
+    assert store.read_message("m0001") is None                # deletion applied
+    assert store.get_state("gmail", "history_id") == str(gmail.history_id)
+    gmail.after_list = None
+    r2 = run(store, gmail)
+    assert r2.phase == "incremental" and r2.fetched == 0      # nothing left over for the next sync
+
+
+def test_catch_up_survives_history_expiring_mid_backfill(store, gmail):
+    def after_list(n):
+        if n == 1:
+            gmail.add(msg(901, subject="new while history expired", text="hi"))
+            gmail.expire_history()  # the backfill's start id is now older than Gmail keeps
+
+    gmail.after_list = after_list
+    r = _catching_up(store, gmail).run()
+    gmail.after_list = None
+    assert r.status == "ok"
+    assert store.read_message("m0901") is not None
+    assert store.get_state("gmail", "history_id") == str(gmail.history_id)
+    assert run(store, gmail).phase == "incremental"            # no resync loop afterwards
+
+
+def test_backfill_resumed_after_catch_up_keeps_the_newer_start(store, gmail):
+    gmail.after_list = lambda n: n == 1 and gmail.add(msg(902, text="hey"))
+    gmail.fail_list_call = 3
+    assert _catching_up(store, gmail).run().status == "retry_later"
+    assert store.get_state("gmail", "backfill_start_history_id") == str(gmail.history_id)
+    gmail.after_list = None
+    assert run(store, gmail).status == "ok"
+    assert store.read_message("m0902") is not None and max(gmail.fetched.values()) == 1
+
+
 def test_deleted_between_list_and_get(store, gmail):
     gmail.before_get = lambda ids: "m0002" in ids and gmail.delete("m0002", record=False)
     r = run(store, gmail)

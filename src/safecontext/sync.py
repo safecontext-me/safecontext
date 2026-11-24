@@ -13,8 +13,10 @@ Nothing unscrubbed is ever persisted or logged.
 Resumability: the backfill saves its page token only after a page's
 messages are stored, and skips ids already stored under the current
 scrubber version, so an interrupted run picks up where it stopped. The
-history id is recorded *before* the backfill starts, so mail that changes
-during a long backfill is caught by the first incremental sync.
+history id is recorded *before* the backfill starts. A long backfill (a big
+mailbox can take hours or days under Gmail's quota) also catches up on new
+mail every CATCH_UP_SECONDS from that history id and moves it forward, so new
+mail shows up while older mail is still downloading.
 
 Gmail's state lives in source_state('gmail'):
   account, sync_mode ('full'|'headers'),
@@ -57,6 +59,7 @@ class SyncResult:
 
 ProgressFn = Callable[[SyncResult], None]
 HEARTBEAT_KEY = "sync_heartbeat"
+CATCH_UP_SECONDS = 5 * 60  # during a backfill, fetch new mail this often
 
 
 def _now_ms() -> int:
@@ -245,6 +248,8 @@ class Syncer(BaseSyncer):
         self.mode = mode
         self.batch_size = batch_size
         self.scrub_fn = scrub_fn
+        self.catch_up_seconds = CATCH_UP_SECONDS
+        self.clock: Callable[[], float] = time.monotonic
 
     def _sync(self) -> None:
         if self.state.get("history_id") is None:
@@ -276,6 +281,7 @@ class Syncer(BaseSyncer):
             st.set("backfill_start_history_id", start)
             st.set("backfill_page_token", None)
         token = st.get("backfill_page_token")
+        last_catch_up = self.clock()
         while True:
             ids, next_token = self.api.list_message_ids(token, self._query())
             s.mark_seen(ids, GMAIL)
@@ -286,6 +292,9 @@ class Syncer(BaseSyncer):
             st.set("backfill_page_token", next_token)  # only after the page is stored
             token = next_token
             self._report()
+            if self.clock() - last_catch_up >= self.catch_up_seconds:
+                start = self._catch_up(start)
+                last_catch_up = self.clock()
         self.result.deleted += s.prune_unseen(GMAIL)
         st.set("history_id", start)
         for key in ("backfill_start_history_id", "backfill_page_token", "resync"):
@@ -296,18 +305,8 @@ class Syncer(BaseSyncer):
         s, st = self.store, self.state
         self.result.phase = "incremental"
         start = st.get("history_id")
-        changed, deleted = set(), set()
-        latest, token = start, None
         try:
-            while True:
-                page = self.api.list_history(start, token)
-                c, d = history_message_ids(page)
-                changed |= c
-                deleted |= d
-                latest = str(page.get("historyId") or latest)
-                token = page.get("nextPageToken")
-                if not token:
-                    break
+            changed, deleted, latest = self._history_since(start)
         except HistoryExpired:
             log.info("history id expired; starting full resync")
             st.set("history_id", None)
@@ -319,6 +318,46 @@ class Syncer(BaseSyncer):
             self.result.deleted += len(deleted)
         self._fetch_and_store(sorted(changed - deleted))
         st.set("history_id", latest)
+
+    def _history_since(self, start: str):
+        """(changed ids, deleted ids, latest history id) since `start`. Raises HistoryExpired."""
+        changed, deleted = set(), set()
+        latest, token = start, None
+        while True:
+            page = self.api.list_history(start, token)
+            c, d = history_message_ids(page)
+            changed |= c
+            deleted |= d
+            latest = str(page.get("historyId") or latest)
+            token = page.get("nextPageToken")
+            if not token:
+                return changed, deleted, latest
+
+    def _catch_up(self, start: str) -> str:
+        """Mid-backfill: store what changed since `start` and return the new start, so new
+        mail doesn't wait for the whole mailbox. What it stores is marked seen, so the
+        backfill's final prune keeps it."""
+        s, st = self.store, self.state
+        try:
+            changed, deleted, latest = self._history_since(start)
+        except HistoryExpired:
+            # The backfill outlived Gmail's history (about a week): restart from now and take the
+            # newest page, which the backfill passed long ago.
+            latest = str(self.api.get_profile()["historyId"])
+            ids, _ = self.api.list_message_ids(None, self._query())
+            known = s.known_ids(ids, source=GMAIL)
+            changed, deleted = {i for i in ids if i not in known}, set()
+            s.mark_seen(ids, GMAIL)
+        if deleted:
+            s.delete(sorted(deleted), GMAIL)
+            self.result.deleted += len(deleted)
+        fresh = sorted(changed - deleted)
+        s.mark_seen(fresh, GMAIL)
+        self._fetch_and_store(fresh)
+        st.set("backfill_start_history_id", latest)  # only after it's stored
+        if fresh or deleted:
+            log.info("caught up during backfill: %d changed, %d deleted", len(fresh), len(deleted))
+        return latest
 
     def _refresh_stale(self) -> None:
         """Re-fetch anything scrubbed under an older rule version."""
