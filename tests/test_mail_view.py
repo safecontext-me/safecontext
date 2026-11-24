@@ -181,6 +181,21 @@ def test_backfill_records_mailbox_total(store):
     assert store.get_state("gmail", "mailbox_total") == str(len(mailbox()))
 
 
+def test_resumed_backfill_without_total_fetches_it(store):
+    # A backfill started by a build that didn't record mailbox_total, then resumed:
+    # the coverage bar had no estimate and slid forever.
+    g = FakeGmail(page_size=3)
+    for m in mailbox():
+        g.add(m, record=False)
+    g.fail_list_call = 2
+    assert Syncer(store, g).run().status == "retry_later"
+    st = store.state("gmail")
+    assert st.get("backfill_start_history_id")
+    st.set("mailbox_total", None)
+    Syncer(store, g).run()
+    assert store.get_state("gmail", "mailbox_total") == str(len(mailbox()))
+
+
 # --- the window's calls -----------------------------------------------------------------------------
 
 @pytest.fixture
