@@ -20,7 +20,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from .. import auth, env, migrate
+from .. import auth, env, migrate, updater as upd
 from ..errors import NeedsPermission
 from ..grok_link import CONNECTOR_PAGES, GrokLink
 from ..sources import Sources, default_sources
@@ -90,6 +90,7 @@ class Backend:
                  calendar_connect_fn: Optional[Callable[[Optional[str]], str]] = None,
                  grok_link: Optional[Callable[[Store, Path], GrokLink]] = None,
                  imessage_options: Optional[Dict[str, Any]] = None,
+                 updater: Optional[upd.Updater] = None,
                  auto_sync: bool = True) -> None:
         self._demo = demo
         self._data_dir = Path(data_dir or DEFAULT_DATA_DIR)
@@ -109,9 +110,15 @@ class Backend:
         self._progress: Dict[str, SyncResult] = {}
         self._last_result: Dict[str, SyncResult] = {}
         self._stop = threading.Event()
+        # Demo mode never touches the network, so it gets no updater unless a test passes one.
+        self._updater: Optional[upd.Updater] = updater if updater is not None else (
+            None if demo else upd.Updater(self._store))
+        self._quit_fn: Optional[Callable[[], None]] = None  # set by main.run: closes the window
         if auto_sync:
             threading.Thread(target=self._auto_sync_loop, daemon=True, name="auto-sync").start()
             self._grok.start()  # reconnect to the relay if Grok was left on
+            if self._updater is not None and not demo:
+                self._updater.start_background()
 
     # --- status ------------------------------------------------------------
     @_safe
@@ -442,9 +449,56 @@ class Backend:
         # "safecontext-dev" from a checkout, so both can be added to one MCP client.
         return {"json": json.dumps({"mcpServers": {env.mcp_server_name(): server}}, indent=2)}
 
+    # --- updates (updater.py) ---------------------------------------------------------
+    def _need_updater(self) -> upd.Updater:
+        if self._updater is None:
+            raise auth.NotConfigured("Updates are off in demo mode.")
+        return self._updater
+
+    @_safe
+    def update_status(self) -> Dict[str, Any]:
+        if self._updater is None:
+            return {"current": upd.__version__, "disabled": True}
+        return self._updater.status()
+
+    @_safe
+    def update_check(self) -> Dict[str, Any]:
+        return self._need_updater().check()
+
+    @_safe
+    def update_set_auto(self, on: bool) -> Dict[str, Any]:
+        u = self._need_updater()
+        u.set_auto_check(bool(on))
+        return u.status()
+
+    @_safe
+    def update_install(self) -> Dict[str, Any]:
+        """Download and verify the new version, then quit so the helper can swap it in."""
+        u = self._need_updater()
+        try:
+            return u.start_install(self._restart_into)
+        except upd.UpdateError as e:
+            return {"ok": False, "error": str(e)}
+
+    def _restart_into(self, plan: upd.SwapPlan) -> None:
+        assert self._updater is not None
+        self._updater.launch_helper(plan)
+        if self._quit_fn is not None:
+            self._quit_fn()
+
+    @_safe
+    def update_open_download(self) -> Dict[str, Any]:
+        """The manual path: open the download page in the browser."""
+        if self._demo:
+            return {"opened": False}
+        webbrowser.open(upd.DOWNLOAD_PAGE)
+        return {"opened": True}
+
     def _shutdown(self) -> None:
         self._stop.set()
         self._grok.shutdown()
+        if self._updater is not None:
+            self._updater.stop()
 
 
 

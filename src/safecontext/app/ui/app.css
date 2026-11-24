@@ -133,6 +133,9 @@ input:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--accen
 .view { flex: 1; min-height: 0; padding: 20px 24px; overflow: auto; }
 .banner { display: flex; gap: 12px; align-items: center; justify-content: space-between;
           background: var(--warn-bg); border-bottom: 1px solid var(--warn-line); padding: 10px 24px; }
+.banner.info { background: var(--panel); border-bottom-color: var(--line); }
+.banner .actions { display: flex; gap: 8px; margin: 0; }
+.u-auto { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; }
 
 /* ---------- reader cards ---------- */
 mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }

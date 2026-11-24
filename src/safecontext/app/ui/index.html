@@ -74,6 +74,13 @@
       <span id="banner-text"></span>
       <button class="btn small primary" id="reconnect">Reconnect Gmail</button>
     </div>
+    <div id="update-banner" class="banner info" hidden>
+      <span id="update-banner-text"></span>
+      <span class="actions">
+        <button class="btn small" id="update-later">Later</button>
+        <button class="btn small primary" id="update-now">Update and restart</button>
+      </span>
+    </div>
 
     <!-- Sources -->
     <section id="view-sources" class="view" hidden>
@@ -204,6 +211,20 @@
           <button class="btn danger" id="s-wipe">Disconnect and delete local mail</button>
         </div>
         <p class="hint">Google Calendar and other sources are on the <a href="#" data-goto="sources">Sources</a> screen.</p>
+      </div>
+      <div class="card setting" id="s-updates">
+        <h3>Updates</h3>
+        <div class="row"><span class="muted">Version</span><span id="u-current">—</span></div>
+        <div class="row"><span class="muted">Status</span><span id="u-state">—</span></div>
+        <p class="hint" id="u-notes" hidden></p>
+        <label class="u-auto"><input type="checkbox" id="u-auto"> Check for updates automatically (once a day)</label>
+        <div class="actions">
+          <button class="btn" id="u-check">Check for updates</button>
+          <button class="btn primary" id="u-install" hidden>Update and restart</button>
+          <button class="btn" id="u-download" hidden>Open download page</button>
+        </div>
+        <p class="hint">Checking downloads a small file from safecontext.me. It sends no account, device ID or usage data.
+          Updates must be signed by SafeContext's developer before they replace the app. Your data and settings stay as they are.</p>
       </div>
     </section>
     <!-- One source (picked under Sources in the sidebar): browse what's synced, see what isn't (mail.js) -->
