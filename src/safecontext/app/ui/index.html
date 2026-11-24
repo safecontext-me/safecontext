@@ -61,8 +61,7 @@
       <button class="btn small" id="sync-now">Sync now</button>
     </div>
     <nav class="nav">
-      <button data-view="search" class="active">Search</button>
-      <button data-view="mail">Mail</button>
+      <button data-view="mail" class="active">Mail</button>
       <button data-view="sources">Sources</button>
       <button data-view="mcp">MCP</button>
       <button data-view="removed">What was removed</button>
@@ -75,22 +74,6 @@
       <span id="banner-text"></span>
       <button class="btn small primary" id="reconnect">Reconnect Gmail</button>
     </div>
-
-    <!-- Search (home) -->
-    <section id="view-search" class="view">
-      <form class="toolbar" id="search-form" autocomplete="off">
-        <input id="q" type="search" placeholder="Search your scrubbed mail and calendar" aria-label="Search">
-        <select id="f-source" aria-label="Source"><option value="">All sources</option></select>
-        <input id="f-from" placeholder="From (name, address or @domain)" aria-label="From">
-        <label class="date">After <input id="f-after" type="date"></label>
-        <label class="date">Before <input id="f-before" type="date"></label>
-        <button class="btn primary" type="submit">Search</button>
-      </form>
-      <div class="panes">
-        <div class="list" id="results" role="list"></div>
-        <div class="reader" id="reader"><div class="empty">Select an item to read it.</div></div>
-      </div>
-    </section>
 
     <!-- Sources -->
     <section id="view-sources" class="view" hidden>
@@ -225,7 +208,7 @@
       </div>
     </section>
     <!-- Mail: browse what's synced, see what isn't (mail.js) -->
-    <section id="view-mail" class="view" hidden>
+    <section id="view-mail" class="view">
       <div class="mail-shell">
         <nav class="mail-folders" id="mail-folders" aria-label="Mailboxes"></nav>
         <div class="mail-main">

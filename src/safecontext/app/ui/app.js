@@ -21,7 +21,7 @@ const REQ_KINDS = { oauth_scope: "Google permission", macos_permission: "Mac per
 
 const $ = (id) => document.getElementById(id);
 const api = () => window.pywebview.api;
-let state = { status: null, view: "search", activeId: null, mcp: null, mcpBusy: false };
+let state = { status: null, view: "mail", shown: false, mcp: null, mcpBusy: false };
 
 // ---------- DOM helpers ----------
 function el(tag, attrs = {}, ...children) {
@@ -145,7 +145,6 @@ function duration(ms) {
 async function refreshStatus() {
   const r = await api().status();
   if (!r.ok) return;
-  const first = state.status === null;
   state.status = r;
   $("loading").hidden = true;
   const connected = !!r.account || r.any_connected;
@@ -156,7 +155,6 @@ async function refreshStatus() {
   $("demo-badge").hidden = !r.demo;
   const accounts = [...new Set((r.sources || []).filter((x) => x.account).map((x) => x.account))];
   $("account").textContent = r.account || accounts.join(", ");
-  fillSourceFilter(r.sources || []);
   if (state.view === "sources") renderSources(r.sources || []);
   $("banner").hidden = !r.needs_reconnect;
   $("banner-text").textContent = r.reconnect_message;
@@ -213,103 +211,20 @@ async function refreshStatus() {
   $("s-mode").textContent = r.mode === "headers" ? "Headers only (no message text)" : "Full messages, scrubbed";
   $("s-dir").textContent = r.data_dir;
 
-  // Refresh the list while a sync fills the store, and once more when it finishes.
-  const browsingRecent = state.view === "search" && !$("q").value;
-  if (first) loadRecent();
-  else if (browsingRecent && anySyncing) loadRecentThrottled();
-  else if (browsingRecent && state.wasSyncing && !anySyncing) loadRecent();
-  state.wasSyncing = anySyncing;
-}
-
-let lastRecent = 0;
-function loadRecentThrottled() {
-  if (Date.now() - lastRecent > 2500) loadRecent();
+  if (!state.shown) { state.shown = true; show(state.view); }  // first time the window has a screen to show
 }
 
 function show(view) {
   state.view = view;
   for (const b of document.querySelectorAll(".nav button")) b.classList.toggle("active", b.dataset.view === view);
-  for (const v of ["search", "mail", "sources", "mcp", "removed", "settings"]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["mail", "sources", "mcp", "removed", "settings"]) $(`view-${v}`).hidden = v !== view;
   if (view === "mail") mailShow();
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "removed") loadRemoved();
   if (view === "mcp") loadMcp();
 }
 
-// ---------- search ----------
-function filters() {
-  return [$("f-from").value.trim(), $("f-after").value, $("f-before").value, $("f-source").value];
-}
-
-function fillSourceFilter(sources) {
-  const sel = $("f-source");
-  const want = sources.filter((x) => x.available && (x.account || x.item_count)).map((x) => x.id);
-  const have = [...sel.options].slice(1).map((o) => o.value);
-  if (want.join() === have.join()) return;
-  const keep = sel.value;
-  sel.replaceChildren(el("option", { value: "" }, "All sources"),
-    ...want.map((id) => el("option", { value: id }, sourceName(id))));
-  sel.value = want.includes(keep) ? keep : "";
-}
-
-async function loadRecent() {
-  lastRecent = Date.now();
-  const r = await api().recent(...filters());
-  renderResults(r, "Most recent");
-}
-
-async function doSearch(e) {
-  e && e.preventDefault();
-  const q = $("q").value.trim();
-  if (!q) return loadRecent();
-  const r = await api().search(q, ...filters());
-  renderResults(r, `Results for “${q}”`);
-}
-
-function renderResults(r, heading) {
-  const list = $("results");
-  list.replaceChildren();
-  if (!r.ok) { list.append(el("div", { class: "empty" }, r.error)); return; }
-  const rows = r.results || [];
-  list.append(el("div", { class: "list-head" }, `${heading} · ${rows.length}`, r.notice ? ` · ${r.notice}` : ""));
-  if (!rows.length) {
-    list.append(el("div", { class: "empty" },
-      state.status && state.status.account && !state.status.first_sync_done ? "Your mail is still being downloaded and scrubbed…" : "Nothing found."));
-    return;
-  }
-  for (const h of rows) {
-    const isEvent = h.kind === "event";
-    const item = el("div", { class: "item" + (h.thread_id === state.activeId ? " active" : ""), role: "listitem", tabindex: "0" },
-      el("div", { class: "item-top" },
-        el("span", { class: "item-from" }, el("span", { class: "src-tag", title: sourceName(h.source) }, SOURCE_ICONS[h.source] || "•"),
-          isEvent ? sourceName(h.source) : senderName(h.sender)),
-        el("span", {}, isEvent ? fmtDate(h.date, true) : fmtDate(h.date))),
-      el("div", { class: "item-subj" }, richText(h.title || h.subject || "(no subject)")),
-      el("div", { class: "item-snip" }, richText((h.snippet || "").replace(/\s+/g, " "))));
-    const open = () => {
-      for (const x of list.querySelectorAll(".item.active")) x.classList.remove("active");
-      item.classList.add("active");
-      openThread(h.thread_id, h.source);
-    };
-    item.addEventListener("click", open);
-    item.addEventListener("keydown", (e) => e.key === "Enter" && open());
-    list.append(item);
-  }
-}
-
-async function openThread(id, source = "") {
-  state.activeId = id;
-  const reader = $("reader");
-  const r = await api().read_thread(id, source);
-  reader.replaceChildren();
-  if (!r.ok) { reader.append(el("div", { class: "empty" }, r.error)); return; }
-  if (!r.messages.length) { reader.append(el("div", { class: "empty" }, r.note || "Nothing stored for this thread.")); return; }
-  const first = r.messages[0];
-  reader.append(el("h2", { class: "thread-subj" }, richText(first.title || first.subject || "(no subject)")));
-  if (r.older_messages_omitted) reader.append(el("p", { class: "muted" }, `${r.older_messages_omitted} older items not shown.`));
-  for (const m of r.messages) reader.append(m.kind === "event" ? eventCard(m) : messageCard(m));
-}
-
+// ---------- reader cards (used by mail.js) ----------
 function openButton(m) {
   if (!m.link) return null;
   return el("button", { class: "btn small", onclick: () => openLink(m.link) }, OPEN_LABELS[m.source] || "Open original");
@@ -614,8 +529,10 @@ async function disconnect(wipe) {
   const r = await api().disconnect(wipe);
   toast(r.ok ? (wipe ? "Disconnected and deleted." : "Disconnected.") : r.error);
   state.status = null;
-  $("results").replaceChildren();
-  $("reader").replaceChildren(el("div", { class: "empty" }, "Select an item to read it."));
+  // Start Mail over: the next status refresh shows it again and reloads the list.
+  Object.assign(mail, { rows: [], sel: -1, openKey: null, folders: null });
+  $("mail-reader").replaceChildren(el("div", { class: "empty" }, "Select a conversation to read it."));
+  state.shown = false;
   refreshStatus();
 }
 
@@ -643,9 +560,6 @@ async function connect(btn, errEl) {
 function wire() {
   for (const b of document.querySelectorAll(".nav button")) b.addEventListener("click", () => show(b.dataset.view));
   for (const b of document.querySelectorAll("[data-goto]")) b.addEventListener("click", (e) => { e.preventDefault(); show(b.dataset.goto); });
-  $("f-source").addEventListener("change", () => doSearch());
-  $("search-form").addEventListener("submit", doSearch);
-  $("q").addEventListener("search", () => !$("q").value && loadRecent());
   $("sync-now").addEventListener("click", async () => { await api().sync_now(); refreshStatus(); });
   $("ob-connect").addEventListener("click", () => connect($("ob-connect"), $("ob-error")));
   $("reconnect").addEventListener("click", () => connect($("reconnect"), null));

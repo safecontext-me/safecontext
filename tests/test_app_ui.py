@@ -25,7 +25,6 @@ def test_mcp_card_has_link_and_a_tab_per_app():
     mcp = HTML[HTML.index('<section id="view-mcp"'):]
     mcp = mcp[:mcp.index("</section>")]
     assert 'id="mcp-card"' in mcp and 'id="mcp-json"' in mcp
-    assert 'id="mcp-card"' not in HTML[HTML.index('<section id="view-search"'):HTML.index('<section id="view-mcp"')]
     # The link and its Copy button come before the per-app instructions.
     assert HTML.index('id="mcp-url"') < HTML.index('id="mcp-link-copy"') < HTML.index('class="mcp-tabs"')
     for app in ("grok", "claude", "muse"):
@@ -37,3 +36,11 @@ def test_mcp_card_has_link_and_a_tab_per_app():
 def test_open_buttons_only_name_apps_with_a_connectors_page():
     from safecontext.grok_link import CONNECTOR_PAGES
     assert set(re.findall(r'data-open-app="([^"]+)"', HTML)) <= set(CONNECTOR_PAGES)
+
+
+def test_mail_is_the_home_screen_and_search_is_gone():
+    assert 'id="view-search"' not in HTML and 'data-view="search"' not in HTML
+    assert '<button data-view="mail" class="active">Mail</button>' in HTML
+    assert '<section id="view-mail" class="view">' in HTML  # shown at start, not hidden
+    for gone in ("loadRecent", "doSearch", "renderResults", "openThread", "api().search(", "api().recent("):
+        assert gone not in JS
