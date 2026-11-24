@@ -1,11 +1,12 @@
 # Cloudflare Pages project for the website, safecontext.me (the relay has its own
-# config in relay/). Static files come from site/; functions/ adds /download.
+# config in relay/). Static files come from site/; functions/ adds /download and /update.json.
 # Nothing here creates resources: see packaging/README.md for the setup steps.
 name = "safecontext"
 pages_build_output_dir = "site"
 compatibility_date = "2026-11-01"
 
-# The bucket that holds SafeContext.dmg, read by functions/download.js.
+# The bucket that holds SafeContext.dmg and update.json, read by functions/download.js
+# and functions/update.json.js.
 [[r2_buckets]]
 binding = "DOWNLOADS"
 bucket_name = "safecontext-downloads"
