@@ -38,9 +38,18 @@ def test_open_buttons_only_name_apps_with_a_connectors_page():
     assert set(re.findall(r'data-open-app="([^"]+)"', HTML)) <= set(CONNECTOR_PAGES)
 
 
-def test_mail_is_the_home_screen_and_search_is_gone():
+def test_search_screen_is_gone():
     assert 'id="view-search"' not in HTML and 'data-view="search"' not in HTML
-    assert '<button data-view="mail" class="active">Mail</button>' in HTML
     assert '<section id="view-mail" class="view">' in HTML  # shown at start, not hidden
     for gone in ("loadRecent", "doSearch", "renderResults", "openThread", "api().search(", "api().recent("):
         assert gone not in JS
+
+
+def test_sources_is_a_parent_with_each_source_under_it():
+    nav = HTML[HTML.index('<nav class="nav">'):]
+    nav = nav[:nav.index("</nav>")]
+    # Sources, then the per-source entries (filled in by app.js), then the other screens.
+    assert nav.index('data-view="sources"') < nav.index('id="nav-sources"') < nav.index('data-view="mcp"')
+    assert 'data-view="mail"' not in nav  # each source opens the browse page instead
+    assert '<button data-view="removed">Security Dashboard</button>' in nav
+    assert "What was removed" not in HTML

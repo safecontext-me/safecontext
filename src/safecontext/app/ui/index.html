@@ -61,10 +61,10 @@
       <button class="btn small" id="sync-now">Sync now</button>
     </div>
     <nav class="nav">
-      <button data-view="mail" class="active">Mail</button>
       <button data-view="sources">Sources</button>
+      <div class="nav-children" id="nav-sources" role="group" aria-label="Your sources"></div>
       <button data-view="mcp">MCP</button>
-      <button data-view="removed">What was removed</button>
+      <button data-view="removed">Security Dashboard</button>
       <button data-view="settings">Settings</button>
     </nav>
   </aside>
@@ -176,9 +176,9 @@
       </div>
     </section>
 
-    <!-- What was removed -->
+    <!-- Security Dashboard: what the scrubber removed -->
     <section id="view-removed" class="view" hidden>
-      <h2>What was removed</h2>
+      <h2>Security Dashboard</h2>
       <p class="muted">Everything below was removed on this Mac before anything was saved.</p>
       <div class="tiles">
         <div class="tile"><div class="num" id="t-kept">0</div><div class="lbl">items kept (scrubbed)</div></div>
@@ -207,7 +207,7 @@
         <p class="hint">Google Calendar and other sources are on the <a href="#" data-goto="sources">Sources</a> screen.</p>
       </div>
     </section>
-    <!-- Mail: browse what's synced, see what isn't (mail.js) -->
+    <!-- One source (picked under Sources in the sidebar): browse what's synced, see what isn't (mail.js) -->
     <section id="view-mail" class="view">
       <div class="mail-shell">
         <nav class="mail-folders" id="mail-folders" aria-label="Mailboxes"></nav>

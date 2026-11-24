@@ -124,6 +124,10 @@ input:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--accen
               padding: 8px 10px; border-radius: 8px; cursor: pointer; }
 .nav button:hover { background: var(--line); }
 .nav button.active { background: var(--panel); font-weight: 600; box-shadow: 0 0 0 1px var(--line); }
+.nav-children { display: grid; gap: 2px; margin: 0 0 4px 12px; padding-left: 8px; border-left: 1px solid var(--line); }
+.nav-children:empty { display: none; }
+.nav .nav-child { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 13px; }
+.nav-ico { width: 16px; text-align: center; flex: none; }
 
 .main { display: flex; flex-direction: column; min-width: 0; height: 100%; overflow: hidden; }
 .view { flex: 1; min-height: 0; padding: 20px 24px; overflow: auto; }

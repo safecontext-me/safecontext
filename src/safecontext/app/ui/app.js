@@ -211,17 +211,63 @@ async function refreshStatus() {
   $("s-mode").textContent = r.mode === "headers" ? "Headers only (no message text)" : "Full messages, scrubbed";
   $("s-dir").textContent = r.data_dir;
 
+  renderNavSources();
   if (!state.shown) { state.shown = true; show(state.view); }  // first time the window has a screen to show
 }
 
 function show(view) {
+  if (view === "mail" && !pickSource()) view = "sources";  // nothing to browse yet
   state.view = view;
-  for (const b of document.querySelectorAll(".nav button")) b.classList.toggle("active", b.dataset.view === view);
+  markNav();
   for (const v of ["mail", "sources", "mcp", "removed", "settings"]) $(`view-${v}`).hidden = v !== view;
   if (view === "mail") mailShow();
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "removed") loadRemoved();
   if (view === "mcp") loadMcp();
+}
+
+// ---------- sources in the sidebar ----------
+// Sources (the connect/manage page) is the parent; each source with something to show sits under it
+// and opens the browse page (mail.js) for just that source.
+function navSources() {
+  return ((state.status && state.status.sources) || []).filter((x) => x.available && (x.account || x.item_count));
+}
+
+function pickSource() {
+  const ids = navSources().map((x) => x.id);
+  if (!ids.includes(mail.source)) mail.source = ids[0] || "";
+  return mail.source;
+}
+
+function renderNavSources() {
+  const list = navSources();
+  const box = $("nav-sources");
+  const sig = list.map((x) => `${x.id}:${x.name}`).join();
+  if (box.dataset.sig !== sig) {
+    box.dataset.sig = sig;
+    box.replaceChildren(...list.map((x) => el("button", { class: "nav-child", "data-source": x.id, onclick: () => openSource(x.id) },
+      el("span", { class: "nav-ico", "aria-hidden": "true" }, SOURCE_ICONS[x.id] || "•"), x.name)));
+  }
+  markNav();
+}
+
+function markNav() {
+  for (const b of document.querySelectorAll(".nav [data-view]")) b.classList.toggle("active", b.dataset.view === state.view);
+  for (const b of document.querySelectorAll(".nav [data-source]")) {
+    const on = state.view === "mail" && b.dataset.source === mail.source;
+    b.classList.toggle("active", on);
+    if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  }
+}
+
+function openSource(id) {
+  if (mail.source !== id) {
+    Object.assign(mail, { source: id, rows: [], next: null, sel: -1, openKey: null, query: "", reasons: [] });
+    $("mail-q").value = "";
+    $("mail-reader").replaceChildren(el("div", { class: "empty" }, "Select an item to read it."));
+    mailSetView("all");
+  }
+  show("mail");
 }
 
 // ---------- reader cards (used by mail.js) ----------
@@ -530,7 +576,7 @@ async function disconnect(wipe) {
   toast(r.ok ? (wipe ? "Disconnected and deleted." : "Disconnected.") : r.error);
   state.status = null;
   // Start Mail over: the next status refresh shows it again and reloads the list.
-  Object.assign(mail, { rows: [], sel: -1, openKey: null, folders: null });
+  Object.assign(mail, { source: "", rows: [], sel: -1, openKey: null, folders: null });
   $("mail-reader").replaceChildren(el("div", { class: "empty" }, "Select a conversation to read it."));
   state.shown = false;
   refreshStatus();
@@ -558,7 +604,7 @@ async function connect(btn, errEl) {
 
 // ---------- wiring ----------
 function wire() {
-  for (const b of document.querySelectorAll(".nav button")) b.addEventListener("click", () => show(b.dataset.view));
+  for (const b of document.querySelectorAll(".nav [data-view]")) b.addEventListener("click", () => show(b.dataset.view));
   for (const b of document.querySelectorAll("[data-goto]")) b.addEventListener("click", (e) => { e.preventDefault(); show(b.dataset.goto); });
   $("sync-now").addEventListener("click", async () => { await api().sync_now(); refreshStatus(); });
   $("ob-connect").addEventListener("click", () => connect($("ob-connect"), $("ob-error")));

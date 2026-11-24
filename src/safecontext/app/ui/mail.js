@@ -41,6 +41,7 @@ function mailInit() {
 // Called by show("mail") in app.js.
 function mailShow() {
   mailInit();
+  mailPlaceholder();
   mailRefreshMeta(true);
   if (!mail.rows.length) mailReload();
   clearInterval(mail.timer);
@@ -65,29 +66,43 @@ async function mailRefreshMeta(force) {
   if (mail.view === "not_synced") mailLoadReasons();
 }
 
-function mailRenderFolders() {
+// Counts for the source picked in the app sidebar (every mail source if none).
+function mailCounts() {
   const f = mail.folders;
+  const s = mail.source && f.sources.find((x) => x.id === mail.source);
+  return s ? { all: s.kept + s.dropped, synced: s.kept, not_synced: s.dropped } : f.mailboxes;
+}
+
+function mailIsMail() {
+  const s = mail.source && ((state.status && state.status.sources) || []).find((x) => x.id === mail.source);
+  return !s || (s.kinds || []).includes("message");
+}
+
+function mailPlaceholder() {
+  const q = $("mail-q");
+  q.disabled = mail.view === "not_synced";
+  q.placeholder = mail.view === "not_synced" ? "Not-synced items have no stored text to search"
+    : `Search ${mail.source ? sourceName(mail.source) : "synced mail"}`;
+}
+
+function mailBoxLabel(id, label) {
+  return id === "all" && !mailIsMail() ? "Everything" : label;
+}
+
+function mailRenderFolders() {
+  const counts = mailCounts();
   const nav = $("mail-folders");
   const box = (id, label, ico) => el("button", {
     class: "mf" + (mail.view === id ? " active" : ""), onclick: () => mailSetView(id),
     title: id === "not_synced" ? "Messages the scrubber skipped entirely. Only the date and reason are kept." : "",
   }, el("span", { class: "mf-ico" + (id === "synced" ? " dot-ok" : id === "not_synced" ? " dot-skip" : "") }, ico),
-    el("span", { class: "mf-name" }, label), el("span", { class: "mf-n" }, n(f.mailboxes[id])));
-  const srcs = f.sources.map((s) => el("button", {
-    class: "mf" + (mail.source === s.id ? " active" : ""), onclick: () => mailSetSource(mail.source === s.id ? "" : s.id),
-    title: mail.source === s.id ? "Click again to show every mail source" : `Only ${s.name}`,
-  }, el("span", { class: "mf-ico" }, SOURCE_ICONS[s.id] || "•"),
-    el("span", { class: "mf-name" }, s.name, s.account ? el("small", { class: "muted" }, s.account) : null),
-    el("span", { class: "mf-n" }, n(s.kept + s.dropped))));
-  nav.replaceChildren(el("div", { class: "mf-k" }, "Mailboxes"), ...MAILBOXES.map((m) => box(...m)),
-    el("div", { class: "mf-k" }, "Sources"), ...(srcs.length ? srcs : [el("div", { class: "muted mf" }, "None connected")]));
+    el("span", { class: "mf-name" }, mailBoxLabel(id, label)), el("span", { class: "mf-n" }, n(counts[id])));
+  nav.replaceChildren(el("div", { class: "mf-k" }, mail.source ? sourceName(mail.source) : "Mailboxes"),
+    ...MAILBOXES.map((m) => box(...m)));
 
   const sel = $("mail-folder-select");
-  sel.replaceChildren(
-    el("optgroup", { label: "Mailboxes" }, ...MAILBOXES.map(([id, label]) =>
-      el("option", { value: `view:${id}` }, `${label} (${n(f.mailboxes[id])})`))),
-    el("optgroup", { label: "Sources" }, el("option", { value: "source:" }, "Every mail source"),
-      ...f.sources.map((s) => el("option", { value: `source:${s.id}` }, s.name))));
+  sel.replaceChildren(...MAILBOXES.map(([id, label]) =>
+    el("option", { value: `view:${id}` }, `${mailBoxLabel(id, label)} (${n(counts[id])})`)));
   sel.value = `view:${mail.view}`;
 }
 
@@ -157,9 +172,7 @@ function mailSetView(view) {
   mail.view = view;
   if (view !== "not_synced") mail.reasons = [];
   $("mail-reasons").hidden = view !== "not_synced";
-  const q = $("mail-q");
-  q.disabled = view === "not_synced";
-  q.placeholder = view === "not_synced" ? "Not-synced mail has no stored text to search" : "Search synced mail";
+  mailPlaceholder();
   if (mail.folders) mailRenderFolders();
   if (view === "not_synced") mailLoadReasons();
   mailReload();
@@ -202,7 +215,7 @@ async function mailMore() {
 }
 
 function mailHead() {
-  const what = { all: "All mail", synced: "Synced", not_synced: "Not synced" }[mail.view];
+  const what = mailBoxLabel(mail.view, { all: "All mail", synced: "Synced", not_synced: "Not synced" }[mail.view]);
   const where = mail.source ? ` · ${sourceName(mail.source)}` : "";
   const count = `${n(mail.rows.length)}${mail.next ? "+" : ""}`;
   if (mail.query) return `Results for “${mail.query}” in ${what}${where} · ${count} conversations`;
