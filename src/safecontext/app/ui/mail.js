@@ -135,7 +135,8 @@ function mailRenderCoverage() {
     const card = el("div", { class: "cov" }, line);
     if (c.syncing || !c.first_sync_done) {
       const total = c.remaining_estimate != null ? c.kept + c.dropped + c.remaining_estimate : 0;
-      const bar = el("div", { class: "cov-progress" + (total ? "" : " indeterminate") }, el("div"));
+      const bar = el("div", { class: "cov-progress" + (total ? "" : " indeterminate"),
+        title: total ? "Share of your mailbox handled so far" : "Syncing. No total from Gmail yet, so there's no percentage." }, el("div"));
       if (total) bar.firstChild.style.width = `${Math.min(100, ((c.kept + c.dropped) / total) * 100)}%`;
       if (c.syncing || total) card.append(bar);
     }

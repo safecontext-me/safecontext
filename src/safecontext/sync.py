@@ -280,6 +280,11 @@ class Syncer(BaseSyncer):
             s.clear_seen(GMAIL)
             st.set("backfill_start_history_id", start)
             st.set("backfill_page_token", None)
+        elif st.get("mailbox_total") is None:
+            # A backfill begun by an older build never recorded the total, so the
+            # progress bar had no estimate. One cheap profile call fills it in.
+            total = self.api.get_profile().get("messagesTotal")
+            st.set("mailbox_total", str(total) if total else None)
         token = st.get("backfill_page_token")
         last_catch_up = self.clock()
         while True:
