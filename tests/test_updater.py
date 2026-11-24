@@ -132,7 +132,7 @@ def test_check_finds_update_and_sends_nothing_but_a_get(env_):
     urls = []
     u = make_updater(env_, fetch=lambda url: urls.append(url) or manifest())
     s = u.check()
-    assert urls == [upd.MANIFEST_URL]
+    assert urls == [upd.MANIFEST_URL + "?v=" + u.current]
     assert s["available"] and s["version"] == "9.0.0" and s["notes"] == "Faster sync."
     assert s["can_install"] and s["phase"] == "idle" and s["checked_ms"]
     req = upd._request(upd.MANIFEST_URL)
@@ -411,3 +411,9 @@ def test_make_update_manifest(tmp_path, monkeypatch):
     assert checked == [version]
     with pytest.raises(SystemExit, match="doesn't match"):
         mod.main([str(tmp_path / "SafeContext-0.0.1.dmg")])
+
+
+def test_manifest_url_sends_only_a_plain_version():
+    assert upd.manifest_url("0.1.6") == "https://safecontext.me/update.json?v=0.1.6"
+    for bad in ("", "0.1.6&id=abc", "dev", "0.1.6-rc1"):
+        assert upd.manifest_url(bad) == upd.MANIFEST_URL

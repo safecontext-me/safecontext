@@ -8,7 +8,8 @@ How it works:
        {"version": "0.1.5", "url": "https://safecontext.me/download",
         "sha256": "…", "size": 53087522, "notes": "…", "min_macos": "11.0"}
 
-   The request carries no cookies, no account, no device ID and no version: only
+   The request carries no cookies, no account and no device ID. It does send the app
+   version (``?v=0.1.6``), which the site counts per day with nothing else; only
    the address every HTTPS request has. The app checks shortly after launch and
    then once a day, and only when it is the installed app (never a dev checkout
    or demo mode). "Check for updates" in Settings checks on demand.
@@ -76,7 +77,7 @@ FIRST_CHECK_DELAY = 20
 MAX_MANIFEST_BYTES = 64 * 1024
 MAX_DMG_BYTES = 1024 * 1024 * 1024
 LAUNCH_TIMEOUT = 90
-USER_AGENT = "SafeContext-Updater"  # deliberately no version or other identifier
+USER_AGENT = "SafeContext-Updater"  # no identifier; the version goes in ?v= (see manifest_url)
 
 META_AUTO = "update_auto_check"
 META_SKIP = "update_skip_version"
@@ -139,6 +140,12 @@ def parse_manifest(raw: bytes) -> Manifest:
 
 
 # --- network (replaced in tests) ------------------------------------------------------
+
+def manifest_url(version: str = __version__) -> str:
+    """MANIFEST_URL plus the app version, which the site counts per day and nothing else (see the
+    privacy policy's "Update checks"). Anything that isn't a plain version number is left off."""
+    return f"{MANIFEST_URL}?v={version}" if _VERSION_RE.match(version or "") else MANIFEST_URL
+
 
 def _request(url: str) -> urllib.request.Request:
     return urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Cache-Control": "no-cache"})
@@ -442,7 +449,7 @@ class Updater:
                 return self.status()
             self.phase, self.error = "checking", None
         try:
-            m = parse_manifest(self._fetch(MANIFEST_URL))
+            m = parse_manifest(self._fetch(manifest_url(self.current)))
             with self._lock:
                 self.manifest = m
                 self.phase = "idle"
