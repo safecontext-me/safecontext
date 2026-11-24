@@ -1,6 +1,6 @@
 [project]
 name = "safecontext"
-version = "0.1.5"
+version = "0.1.6"
 description = "A private context layer for AI: your data is scrubbed on your Mac before any AI can read it. Gmail is the first source."
 requires-python = ">=3.11"
 dependencies = [
@@ -31,7 +31,7 @@ testpaths = ["tests"]
 [tool.briefcase]
 project_name = "SafeContext"
 bundle = "me.safecontext"         # bundle ID me.safecontext.safecontext
-version = "0.1.5"
+version = "0.1.6"
 license = "LicenseRef-Proprietary"
 license-files = ["LICENSE"]
 
