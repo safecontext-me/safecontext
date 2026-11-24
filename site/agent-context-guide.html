@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Working safely with AI agents</title>
+<meta name="description" content="Five rules for working with proactive AI agents without handing over sign-in codes, tax forms, or health records, and how SafeContext keeps a redacted version on your computer.">
+<meta name="color-scheme" content="light dark">
+<link rel="canonical" href="https://safecontext.me/agent-context-guide">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css?v=7">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="SafeContext home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect class="logo-bg" width="32" height="32" rx="8"/><path class="logo-fg" d="M16 6.5l7.5 2.8v5.6c0 4.8-3.2 8.6-7.5 10.6-4.3-2-7.5-5.8-7.5-10.6V9.3z"/></svg>
+      SafeContext
+    </a>
+    <nav aria-label="Site">
+      <a href="/how-it-works">How it works</a>
+      <a href="/agent-context-guide" aria-current="page">Safe AI guide</a>
+      <a href="/privacy">Privacy</a>
+      <a class="nav-cta" href="/download">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="page-head">
+    <div class="wrap prose">
+      <p class="eyebrow">Safe AI guide</p>
+      <h1>Working safely with AI agents</h1>
+      <p class="lead">Proactive agents are becoming more useful. Giving them raw access to your whole inbox is the wrong default.</p>
+      <p class="follow">This guide is for people who want help from agents like Grok, Claude, and personal desktop assistants, without handing over sign-in codes, tax forms, or health records. Most of it is useful even if you never install SafeContext.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="risk">
+    <div class="wrap prose">
+      <h2 id="risk">1. Why proactive agents change the risk</h2>
+      <p class="section-intro">For a long time, using AI with your own life meant copying a snippet into a chat box. You chose what left your machine, one paste at a time.</p>
+      <p>That is changing. Personal agents can now read incoming mail, calendar, and messages, then act across tools on your behalf. That is what makes them useful. It also means a single connection can expose years of context, not just the sentence you typed.</p>
+      <p>The tools themselves are not the problem. The risk is the default of full access: an agent that can search everything can also read the parts of your life you would never paste into a chat.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="inbox">
+    <div class="wrap prose">
+      <h2 id="inbox">2. What actually sits in a normal inbox</h2>
+      <p class="section-intro">A typical inbox, and the messages around it, hold more than meeting notes and travel plans.</p>
+      <ul>
+        <li>Two-factor codes, magic links, and new sign-in alerts</li>
+        <li>Password reset links</li>
+        <li>Bank and brokerage statements, and wire details</li>
+        <li>Tax returns and forms with Social Security numbers, often in attachments</li>
+        <li>Medical records, lab results, and prescriptions</li>
+        <li>Untrusted incoming mail, which can carry hidden instructions</li>
+      </ul>
+      <p>That last point is not theoretical. In 2025, researchers showed that one email with instructions hidden in white text could make ChatGPT's Deep Research agent send data from a Gmail inbox to an outside server (ShadowLeak). OpenAI fixed it. A similar email-borne flaw in Microsoft 365 Copilot was rated critical and fixed (EchoLeak). OpenAI has said this kind of attack, prompt injection, is unlikely to ever be fully solved.</p>
+      <p>Be precise about what a scrubbing layer can and cannot do today. SafeContext currently scrubs mail and calendar on your computer. It never downloads attachment contents, only file names, types, and sizes, so a tax PDF attached to an email does not enter the searchable version. Chat and other sources are expanding. A tax return sitting in a cloud drive is still a separate problem, and those connectors are not in this release. Broader file hygiene is still on you until they are.</p>
+      <p class="source-line">Sources: <a href="https://www.radware.com/blog/threat-intelligence/shadowleak/">ShadowLeak</a> · <a href="https://msrc.microsoft.com/update-guide/vulnerability/CVE-2025-32711">EchoLeak</a> · <a href="https://openai.com/index/hardening-atlas-against-prompt-injection/">OpenAI on prompt injection</a> · <a href="https://support.google.com/gemini/answer/13594961">Gemini Apps Privacy Hub</a></p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="rules">
+    <div class="wrap prose">
+      <h2 id="rules">3. Five practical rules you can use today</h2>
+      <p class="section-intro">These rules hold whether or not you use SafeContext.</p>
+      <ol class="steps stack">
+        <li>
+          <h3>Default to read-only access</h3>
+          <p>If an agent only needs to answer questions, do not give it permission to send, delete, or change mail or events.</p>
+        </li>
+        <li>
+          <h3>Keep auth, banking, tax, and health out of reach</h3>
+          <p>Sign-in codes, password resets, bank statements, tax forms, and medical records should never be in the corpus an agent can search.</p>
+        </li>
+        <li>
+          <h3>Minimize where copies live</h3>
+          <p>Prefer a local, redacted version over uploading your mailbox to another company's cloud. When you do ask a question, only the snippets needed should leave your machine, and only to the AI you chose.</p>
+        </li>
+        <li>
+          <h3>Inspect what the agent actually queried</h3>
+          <p>You should be able to see what it searched for, and what was blocked before it got there.</p>
+        </li>
+        <li>
+          <h3>Keep an instant kill switch</h3>
+          <p>You should be able to pause access, revoke a connection, and delete the local copy in one place.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="hygiene">
+    <div class="wrap prose">
+      <h2 id="hygiene">4. Where manual hygiene breaks down</h2>
+      <p class="section-intro">You can unsubscribe, file mail into a safer label, or forward only selected threads to an agent. That helps, until it does not.</p>
+      <ul>
+        <li>Years of mixed personal mail already sit in the inbox, including old statements and tax forms.</li>
+        <li>Attachments are easy to miss. A W-2 or a lab result can arrive as a PDF you never reopen.</li>
+        <li>Incoming sign-in codes and reset links keep arriving. You do not control the sender.</li>
+        <li>Hidden-instruction attacks target mail you did not write, so careful sending is not enough.</li>
+      </ul>
+      <p>Manual rules do not scale once an agent is allowed to search the whole box. The filter has to run on everything that comes in, including the messages you never planned to share.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="layer">
+    <div class="wrap prose">
+      <h2 id="layer">5. How SafeContext automates the scrubbing layer</h2>
+      <p class="section-intro">SafeContext applies those rules for you, on your computer, before any AI can search your sources.</p>
+      <ul class="ticks">
+        <li>It brings the sources you choose onto your computer with read-only access you grant.</li>
+        <li>Each message and event is scrubbed in memory, before anything is saved. Only the redacted, cleaned version is stored, on your computer, never on SafeContext's servers.</li>
+        <li>After the first sync, a Privacy Report shows what was kept, dropped, and redacted. Tax, health, and bank mail never reach any AI, and sensitive details such as ID numbers, Social Security numbers, passwords, and 2FA codes are removed.</li>
+        <li>Use in Grok is one switch, a private link, and a 4-digit approval code. Searches pass through <code>relay.safecontext.me</code>, which stores nothing. A Grok activity list on your computer shows what was asked, and how many results came back, never the results themselves.</li>
+        <li>Claude Desktop, Cursor, and other MCP apps on your computer can search the same redacted version locally, with no relay.</li>
+        <li>You can pause Use in Grok, regenerate the link, or disconnect and delete the local copy.</li>
+        <li>Demo mode opens a sample mailbox with no Google account, so you can inspect the Privacy Report first.</li>
+      </ul>
+      <div class="callout">
+        <p>SafeContext does not make prompt injection impossible. It shrinks what any AI can reach: sensitive mail never gets to it, the rest is scrubbed, and access is read-only.</p>
+      </div>
+      <div class="cta">
+        <a class="button" href="/download">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10m0 0l-4-4m4 4l4-4M4 17h12"/></svg>
+          Download for Mac
+        </a>
+        <a class="text-link" href="/how-it-works">See exactly how the path works →</a>
+      </div>
+      <p class="req">Version 0.1.5 · 53 MB<br>Requires a Mac with Apple silicon (M1 or later) and macOS 11 or later.</p>
+      <p class="soon"><span>Coming soon</span> iMessage, WhatsApp, and call recordings.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>© 2026 SafeContext</span>
+    <nav aria-label="Footer">
+      <a href="/how-it-works">How it works</a>
+      <a href="/agent-context-guide">Safe AI guide</a>
+      <a href="/privacy">Privacy Policy</a>
+      <!--email_off--><a href="mailto:privacy@safecontext.me">Contact: privacy@safecontext.me</a><!--/email_off-->
+    </nav>
+  </div>
+</footer>
+</body>
+</html>
