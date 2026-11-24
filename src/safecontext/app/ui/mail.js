@@ -42,8 +42,8 @@ function mailInit() {
 function mailShow() {
   mailInit();
   mailPlaceholder();
-  mailRefreshMeta(true);
   if (!mail.rows.length) mailReload();
+  mailRefreshMeta(true, mail.rows.length > 0);  // coming back: catch up on what synced while away
   clearInterval(mail.timer);
   mail.timer = setInterval(() => {
     if (state.view !== "mail") { clearInterval(mail.timer); mail.timer = null; return; }
@@ -52,18 +52,27 @@ function mailShow() {
 }
 
 // ---------- sidebar, coverage, reasons ----------
-async function mailRefreshMeta(force) {
+// `returning`: the page was just shown again with its old list, so reload it if anything synced
+// meanwhile (a background sync can finish while another screen is up).
+async function mailRefreshMeta(force, returning = false) {
   const syncing = mail.coverage.some((c) => c.syncing);
   if (!force && !syncing && Date.now() - (mail.metaAt || 0) < 15000) return;
   mail.metaAt = Date.now();
   const [f, c] = await Promise.all([api().mail_folders(), api().mail_coverage(mail.source)]);
   if (f.ok) { mail.folders = f; mailRenderFolders(); }
   if (c.ok) { mail.coverage = c.sources; mailRenderCoverage(); }
-  // While a sync fills the store, keep the top of the list fresh (only if the reader is at the top).
-  const sig = c.ok ? c.sources.map((x) => `${x.kept}/${x.dropped}`).join() : "";
-  if (!force && sig !== mail.lastCovSig && $("mail-list").scrollTop < MAIL_ROW_H && !mail.query) mailReload(true);
+  // Keep the list fresh as the store changes: while a sync fills it (only if the reader is at the
+  // top, not mid-scroll or searching), and always on coming back to the page.
+  const sig = c.ok ? mailCovSig(c.sources) : "";
+  const changed = sig !== mail.lastCovSig;
+  if (changed && (returning || (!force && $("mail-list").scrollTop < MAIL_ROW_H && !mail.query))) mailReload(true);
   mail.lastCovSig = sig;
   if (mail.view === "not_synced") mailLoadReasons();
+}
+
+// Changes whenever a sync stored, dropped or removed something (newest_ms catches one in, one out).
+function mailCovSig(sources) {
+  return sources.map((x) => `${x.id}:${x.kept}/${x.dropped}/${x.newest_ms || 0}`).join();
 }
 
 // Counts for the source picked in the app sidebar (every mail source if none).
