@@ -47,7 +47,7 @@
         </li>
         <li>
           <h3>Connect your AI</h3>
-          <p>Turn on <b>Use in Grok</b>, add your private link as a Grok connector, and click <b>Approve</b> once when the 4-digit codes match. Or copy the MCP config from Settings into Claude Desktop or another MCP app.</p>
+          <p>Turn on <b>MCP</b>, add your private link as a connector in Grok or Claude, and click <b>Approve</b> once when the 4-digit codes match. Or copy the MCP config from Settings into Claude Desktop or another MCP app.</p>
         </li>
       </ol>
     </div>
@@ -166,7 +166,7 @@
   <section class="section" aria-labelledby="removed">
     <div class="wrap">
       <h2 id="removed">What gets removed</h2>
-      <p class="section-intro">Scrubbing runs before anything is written to disk. Raw mail is never kept.</p>
+      <p class="section-intro">Scrubbing runs before anything is written to disk. Raw mail and messages are never kept.</p>
       <div class="cols">
         <div>
           <h3>Skipped entirely</h3>
@@ -177,6 +177,7 @@
             <li>Spam, trash, and drafts</li>
           </ul>
           <p class="example">Calendar events follow the same security, banking, tax, and health rules. Dial-in PINs and meeting passcodes are never read.</p>
+          <p class="example">Texts from short codes, sender IDs and toll-free numbers (banks, pharmacies, delivery and sign-in codes) are skipped, even if the number is saved in Contacts, and so is any text that reads like a bank, tax or health notice.</p>
         </div>
         <div>
           <h3>Redacted in what's kept</h3>
@@ -213,11 +214,13 @@
       <h2 id="leaves">What leaves your computer, and when</h2>
       <ul class="facts">
         <li><b>Until you connect an AI</b><span>Nothing. The redacted, cleaned version stays on your computer.</span></li>
-        <li><b>With Use in Grok on</b><span>Only the redacted results for each search Grok makes. Grok gets read-only search tools and cannot change, send, or delete anything. Searches pass through <code>relay.safecontext.me</code>, which does not store or log them. This only works while your computer is awake, SafeContext is open, and Use in Grok is on.</span></li>
-        <li><b>You can inspect the work</b><span>After sync, a Privacy Report on your computer shows what was kept, dropped, and redacted. The app also keeps an activity list of what Grok asked for and how many results it got, never the results themselves.</span></li>
-        <li><b>AI apps on your computer</b><span>Like Claude Desktop, they get the same read-only search tools and read the redacted version directly, with no relay. Results that reach Grok or another AI are handled under that company's own terms.</span></li>
+        <li><b>Update checks</b><span>Once a day SafeContext asks safecontext.me whether there's a new version. The request carries none of your data, and you can turn the check off in Settings. Updates are verified as signed by SafeContext's developer before they install.</span></li>
+        <li><b>With MCP on</b><span>Only the redacted results for each search Grok or Claude makes. They get read-only search tools and cannot change, send, or delete anything. Searches pass through <code>relay.safecontext.me</code>, which does not store or log them. This only works while your computer is awake, SafeContext is open, and MCP is on.</span></li>
+        <li><b>You can inspect the work</b><span>After sync, a Privacy Report on your computer shows what was kept, dropped, and redacted. The app also keeps an activity list of what Grok or Claude asked for and how many results it got, never the results themselves.</span></li>
+        <li><b>AI apps on your computer</b><span>Like Claude Desktop, they get the same read-only search tools and read the redacted version directly, with no relay.</span></li>
+        <li><b>After it reaches the AI</b><span>Results Grok receives are handled by xAI, and results Claude receives by Anthropic, each under its own terms and privacy policy.</span></li>
       </ul>
-      <p class="follow">Details of how the relay recognizes your computer and Grok, including link identifiers and one-way hashes, belong in the <a href="/privacy">Privacy Policy</a>.</p>
+      <p class="follow">Details of how the relay recognizes your computer, Grok, and Claude, including link identifiers and one-way hashes, belong in the <a href="/privacy">Privacy Policy</a>.</p>
     </div>
   </section>
 
@@ -225,9 +228,9 @@
     <div class="wrap">
       <h2 id="off">How to turn it off</h2>
       <ul class="facts">
-        <li><b>Pause Grok</b><span>Turn the Use in Grok switch off. Nothing more is sent.</span></li>
+        <li><b>Pause access</b><span>Turn the MCP switch off. Nothing more is sent.</span></li>
         <li><b>Disconnect an app</b><span>Remove SafeContext from that app's MCP settings.</span></li>
-        <li><b>Cut Grok off for good</b><span>Click <b>Regenerate link</b>. The old link stops working and every sign-in Grok held is forgotten. You can also remove the connector in Grok.</span></li>
+        <li><b>Cut an app off for good</b><span>Click <b>Regenerate link</b>. The old link stops working and every sign-in Grok or Claude held is forgotten. You can also remove the connector in Grok or Claude.</span></li>
         <li><b>Delete everything</b><span>In Settings, <b>Disconnect and delete local mail</b> removes your local copy and revokes SafeContext's access to your Google account. You can also revoke access at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</span></li>
       </ul>
       <div class="next">
