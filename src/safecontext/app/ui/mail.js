@@ -267,7 +267,7 @@ function mailRow(r, i) {
     return el("div", attrs,
       el("div", { class: "mrow-top" },
         el("span", { class: "mrow-from" }, "Not synced", mailManySources() ? el("span", { class: "cnt" }, `· ${sourceName(r.source)}`) : null),
-        el("span", { class: "mrow-date" }, r.date ? fmtDate(r.date) : "")),
+        mailWhen(r.date)),
       el("div", { class: "mrow-subj" }, el("span", {}, ri.label), el("span", { class: "badge skip" }, "⊘ skipped")),
       el("div", { class: "mrow-snip" }, r.thread_title ? ["In “", richText(r.thread_title), "”"] : ri.why));
   }
@@ -280,9 +280,19 @@ function mailRow(r, i) {
     el("div", { class: "mrow-top" },
       el("span", { class: "mrow-from" }, isEvent ? sourceName(r.source) : senderName(r.sender),
         r.count > 1 ? el("span", { class: "cnt" }, String(r.count)) : null),
-      el("span", { class: "mrow-date" }, fmtDate(r.date, isEvent))),
+      isEvent ? el("span", { class: "mrow-date" }, fmtDate(r.date, true)) : mailWhen(r.date)),
     el("div", { class: "mrow-subj" }, el("span", {}, richText(r.title || "(no subject)")), ...badges),
     el("div", { class: "mrow-snip" }, richText((r.snippet || "").replace(/\s+/g, " "))));
+}
+
+// The list's date column. Both the date and the time are rendered, stacked in one grid cell
+// (so the column is as wide as the longer one and nothing shifts); mail.css shows the time
+// while the row is hovered. Events already show their time, so they don't use this.
+function mailWhen(iso) {
+  if (!iso) return el("span", { class: "mrow-date" }, "");
+  const time = new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return el("span", { class: "mrow-date when" },
+    el("span", { class: "when-d" }, fmtDate(iso)), el("span", { class: "when-t" }, time));
 }
 
 function mailManySources() {
