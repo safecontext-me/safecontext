@@ -226,6 +226,7 @@ class GoogleCalendarSource(BaseSource):
     name = "Google Calendar"
     description = "Your events, attendees and meeting links, scrubbed on this Mac."
     kinds = ("event",)
+    api_version = 1
     link_prefixes = ("https://www.google.com/calendar/", "https://calendar.google.com/")
     requirements = (Requirement(OAUTH_SCOPE, auth.SCOPE_CALENDAR, "Read-only Google Calendar access",
                                 "To copy your events here so AI can answer questions about your schedule. "

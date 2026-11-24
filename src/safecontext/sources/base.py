@@ -15,10 +15,17 @@ scrubbed results only.
 
 To wrap a module in `readers/` (a plain iterator of dataclasses), subclass
 `ReaderSource` below; see its docstring for exactly what to provide.
+
+Connectors ship inside SafeContext: each one is listed in `sources.CONNECTORS`
+and checked by `validate_connector` when the app starts. There is no plugin
+folder; outside code never runs inside the app. CONNECTORS.md next to this
+file is the guide for writing one, and tests/connector_kit.py is the test
+every connector must pass.
 """
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -30,16 +37,23 @@ except ImportError:  # pragma: no cover
 
 from ..errors import NeedsPermission
 from ..scrub import RawItem, scrub_item
+from ..scrub.models import KINDS
 from ..store import Store
 from ..sync import BaseSyncer, ProgressFn, SyncResult, read_heartbeat
 
 log = logging.getLogger("safecontext.sources")
+
+# The version of this interface. Every connector states the version it was
+# written for (`api_version`); bump this, and update every connector, when a
+# change here would break one.
+CONNECTOR_API_VERSION = 1
 
 # Requirement kinds
 OAUTH_SCOPE = "oauth_scope"            # value: the scope URL
 MACOS_PERMISSION = "macos_permission"  # value: "full_disk_access" | "calendars" | "contacts" | ...
 FILE = "file"                          # value: a path the user picks or a default path
 FOLDER = "folder"
+REQUIREMENT_KINDS = (OAUTH_SCOPE, MACOS_PERMISSION, FILE, FOLDER)
 
 # Source states shown on the Sources screen
 NOT_CONNECTED, CONNECTED, SYNCING = "not_connected", "connected", "syncing"
@@ -143,6 +157,55 @@ class Source(Protocol):
         ...
 
 
+class ConnectorError(ValueError):
+    """A connector's declaration breaks the interface. Raised when the registry loads it,
+    so a broken connector stops the app's tests, not a user's sync."""
+
+
+class UndeclaredKind(ValueError):
+    """A connector produced an item of a kind it didn't declare. The item is stored as
+    dropped (reason "error:UndeclaredKind"), never as content."""
+
+
+_ID = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
+
+
+def validate_connector(src: "BaseSource") -> None:
+    """Check one connector's declaration. Raises ConnectorError naming every problem."""
+    problems: List[str] = []
+    who = getattr(src, "id", "") or type(src).__name__
+    if not isinstance(src.id, str) or not _ID.match(src.id):
+        problems.append("id must be 2-32 lowercase letters, digits or _, starting with a letter")
+    if not src.name:
+        problems.append("name is empty")
+    if not src.description:
+        problems.append("description is empty")
+    if src.api_version != CONNECTOR_API_VERSION:
+        problems.append(f"api_version is {src.api_version!r}; this SafeContext implements {CONNECTOR_API_VERSION}")
+    if not src.kinds:
+        problems.append("kinds is empty")
+    unknown = [k for k in src.kinds if k not in KINDS]
+    if unknown:
+        problems.append(f"unknown kinds {unknown}: use {list(KINDS)} so the right scrub rules apply")
+    for p in src.link_prefixes:
+        if not (isinstance(p, str) and p.startswith("https://") and len(p) > len("https://x.y/")):
+            problems.append(f"link prefix {p!r} must be a specific https:// URL prefix")
+    for r in src.requirements:
+        if not isinstance(r, Requirement):
+            problems.append(f"requirement {r!r} isn't a Requirement")
+        elif r.kind not in REQUIREMENT_KINDS:
+            problems.append(f"requirement kind {r.kind!r} isn't one of {list(REQUIREMENT_KINDS)}")
+        elif not (r.label and r.why):
+            problems.append(f"requirement {r.kind}:{r.value} needs a label and a why for the user")
+    if isinstance(src, ReaderSource):
+        # A reader connector supplies records; batching, scrubbing and storing stay in ReaderSyncer.
+        for attr, base in (("sync", BaseSource), ("_syncer", ReaderSource)):
+            if getattr(type(src), attr) is not getattr(base, attr):
+                problems.append(f"a ReaderSource must not override {attr}()")
+    if problems:
+        raise ConnectorError(f"Connector {who}: " + "; ".join(problems) + ".")
+
+
 class BaseSource:
     """State bookkeeping shared by every source. Subclasses set the class
     attributes and implement `connect` and `_syncer`."""
@@ -153,6 +216,7 @@ class BaseSource:
     kinds: Tuple[str, ...] = ()
     link_prefixes: Tuple[str, ...] = ()
     requirements: Sequence[Requirement] = ()
+    api_version = 0  # each connector sets it to the CONNECTOR_API_VERSION it was written for
     google = False  # shares the Google OAuth grant with other Google sources
 
     def __init__(self, store: Store) -> None:
@@ -270,6 +334,7 @@ class ReaderSource(BaseSource):
     A subclass provides:
 
         id, name, description, kinds, requirements     class attributes
+        api_version = 1                                the CONNECTOR_API_VERSION it targets
         link_prefixes                                  deep links it produces, if any
 
         def read(self, cursor: Optional[str]) -> Iterable[Record]
@@ -350,6 +415,8 @@ class ReaderSyncer(BaseSyncer):
             try:
                 item = self.src.to_item(rec)
                 if item is not None:
+                    if item.kind not in self.src.kinds:
+                        raise UndeclaredKind(item.kind)
                     results.append(scrub_item(item))
             except Exception as e:  # one odd record never stops the sync, and is never stored raw
                 rid = str(getattr(rec, "id", "") or getattr(rec, "rowid", "") or self.src.cursor_of(rec))

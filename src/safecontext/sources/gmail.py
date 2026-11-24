@@ -27,6 +27,7 @@ class GmailSource(BaseSource):
     name = "Gmail"
     description = "Your email, scrubbed on this Mac. Attachments are never downloaded, only their names."
     kinds = ("message",)
+    api_version = 1
     link_prefixes = ("https://mail.google.com/mail/",)
     google = True
 

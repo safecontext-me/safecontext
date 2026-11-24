@@ -48,6 +48,7 @@ class IMessageSource(ReaderSource):
     id = IMESSAGE
     name = "iMessage"
     kinds = ("chat",)
+    api_version = 1
     description = "Your Messages conversations on this Mac (iMessage, SMS and RCS), scrubbed before they're stored."
     requirements = (
         Requirement(MACOS_PERMISSION, FULL_DISK_ACCESS, "Full Disk Access",
