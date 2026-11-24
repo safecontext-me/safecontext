@@ -1,16 +1,27 @@
 """Every source SafeContext can copy data from, and the registry the app,
-CLI and tools use to reach them. See base.py for the connector interface."""
+CLI and tools use to reach them. See base.py for the connector interface
+and CONNECTORS.md for how to add one."""
 from __future__ import annotations
 
-from typing import Any, Dict, Iterator, List, Optional, Sequence
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Type
 
 from .. import auth
 from ..store import Store
-from .base import (FOLDER, MACOS_PERMISSION, NEEDS_PERMISSION, OAUTH_SCOPE, BaseSource, ReaderSource,
-                   Requirement, Source, SourceStatus)
+from .base import (CONNECTOR_API_VERSION, FOLDER, MACOS_PERMISSION, NEEDS_PERMISSION, OAUTH_SCOPE, BaseSource,
+                   ConnectorError, ReaderSource, Requirement, Source, SourceStatus, validate_connector)
 from .gcal import GCAL, GoogleCalendarSource
 from .gmail import GmailSource
 from .imessage import IMESSAGE, IMessageSource
+
+# Every connector that ships with SafeContext, in the order the Sources screen
+# shows them. Adding a connector is one line here. Each is built as
+# `cls(store, **options[cls.id])`, so tests and demo mode can point it at
+# fixture data; with no options it reads the real thing.
+CONNECTORS: Tuple[Type[BaseSource], ...] = (
+    GmailSource,
+    GoogleCalendarSource,
+    IMessageSource,
+)
 
 # Shown on the Sources screen as disabled cards until their connectors land.
 # Their readers live in safecontext/readers/ and are wrapped with ReaderSource.
@@ -34,7 +45,12 @@ class Sources:
 
     def __init__(self, store: Store, sources: Sequence[BaseSource]) -> None:
         self.store = store
-        self._by_id = {s.id: s for s in sources}
+        self._by_id: Dict[str, BaseSource] = {}
+        for s in sources:
+            validate_connector(s)
+            if s.id in self._by_id:
+                raise ConnectorError(f"Two connectors use the id '{s.id}'.")
+            self._by_id[s.id] = s
 
     def __iter__(self) -> Iterator[BaseSource]:
         return iter(self._by_id.values())
@@ -81,20 +97,28 @@ class Sources:
 
 def default_sources(store: Store, *, gmail_factory=None, gmail_connect=None, calendar_factory=None,
                     calendar_connect=None, revoke_fn=None,
-                    imessage_options: Optional[Dict[str, Any]] = None) -> Sources:
-    """`imessage_options` go to IMessageSource (db_path, access_fn, settings_fn, names_fn):
-    tests and demo mode point it at a fixture database instead of ~/Library/Messages."""
-    return Sources(store, [
-        GmailSource(store, api_factory=gmail_factory, connect_fn=gmail_connect, revoke_fn=revoke_fn),
-        GoogleCalendarSource(store, api_factory=calendar_factory, connect_fn=calendar_connect, revoke_fn=revoke_fn),
-        IMessageSource(store, **(imessage_options or {})),
-    ])
+                    imessage_options: Optional[Dict[str, Any]] = None,
+                    options: Optional[Mapping[str, Mapping[str, Any]]] = None) -> Sources:
+    """Every connector in CONNECTORS, built with `options[<source id>]` as keyword arguments.
+    The named arguments are shorthands for the built-in connectors: `imessage_options` go to
+    IMessageSource (db_path, access_fn, settings_fn, names_fn), so tests and demo mode point
+    it at a fixture database instead of ~/Library/Messages."""
+    opts: Dict[str, Dict[str, Any]] = {
+        GmailSource.id: {"api_factory": gmail_factory, "connect_fn": gmail_connect, "revoke_fn": revoke_fn},
+        GoogleCalendarSource.id: {"api_factory": calendar_factory, "connect_fn": calendar_connect,
+                                  "revoke_fn": revoke_fn},
+        IMessageSource.id: dict(imessage_options or {}),
+    }
+    for sid, o in (options or {}).items():
+        opts.setdefault(sid, {}).update(o)
+    return Sources(store, [cls(store, **opts.get(cls.id, {})) for cls in CONNECTORS])
 
 
 # id -> display name, for every source that may have items in the store.
-SOURCE_NAMES: Dict[str, str] = {"gmail": "Gmail", GCAL: "Google Calendar", IMESSAGE: "iMessage",
+SOURCE_NAMES: Dict[str, str] = {**{cls.id: cls.name for cls in CONNECTORS},
                                 **{c["id"]: c["name"] for c in COMING_SOON}}
 
 
-__all__ = ["BaseSource", "COMING_SOON", "FOLDER", "MACOS_PERMISSION", "OAUTH_SCOPE", "ReaderSource", "Requirement",
-           "Source", "SourceStatus", "Sources", "default_sources", "SOURCE_NAMES"]
+__all__ = ["BaseSource", "COMING_SOON", "CONNECTORS", "CONNECTOR_API_VERSION", "ConnectorError", "FOLDER",
+           "GCAL", "IMESSAGE", "MACOS_PERMISSION", "OAUTH_SCOPE", "ReaderSource", "Requirement", "Source",
+           "SourceStatus", "Sources", "default_sources", "SOURCE_NAMES", "validate_connector"]

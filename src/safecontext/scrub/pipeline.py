@@ -9,7 +9,7 @@ import os
 from typing import Dict, Optional, Union
 
 from .drop import DEFAULT_CONFIG, DropConfig, check_headers, check_security_body, check_sensitive_text, rules_for
-from .models import KIND_MESSAGE, Attachment, Dropped, RawItem, RawMessage, ScrubbedItem, ScrubbedMessage
+from .models import KIND_MESSAGE, KINDS, Attachment, Dropped, RawItem, RawMessage, ScrubbedItem, ScrubbedMessage
 from .normalize import html_to_text, normalize_text
 from .prose import NoProseClassifier, ProseClassifier, redact_prose
 from .quotes import strip_quotes_and_signature
@@ -94,7 +94,11 @@ def scrub_item(
     """Scrub one item from any non-Gmail source. Same layers as `scrub`:
     drop rules for the item's kind (see drop.rules_for), then inline redaction
     of everything written by a person: title, text, extra fields and
-    attachment names. Quote and signature stripping is for email only."""
+    attachment names. Quote and signature stripping is for email only.
+    Raises ValueError for a kind the drop rules don't know, so no item
+    skips the rules meant for it."""
+    if item.kind not in KINDS:
+        raise ValueError(f"unknown item kind {item.kind!r}")
     title = normalize_text(item.title)
 
     reason = check_headers(item, title, config, kind=item.kind)
