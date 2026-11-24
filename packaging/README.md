@@ -27,6 +27,7 @@ python3.12 -m venv .venv312 && .venv312/bin/pip install briefcase
 .venv312/bin/briefcase build macOS
 .venv312/bin/briefcase run macOS            # smoke test
 scripts/check_bundle_tls.sh                 # the bundled Python can verify TLS (relay, Google)
+scripts/set_bundle_version.sh               # Info.plist version (Briefcase only sets it on create)
 .venv312/bin/briefcase package macOS --identity "Developer ID Application: <Your Name> (<TEAMID>)"
 ```
 
