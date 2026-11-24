@@ -2,7 +2,7 @@
 
 There is no HTTP server: the window talks to Python over pywebview's
 in-process bridge, so no other program on the Mac can query your mail.
-Use in Grok (grok_link.py) only ever makes an outbound connection.
+The MCP link (grok_link.py) only ever makes an outbound connection.
 
 Every public method returns a JSON-friendly dict and never raises; errors
 come back as {"ok": False, "error": "..."} for the UI to show.
@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, Optional
 
 from .. import auth, env, migrate
 from ..errors import NeedsPermission
-from ..grok_link import GROK_CONNECTORS_URL, GrokLink
+from ..grok_link import CONNECTOR_PAGES, GrokLink
 from ..sources import Sources, default_sources
 from ..store import DEFAULT_DATA_DIR, GMAIL, Store
 from ..sync import SyncResult, read_heartbeat
@@ -356,14 +356,14 @@ class Backend:
                 "dropped": dict(sorted(dropped.items(), key=lambda kv: -kv[1])), "redacted": redacted,
                 "by_source": by_source}
 
-    # --- Use in Grok ---------------------------------------------------------------
+    # --- MCP link (shown as "MCP"; the grok_* names are kept from "Use in Grok") ----
     @_safe
     def grok_status(self) -> Dict[str, Any]:
         return self._grok.status()
 
     @_safe
     def grok_enable(self) -> Dict[str, Any]:
-        """Turn on: connect to the relay, copy the connector link, open Grok's connectors page."""
+        """Turn on: connect to the relay and copy the connector link."""
         url = self._grok.enable()
         return {"url": url, "copied": self._copy(url), **self._grok.status()}
 
@@ -381,13 +381,13 @@ class Backend:
     def grok_copy_link(self) -> Dict[str, Any]:
         url = self._grok.connector_url()
         if not url or not self._grok.enabled:
-            return {"ok": False, "error": "Turn on Use in Grok first."}
+            return {"ok": False, "error": "Turn on MCP first."}
         return {"url": url, "copied": self._copy(url)}
 
     @_safe
     def grok_approve(self, approval_id: str, ok: bool = True) -> Dict[str, Any]:
         if not self._grok.approve(str(approval_id), bool(ok)):
-            return {"ok": False, "error": "That request expired. Try connecting again in Grok."}
+            return {"ok": False, "error": "That request expired. Try connecting again from your AI app."}
         return {}
 
     @_safe
@@ -406,10 +406,14 @@ class Backend:
         return {}
 
     @_safe
-    def open_grok_connectors(self) -> Dict[str, Any]:
+    def open_connectors(self, app: str = "grok") -> Dict[str, Any]:
+        """Open an AI app's page for adding a custom connector (only the fixed pages in CONNECTOR_PAGES)."""
+        url = CONNECTOR_PAGES.get(app) if isinstance(app, str) else None
+        if not url:
+            return {"ok": False, "error": "That app has no connectors page to open."}
         if self._demo:
             return {"opened": False}  # demo mode never touches the network
-        webbrowser.open(GROK_CONNECTORS_URL)
+        webbrowser.open(url)
         return {"opened": True}
 
     def _copy(self, text: str) -> bool:

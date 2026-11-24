@@ -21,7 +21,7 @@ const REQ_KINDS = { oauth_scope: "Google permission", macos_permission: "Mac per
 
 const $ = (id) => document.getElementById(id);
 const api = () => window.pywebview.api;
-let state = { status: null, view: "search", activeId: null, grok: null, grokBusy: false };
+let state = { status: null, view: "search", activeId: null, mcp: null, mcpBusy: false };
 
 // ---------- DOM helpers ----------
 function el(tag, attrs = {}, ...children) {
@@ -448,44 +448,45 @@ async function disconnectSource(x) {
   refreshStatus();
 }
 
-// ---------- use in grok ----------
-const GROK_STATES = {
-  off: ["Off", ""], connecting: ["Connecting…", "busy"], waiting: ["Waiting for Grok", "busy"],
-  connected: ["Grok connected", "ok"], offline: ["Can't reach the relay. Retrying…", "warn"],
+// ---------- MCP (relay link for Grok, Claude, Muse) ----------
+// The backend calls keep their grok_* names: they drive the same relay link for every app.
+const MCP_STATES = {
+  off: ["Off", ""], connecting: ["Connecting…", "busy"], waiting: ["Waiting for an AI app to connect", "busy"],
+  connected: ["Connected", "ok"], offline: ["Can't reach the relay. Retrying…", "warn"],
   rejected: ["Link not accepted. Regenerate it.", "warn"],
 };
+const MCP_APPS = ["grok", "claude", "muse"];
 
-async function refreshGrok() {
+async function refreshMcp() {
   const r = await api().grok_status();
-  if (r.ok) renderGrok(r);
+  if (r.ok) renderMcp(r);
 }
 
-function renderGrok(g) {
-  state.grok = g;
+function renderMcp(g) {
+  state.mcp = g;
   const on = g.enabled;
-  if (!state.grokBusy) $("grok-toggle").checked = on;
-  const [label, tone] = GROK_STATES[g.state] || [g.state, ""];
+  if (!state.mcpBusy) $("mcp-toggle").checked = on;
+  const [label, tone] = MCP_STATES[g.state] || [g.state, ""];
   let text = label;
   if (g.state === "connected" && g.last_used_ms) text += ` · last used ${ago(g.last_used_ms)}`;
-  $("grok-status-text").textContent = text;
-  $("grok-dot").className = "dot" + (tone === "ok" ? " on" : tone === "busy" ? " busy" : tone === "warn" ? " warn" : " off");
-  $("grok-card").classList.toggle("is-on", on);
-  $("grok-actions").hidden = !on;
-  $("grok-on").hidden = !on;
-  $("grok-pitch").hidden = on;
-  // The three steps stay up until Grok has connected once.
-  $("grok-steps").hidden = !on || g.state === "connected";
-  $("grok-url").textContent = g.url || "";
-  $("grok-awake").checked = !!g.keep_awake;
-  $("grok-link-only").checked = !!g.link_only;
-  $("grok-auth-url").textContent = (g.oauth && g.oauth.authorize) || "";
-  $("grok-token-url").textContent = (g.oauth && g.oauth.token) || "";
-  renderGrokActivity(g.activity || []);
-  const d = $("grok-approve");
+  $("mcp-status-text").textContent = text;
+  $("mcp-dot").className = "dot" + (tone === "ok" ? " on" : tone === "busy" ? " busy" : tone === "warn" ? " warn" : " off");
+  $("mcp-card").classList.toggle("is-on", on);
+  $("mcp-on").hidden = !on;
+  $("mcp-pitch").hidden = on;
+  $("mcp-url").textContent = g.url || "";
+  $("mcp-awake").checked = !!g.keep_awake;
+  for (const box of document.querySelectorAll(".link-only-box")) box.checked = !!g.link_only;
+  $("mcp-auth-url").textContent = (g.oauth && g.oauth.authorize) || "";
+  $("mcp-token-url").textContent = (g.oauth && g.oauth.token) || "";
+  renderMcpActivity(g.activity || []);
+  const d = $("mcp-approve");
   if (g.approval && state.approvalId !== g.approval.id) {
     state.approvalId = g.approval.id;
+    const who = g.approval.client || "An AI app";
     $("ga-code").textContent = g.approval.code;
-    $("ga-client").textContent = g.approval.client || "Grok";
+    $("ga-title").textContent = who;
+    $("ga-client").textContent = who;
     if (!d.open) d.showModal();
   } else if (!g.approval && d.open) {
     d.close();
@@ -493,8 +494,8 @@ function renderGrok(g) {
   }
 }
 
-function renderGrokActivity(rows) {
-  const list = $("grok-activity-list");
+function renderMcpActivity(rows) {
+  const list = $("mcp-activity-list");
   list.replaceChildren(...(rows.length ? rows.map((a) => el("li", {},
     el("span", { class: "act-time" }, ago(a.ts_ms)),
     el("span", { class: "act-q" }, a.query),
@@ -502,52 +503,72 @@ function renderGrokActivity(rows) {
     : [el("li", { class: "muted" }, "Nothing yet.")]));
 }
 
+function showMcpApp(app, remember = true) {
+  if (!MCP_APPS.includes(app)) app = "grok";
+  for (const t of document.querySelectorAll(".mcp-tabs [role=tab]")) {
+    const sel = t.dataset.app === app;
+    t.setAttribute("aria-selected", sel ? "true" : "false");
+    t.tabIndex = sel ? 0 : -1;
+  }
+  for (const p of document.querySelectorAll(".mcp-panel")) p.hidden = p.dataset.app !== app;
+  if (remember) { try { localStorage.setItem("mcp-app", app); } catch { /* not kept; fine */ } }
+}
+
+function savedMcpApp() {
+  try { return localStorage.getItem("mcp-app") || "grok"; } catch { return "grok"; }
+}
+
 async function copyText(text, copied) {
   if (copied) return true;
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
-async function grokToggle() {
-  const want = $("grok-toggle").checked;
-  state.grokBusy = true;
+async function mcpToggle() {
+  const want = $("mcp-toggle").checked;
+  state.mcpBusy = true;
   if (want) {
     const r = await api().grok_enable();
-    state.grokBusy = false;
-    if (!r.ok) { $("grok-toggle").checked = false; toast(r.error); return; }
+    state.mcpBusy = false;
+    if (!r.ok) { $("mcp-toggle").checked = false; toast(r.error); return; }
     const copied = await copyText(r.url, r.copied);
-    toast(copied ? "Link copied. Paste it into Grok." : "Copy the link below and paste it into Grok.");
-    api().open_grok_connectors();
-    renderGrok(r);
+    toast(copied ? "Link copied. Paste it into your AI app." : "Copy the link below and paste it into your AI app.");
+    renderMcp(r);
   } else {
     const r = await api().grok_disable();
-    state.grokBusy = false;
-    if (r.ok) { renderGrok(r); toast("Grok can't reach your data now."); }
+    state.mcpBusy = false;
+    if (r.ok) { renderMcp(r); toast("AI apps can't reach your data now."); }
   }
 }
 
-async function grokCopy() {
+async function mcpCopy() {
   const r = await api().grok_copy_link();
   if (!r.ok) return toast(r.error);
   toast((await copyText(r.url, r.copied)) ? "Link copied." : "Select the link and copy it with ⌘C.");
 }
 
-async function grokRegenerate() {
-  const ok = await confirmDialog("Make a new link? Grok loses access right away. Then add the new link in Grok (it's copied for you).", "Regenerate");
+async function mcpRegenerate() {
+  const ok = await confirmDialog("Make a new link? Every connected AI app loses access right away. Then add the new link in each app (it's copied for you).", "Regenerate");
   if (!ok) return;
   const r = await api().grok_regenerate();
   if (!r.ok) return toast(r.error);
   const copied = await copyText(r.url, r.copied);
   toast(copied ? "New link copied. The old one no longer works." : "New link made. The old one no longer works.");
-  renderGrok(r);
+  renderMcp(r);
 }
 
-async function grokAnswer(ok) {
+async function mcpSetLinkOnly(on) {
+  const r = await api().grok_set_link_only(on);
+  if (r.ok) renderMcp(r);
+}
+
+async function mcpAnswer(ok) {
   const id = state.approvalId;
-  $("grok-approve").close();
+  const who = $("ga-client").textContent || "The app";
+  $("mcp-approve").close();
   const r = await api().grok_approve(id, ok);
   if (!r.ok) toast(r.error);
-  else toast(ok ? "Approved. Grok can now search your scrubbed data." : "Denied.");
-  refreshGrok();
+  else toast(ok ? `Approved. ${who} can now search your scrubbed data.` : "Denied.");
+  refreshMcp();
 }
 
 // ---------- removed ----------
@@ -630,21 +651,23 @@ function wire() {
   $("reconnect").addEventListener("click", () => connect($("reconnect"), null));
   $("s-disconnect").addEventListener("click", () => disconnect(false));
   $("s-wipe").addEventListener("click", () => disconnect(true));
-  $("grok-toggle").addEventListener("change", grokToggle);
-  $("grok-copy").addEventListener("click", grokCopy);
-  $("grok-open").addEventListener("click", () => api().open_grok_connectors());
-  $("grok-regen").addEventListener("click", grokRegenerate);
-  $("grok-awake").addEventListener("change", async (e) => {
+  $("mcp-toggle").addEventListener("change", mcpToggle);
+  $("mcp-link-copy").addEventListener("click", mcpCopy);
+  for (const b of document.querySelectorAll("[data-open-app]")) b.addEventListener("click", () => api().open_connectors(b.dataset.openApp));
+  for (const t of document.querySelectorAll(".mcp-tabs [role=tab]")) t.addEventListener("click", () => showMcpApp(t.dataset.app));
+  $("mcp-regen").addEventListener("click", mcpRegenerate);
+  $("mcp-awake").addEventListener("change", async (e) => {
     const r = await api().grok_set_keep_awake(e.target.checked);
-    if (r.ok) toast(e.target.checked ? "Your Mac will stay awake while plugged in and Grok is on." : "Your Mac can sleep as usual.");
+    if (r.ok) toast(e.target.checked ? "Your Mac will stay awake while plugged in and MCP is on." : "Your Mac can sleep as usual.");
   });
-  $("grok-link-only").addEventListener("change", (e) => api().grok_set_link_only(e.target.checked));
-  $("grok-activity-btn").addEventListener("click", () => { $("grok-activity").hidden = !$("grok-activity").hidden; });
-  $("grok-help-btn").addEventListener("click", () => { $("grok-help").hidden = !$("grok-help").hidden; });
-  $("grok-clear").addEventListener("click", async () => { await api().grok_clear_activity(); refreshGrok(); });
-  $("ga-ok").addEventListener("click", () => grokAnswer(true));
-  $("ga-deny").addEventListener("click", () => grokAnswer(false));
-  $("grok-approve").addEventListener("cancel", (e) => e.preventDefault());
+  for (const box of document.querySelectorAll(".link-only-box")) box.addEventListener("change", (e) => mcpSetLinkOnly(e.target.checked));
+  $("mcp-activity-btn").addEventListener("click", () => { $("mcp-activity").hidden = !$("mcp-activity").hidden; });
+  $("mcp-help-btn").addEventListener("click", () => { $("mcp-help").hidden = !$("mcp-help").hidden; });
+  $("mcp-clear").addEventListener("click", async () => { await api().grok_clear_activity(); refreshMcp(); });
+  $("ga-ok").addEventListener("click", () => mcpAnswer(true));
+  $("ga-deny").addEventListener("click", () => mcpAnswer(false));
+  $("mcp-approve").addEventListener("cancel", (e) => e.preventDefault());
+  showMcpApp(savedMcpApp(), false);
   $("mcp-copy").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText($("mcp-json").textContent); toast("Copied."); }
     catch { toast("Select the text and copy it with ⌘C."); }
@@ -654,9 +677,9 @@ function wire() {
 function start() {
   wire();
   refreshStatus();
-  refreshGrok();
+  refreshMcp();
   setInterval(refreshStatus, 1500);
-  setInterval(refreshGrok, 1500);
+  setInterval(refreshMcp, 1500);
 }
 
 if (window.pywebview && window.pywebview.api) start();
