@@ -101,6 +101,10 @@ npx wrangler pages deploy
 ```
 
 The first run asks to create the `safecontext` project; answer with production branch `main`.
+
+After that, `.github/workflows/deploy-site.yml` runs the same deploy on every push to `main`
+that changes `site/`, `functions/` or `wrangler.toml`. It needs two repository secrets:
+`CLOUDFLARE_API_TOKEN` (an API token with **Cloudflare Pages: Edit**) and `CLOUDFLARE_ACCOUNT_ID`.
 (Connecting the repo with **Connect to Git** also works, with build output directory
 `site` and no build command; Pages reads the same `wrangler.toml`.)
 
