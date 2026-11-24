@@ -58,26 +58,25 @@
       <h2 id="connect">How the pieces connect</h2>
       <figure class="diagram">
         <svg class="wide" viewBox="0 0 960 240" role="img" aria-labelledby="dw-t">
-          <title id="dw-t">Gmail and Google Calendar flow into your Mac, where they are scrubbed and stored. Searches from Grok or Claude reach your Mac through a relay that stores nothing, and scrubbed results go back the same way.</title>
+          <title id="dw-t">Google, iMessage, Signal, and Dropbox go into SafeContext on your Mac. TOTP, passwords, and similar secrets are not passed through. Grok, Muse, and Claude reach it through a relay that stores nothing.</title>
           <defs>
             <marker id="aw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-head" d="M0 0L10 5 0 10z"/></marker>
           </defs>
           <rect class="d-box" x="1" y="70" width="158" height="100" rx="12"/>
-          <text class="d-t" x="80" y="108" text-anchor="middle">Google</text>
-          <text class="d-s" x="80" y="130" text-anchor="middle">Gmail · Calendar</text>
-          <text class="d-s" x="80" y="149" text-anchor="middle">read-only</text>
+          <text class="d-t" x="80" y="94" text-anchor="middle">Google</text>
+          <text class="d-t" x="80" y="114" text-anchor="middle">iMessage</text>
+          <text class="d-t" x="80" y="134" text-anchor="middle">Signal</text>
+          <text class="d-t" x="80" y="154" text-anchor="middle">Dropbox</text>
 
           <path class="d-line" d="M160 120H210" marker-end="url(#aw)"/>
 
           <rect class="d-mac" x="216" y="16" width="360" height="208" rx="16"/>
           <text class="d-a" x="236" y="44">YOUR MAC</text>
-          <rect class="d-box" x="236" y="70" width="140" height="100" rx="12"/>
-          <text class="d-t" x="306" y="112" text-anchor="middle">Scrub</text>
-          <text class="d-s" x="306" y="134" text-anchor="middle">in memory, first</text>
-          <path class="d-line" d="M376 120H410" marker-end="url(#aw)"/>
-          <rect class="d-box" x="416" y="70" width="140" height="100" rx="12"/>
-          <text class="d-t" x="486" y="112" text-anchor="middle">Local copy</text>
-          <text class="d-s" x="486" y="134" text-anchor="middle">scrubbed only</text>
+          <rect class="d-box" x="268" y="62" width="256" height="86" rx="12"/>
+          <text class="d-t" x="396" y="96" text-anchor="middle">SafeContext</text>
+          <text class="d-s" x="396" y="118" text-anchor="middle">on your Mac</text>
+          <text class="d-s" x="396" y="172" text-anchor="middle">TOTP, passwords, and similar secrets</text>
+          <text class="d-s" x="396" y="192" text-anchor="middle">are not passed through</text>
 
           <path class="d-line" d="M582 108H622" marker-start="url(#aw)"/>
           <path class="d-line" d="M582 132H622" marker-end="url(#aw)"/>
@@ -91,46 +90,49 @@
           <path class="d-line" d="M778 132H814" marker-end="url(#aw)"/>
 
           <rect class="d-box" x="820" y="70" width="139" height="100" rx="12"/>
-          <text class="d-t" x="889" y="112" text-anchor="middle">Grok · Claude</text>
-          <text class="d-s" x="889" y="134" text-anchor="middle">read-only search</text>
+          <text class="d-t" x="889" y="100" text-anchor="middle">Grok</text>
+          <text class="d-t" x="889" y="122" text-anchor="middle">Muse</text>
+          <text class="d-t" x="889" y="144" text-anchor="middle">Claude</text>
         </svg>
 
-        <svg class="tall" viewBox="0 0 340 640" role="img" aria-labelledby="dt-t">
-          <title id="dt-t">Gmail and Google Calendar flow into your Mac, where they are scrubbed and stored. Searches from Grok or Claude reach your Mac through a relay that stores nothing, and scrubbed results go back the same way.</title>
+        <svg class="tall" viewBox="0 0 340 660" role="img" aria-labelledby="dt-t">
+          <title id="dt-t">Google, iMessage, Signal, and Dropbox go into SafeContext on your Mac. TOTP, passwords, and similar secrets are not passed through. Grok, Muse, and Claude reach it through a relay that stores nothing.</title>
           <defs>
             <marker id="at" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-head" d="M0 0L10 5 0 10z"/></marker>
           </defs>
-          <rect class="d-box" x="70" y="1" width="200" height="84" rx="12"/>
-          <text class="d-t" x="170" y="36" text-anchor="middle">Google</text>
-          <text class="d-s" x="170" y="60" text-anchor="middle">Gmail · Calendar · read-only</text>
+          <rect class="d-box" x="50" y="4" width="240" height="116" rx="12"/>
+          <text class="d-t" x="170" y="32" text-anchor="middle">Google</text>
+          <text class="d-t" x="170" y="54" text-anchor="middle">iMessage</text>
+          <text class="d-t" x="170" y="76" text-anchor="middle">Signal</text>
+          <text class="d-t" x="170" y="98" text-anchor="middle">Dropbox</text>
 
-          <path class="d-line" d="M170 86V120" marker-end="url(#at)"/>
+          <path class="d-line" d="M170 120V156" marker-end="url(#at)"/>
 
-          <rect class="d-mac" x="40" y="126" width="260" height="250" rx="16"/>
-          <text class="d-a" x="60" y="152">YOUR MAC</text>
-          <rect class="d-box" x="70" y="166" width="200" height="72" rx="12"/>
-          <text class="d-t" x="170" y="198" text-anchor="middle">Scrub</text>
-          <text class="d-s" x="170" y="220" text-anchor="middle">in memory, first</text>
-          <path class="d-line" d="M170 238V266" marker-end="url(#at)"/>
-          <rect class="d-box" x="70" y="272" width="200" height="72" rx="12"/>
-          <text class="d-t" x="170" y="304" text-anchor="middle">Local copy</text>
-          <text class="d-s" x="170" y="326" text-anchor="middle">scrubbed only</text>
+          <rect class="d-mac" x="20" y="162" width="300" height="190" rx="16"/>
+          <text class="d-a" x="40" y="186">YOUR MAC</text>
+          <rect class="d-box" x="60" y="200" width="220" height="74" rx="12"/>
+          <text class="d-t" x="170" y="230" text-anchor="middle">SafeContext</text>
+          <text class="d-s" x="170" y="252" text-anchor="middle">on your Mac</text>
+          <text class="d-s" x="170" y="298" text-anchor="middle">TOTP, passwords, and similar secrets</text>
+          <text class="d-s" x="170" y="318" text-anchor="middle">are not passed through</text>
 
-          <path class="d-line" d="M155 382V418" marker-start="url(#at)"/>
-          <path class="d-line" d="M185 382V418" marker-end="url(#at)"/>
+          <path class="d-line" d="M155 352V392" marker-start="url(#at)"/>
+          <path class="d-line" d="M185 352V392" marker-end="url(#at)"/>
 
-          <rect class="d-relay" x="70" y="424" width="200" height="84" rx="12"/>
-          <text class="d-t" x="170" y="460" text-anchor="middle">Relay</text>
-          <text class="d-s" x="170" y="484" text-anchor="middle">passes through, stores nothing</text>
+          <rect class="d-relay" x="70" y="398" width="200" height="90" rx="12"/>
+          <text class="d-t" x="170" y="432" text-anchor="middle">Relay</text>
+          <text class="d-s" x="170" y="454" text-anchor="middle">passes through,</text>
+          <text class="d-s" x="170" y="474" text-anchor="middle">stores nothing</text>
 
-          <path class="d-line" d="M155 510V548" marker-start="url(#at)"/>
-          <path class="d-line" d="M185 510V548" marker-end="url(#at)"/>
+          <path class="d-line" d="M155 488V526" marker-start="url(#at)"/>
+          <path class="d-line" d="M185 488V526" marker-end="url(#at)"/>
 
-          <rect class="d-box" x="70" y="554" width="200" height="84" rx="12"/>
-          <text class="d-t" x="170" y="590" text-anchor="middle">Grok · Claude</text>
-          <text class="d-s" x="170" y="614" text-anchor="middle">read-only search</text>
+          <rect class="d-box" x="70" y="532" width="200" height="108" rx="12"/>
+          <text class="d-t" x="170" y="564" text-anchor="middle">Grok</text>
+          <text class="d-t" x="170" y="586" text-anchor="middle">Muse</text>
+          <text class="d-t" x="170" y="608" text-anchor="middle">Claude</text>
         </svg>
-        <figcaption>A search from Grok or Claude goes to the relay, the relay hands it to SafeContext on your Mac, and the scrubbed results travel back the same way. The relay only works while your Mac is awake, SafeContext is open and MCP is on. AI apps on your Mac, like Claude Desktop, search the local copy directly, with no relay.</figcaption>
+        <figcaption>Google, iMessage, Signal, and Dropbox go into SafeContext on your Mac. TOTP, passwords, and similar secrets are not passed through. Grok, Muse, and Claude reach it through the relay, which passes searches through and stores nothing.</figcaption>
       </figure>
     </div>
   </section>
