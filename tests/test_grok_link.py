@@ -1,4 +1,4 @@
-"""Use in Grok: the Mac side of the relay (MCP over HTTP, the socket, activity, settings).
+"""The MCP link (once "Use in Grok"): the Mac side of the relay (MCP over HTTP, the socket, activity, settings).
 
 The relay is played by a local websockets server on 127.0.0.1; nothing here
 touches the network, the real Keychain or the real data folder."""
@@ -236,6 +236,7 @@ def test_approval_can_be_cancelled_by_relay(link, relay):
     wait(lambda: link.status()["state"] == "waiting")
     relay.send({"t": "approve", "id": "a2", "code": "1"})
     wait(lambda: link.status()["approval"] is not None)
+    assert link.status()["approval"]["client"] == "An AI app"  # no name given: don't assume Grok
     relay.send({"t": "approve_cancel", "id": "a2"})
     wait(lambda: link.status()["approval"] is None)
 
@@ -386,7 +387,10 @@ def test_demo_link_walks_through_approval(tmp_path):
     from safecontext.app.demo import demo_backend_kwargs
     b = Backend(**demo_backend_kwargs(tmp_path / "demo"), auto_sync=False)
     try:
-        assert b.open_grok_connectors() == {"ok": True, "opened": False}  # no browser in demo mode
+        assert b.open_connectors("grok") == {"ok": True, "opened": False}  # no browser in demo mode
+        assert b.open_connectors("claude") == {"ok": True, "opened": False}
+        assert b.open_connectors("muse")["ok"] is False  # Muse is set up in chat; no page
+        assert b.open_connectors("https://evil.example")["ok"] is False
         r = b.grok_enable()
         assert r["ok"] and r["copied"] is False  # demo leaves the clipboard to the window
         wait(lambda: (b.grok_status().get("approval") or {}).get("code") == "4821", timeout=8)
@@ -404,3 +408,25 @@ def test_stale_approval_disappears(link, relay, monkeypatch):
     later = grok_link._now_ms() + grok_link.APPROVAL_TTL_MS + 1000
     monkeypatch.setattr(grok_link, "_now_ms", lambda: later)
     assert link.status()["approval"] is None
+
+
+def test_status_lists_connector_pages(link):
+    assert link.status()["connectors"] == {"grok": "https://grok.com/connectors",
+                                           "claude": "https://claude.ai/customize/connectors"}
+
+
+def test_approval_shows_the_name_the_app_registered(link, relay):
+    link.enable()
+    wait(lambda: link.status()["state"] == "waiting")
+    relay.send({"t": "approve", "id": "c1", "client": "Claude", "code": "1234"})
+    wait(lambda: link.status()["approval"] is not None)
+    assert link.status()["approval"]["client"] == "Claude"
+    relay.send({"t": "approve_cancel", "id": "c1"})
+    relay.send({"t": "approve", "id": "c2", "client": "x" * 200, "code": "5678"})
+    wait(lambda: (link.status()["approval"] or {}).get("id") == "c2")
+    assert len(link.status()["approval"]["client"]) == 60
+
+
+def test_oauth_help_uses_the_neutral_client_id(link):
+    link.enable()
+    assert link.status()["oauth"]["client_id"] == "safecontext"

@@ -19,11 +19,11 @@
 <section id="onboarding" class="onboarding" hidden>
   <div class="card onboard-card">
     <div class="brand-lg"><span class="logo" aria-hidden="true"></span> SafeContext <span class="muted brand-sub">· your private context layer</span></div>
-    <h1>Use your email and calendar in Grok, with the sensitive parts removed first.</h1>
+    <h1>Use your email and calendar in AI apps like Grok and Claude, with the sensitive parts removed first.</h1>
     <ul class="points">
       <li><b>Stays on this Mac.</b> Your mail is downloaded and stored here, never uploaded to SafeContext.</li>
       <li><b>Scrubbed before it's saved.</b> 2FA codes, passwords, card and account numbers, API keys, addresses and more are removed. Security, banking, tax and health email is skipped entirely.</li>
-      <li><b>You decide what Grok sees.</b> Turn on <b>Use in Grok</b> and Grok can search your scrubbed data, only while SafeContext is open. Nothing is sent until you do.</li>
+      <li><b>You decide what AI sees.</b> Turn on <b>MCP</b> and the AI apps you connect can search your scrubbed data, only while SafeContext is open. Nothing is sent until you do.</li>
     </ul>
     <fieldset class="modes">
       <legend>What to download</legend>
@@ -61,10 +61,10 @@
       <button class="btn small" id="sync-now">Sync now</button>
     </div>
     <nav class="nav">
-      <button data-view="search" class="active">Search</button>
-      <button data-view="mail">Mail</button>
       <button data-view="sources">Sources</button>
-      <button data-view="removed">What was removed</button>
+      <div class="nav-children" id="nav-sources" role="group" aria-label="Your sources"></div>
+      <button data-view="mcp">MCP</button>
+      <button data-view="removed">Security Dashboard</button>
       <button data-view="settings">Settings</button>
     </nav>
   </aside>
@@ -75,95 +75,109 @@
       <button class="btn small primary" id="reconnect">Reconnect Gmail</button>
     </div>
 
-    <!-- Search (home) -->
-    <section id="view-search" class="view">
-      <!-- Use in Grok -->
-      <div class="card grok-card" id="grok-card">
-        <div class="grok-row">
-          <div class="grok-logo" aria-hidden="true">
+    <!-- Sources -->
+    <section id="view-sources" class="view" hidden>
+      <h2>Sources</h2>
+      <p class="muted">Each source is copied to this Mac and scrubbed before it's saved. Nothing leaves your Mac unless you turn on MCP or connect an AI app on this Mac.</p>
+      <div class="source-grid" id="source-grid"></div>
+    </section>
+
+    <!-- MCP: the relay link for cloud AI apps, and the local config for apps on this Mac -->
+    <section id="view-mcp" class="view" hidden>
+      <h2>MCP</h2>
+      <p class="muted">Let AI apps search your scrubbed mail and calendar, read-only.</p>
+      <!-- MCP: a link AI apps (Grok, Claude, Muse) connect to through the relay -->
+      <div class="card mcp-card" id="mcp-card">
+        <div class="mcp-row">
+          <div class="mcp-logo" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 18 18 4M9 4h9v9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
-          <div class="grok-main">
-            <div class="grok-title">Use in Grok</div>
-            <div class="grok-status"><span class="dot" id="grok-dot"></span><span id="grok-status-text">Off</span></div>
+          <div class="mcp-main">
+            <div class="mcp-title">MCP link</div>
+            <div class="mcp-status"><span class="dot" id="mcp-dot"></span><span id="mcp-status-text">Off</span></div>
           </div>
-          <div class="grok-actions" id="grok-actions" hidden>
-            <button class="btn small" id="grok-copy">Copy link</button>
-            <button class="btn small" id="grok-open">Open Grok connectors</button>
-          </div>
-          <label class="switch" title="Use in Grok">
-            <input type="checkbox" id="grok-toggle" role="switch" aria-label="Use in Grok">
+          <label class="switch" title="Turn the MCP link on or off">
+            <input type="checkbox" id="mcp-toggle" role="switch" aria-label="MCP link for AI apps">
             <span class="slider" aria-hidden="true"></span>
           </label>
         </div>
 
-        <p class="grok-pitch" id="grok-pitch">Ask Grok about your mail and calendar. Grok searches your scrubbed copy on this Mac, read-only.</p>
+        <p class="mcp-pitch" id="mcp-pitch">Let AI apps like Grok, Claude and Muse search your scrubbed mail and calendar on this Mac, read-only. Turn this on to get your link.</p>
 
-        <ol class="steps" id="grok-steps" hidden>
-          <li>
-            <svg viewBox="0 0 120 72" aria-hidden="true"><rect x="2" y="2" width="116" height="68" rx="8" class="ill-frame"/><rect x="12" y="14" width="44" height="6" rx="3" class="ill-line"/><rect x="12" y="28" width="96" height="10" rx="5" class="ill-soft"/><rect x="62" y="48" width="46" height="14" rx="7" class="ill-accent"/><text x="85" y="58.5" text-anchor="middle" class="ill-btn-text">+ Custom</text></svg>
-            <b>1. Add custom connector</b>
-            <span>On grok.com/connectors, click <b>New connector</b>, then <b>Custom</b>.</span>
-          </li>
-          <li>
-            <svg viewBox="0 0 120 72" aria-hidden="true"><rect x="2" y="2" width="116" height="68" rx="8" class="ill-frame"/><rect x="12" y="24" width="96" height="16" rx="5" class="ill-field"/><rect x="18" y="30" width="58" height="4" rx="2" class="ill-accent"/><rect x="40" y="50" width="40" height="12" rx="6" class="ill-soft"/><text x="60" y="58.5" text-anchor="middle" class="ill-key">⌘V</text></svg>
-            <b>2. Paste</b>
-            <span>Your link is already copied. Paste it as the server URL and add it.</span>
-          </li>
-          <li>
-            <svg viewBox="0 0 120 72" aria-hidden="true"><rect x="2" y="2" width="116" height="68" rx="8" class="ill-frame"/><circle cx="60" cy="32" r="14" class="ill-ok"/><path d="m53 32 5 5 9-10" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><rect x="38" y="52" width="44" height="10" rx="5" class="ill-soft"/></svg>
-            <b>3. Done</b>
-            <span>Click <b>Approve</b> here when SafeContext asks. Then just ask Grok.</span>
-          </li>
-        </ol>
-
-        <div class="grok-on" id="grok-on" hidden>
-          <div class="grok-link-row">
-            <code id="grok-url" class="grok-url"></code>
+        <div class="mcp-on" id="mcp-on" hidden>
+          <div class="mcp-link-label">Your MCP link</div>
+          <div class="mcp-link-row">
+            <code id="mcp-url" class="mcp-url"></code>
+            <button class="btn small primary" id="mcp-link-copy">Copy link</button>
           </div>
-          <div class="grok-opts">
-            <label class="check"><input type="checkbox" id="grok-awake"> Keep Mac awake while plugged in</label>
-            <button class="linkish" id="grok-regen">Regenerate link</button>
-            <button class="linkish" id="grok-activity-btn">Activity</button>
-            <button class="linkish" id="grok-help-btn">Trouble connecting?</button>
+          <div class="mcp-opts">
+            <label class="check"><input type="checkbox" id="mcp-awake"> Keep Mac awake while plugged in</label>
+            <button class="linkish" id="mcp-regen">Regenerate link</button>
+            <button class="linkish" id="mcp-activity-btn">Activity</button>
+            <button class="linkish" id="mcp-help-btn">Trouble connecting?</button>
           </div>
-          <div class="grok-activity" id="grok-activity" hidden>
-            <div class="grok-sub-head"><span>What Grok asked for</span><button class="linkish" id="grok-clear">Clear</button></div>
-            <ul id="grok-activity-list"></ul>
+          <div class="mcp-activity" id="mcp-activity" hidden>
+            <div class="mcp-sub-head"><span>What AI apps asked for</span><button class="linkish" id="mcp-clear">Clear</button></div>
+            <ul id="mcp-activity-list"></ul>
             <p class="hint">Only the time, the request and how many results are kept here. The results themselves aren't saved.</p>
           </div>
-          <div class="grok-help" id="grok-help" hidden>
-            <p>If Grok asks for OAuth details, use Client ID <code>grok</code>, leave the secret blank, and these endpoints:</p>
-            <dl class="kv"><dt>Authorization</dt><dd><code id="grok-auth-url"></code></dd><dt>Token</dt><dd><code id="grok-token-url"></code></dd></dl>
-            <label class="check"><input type="checkbox" id="grok-link-only"> Let Grok connect with just the link (no Approve step). Anyone with the link can then search your scrubbed data, so keep it private.</label>
+          <div class="mcp-help" id="mcp-help" hidden>
+            <p>If an app asks for OAuth details, use Client ID <code>safecontext</code>, leave the secret blank, and these endpoints:</p>
+            <dl class="kv"><dt>Authorization</dt><dd><code id="mcp-auth-url"></code></dd><dt>Token</dt><dd><code id="mcp-token-url"></code></dd></dl>
+            <label class="check"><input type="checkbox" class="link-only-box"> Let apps connect with just the link (no Approve step). Anyone with the link can then search your scrubbed data, so keep it private.</label>
+          </div>
+
+          <div class="mcp-howto">
+            <div class="mcp-tabs" role="tablist" aria-label="Set up an AI app">
+              <button role="tab" id="tab-grok" data-app="grok" aria-controls="panel-grok">Grok</button>
+              <button role="tab" id="tab-claude" data-app="claude" aria-controls="panel-claude">Claude</button>
+              <button role="tab" id="tab-muse" data-app="muse" aria-controls="panel-muse">Muse</button>
+            </div>
+
+            <div class="mcp-panel" id="panel-grok" role="tabpanel" aria-labelledby="tab-grok" data-app="grok">
+              <ol>
+                <li>On grok.com/connectors, click <b>New connector</b>, then <b>Custom</b>.</li>
+                <li>Paste your link as the server URL and add it.</li>
+                <li>Click <b>Approve</b> here when SafeContext asks. Then ask Grok about your mail or calendar.</li>
+              </ol>
+              <button class="btn small" data-open-app="grok">Open Grok connectors</button>
+            </div>
+
+            <div class="mcp-panel" id="panel-claude" role="tabpanel" aria-labelledby="tab-claude" data-app="claude" hidden>
+              <ol>
+                <li>On claude.ai/customize/connectors, click <b>Add</b>, then <b>Add custom connector</b>.</li>
+                <li>Name it SafeContext, paste your link as the server URL, and click <b>Continue</b>.</li>
+                <li>Keep the sign-in settings Claude marks <b>Detected</b> and click <b>Add</b>. If it asks for a Client ID, use <code>safecontext</code>.</li>
+                <li>Click <b>Connect</b>. When Claude's sign-in page shows a 4-digit code, click <b>Approve</b> here if SafeContext shows the same code.</li>
+              </ol>
+              <p class="mcp-soon">Leave <b>Connect with just the link</b> (under Trouble connecting?) off, or Claude skips signing in. Connectors you add on claude.ai also work in the Claude desktop app. Claude Desktop can also use SafeContext on this Mac with no link at all: see <b>Apps on this Mac</b> below.</p>
+              <button class="btn small" data-open-app="claude">Open Claude connectors</button>
+            </div>
+
+            <div class="mcp-panel" id="panel-muse" role="tabpanel" aria-labelledby="tab-muse" data-app="muse" hidden>
+              <ol>
+                <li>Turn on <b>Connect with just the link</b> below.</li>
+                <li>In Muse, ask it to set up a custom connector for this MCP server, and paste your link.</li>
+                <li>Follow Muse's steps to finish. Then ask Muse about your mail or calendar.</li>
+              </ol>
+              <label class="check"><input type="checkbox" class="link-only-box"> Connect with just the link. Anyone with the link can search your scrubbed data, so keep it private.</label>
+              <p class="mcp-soon">Signing in with Approve is coming for Muse.</p>
+            </div>
           </div>
         </div>
-        <p class="grok-note">Works while your Mac is awake and SafeContext is open.</p>
+        <p class="mcp-note">Works while your Mac is awake and SafeContext is open.</p>
       </div>
-      <form class="toolbar" id="search-form" autocomplete="off">
-        <input id="q" type="search" placeholder="Search your scrubbed mail and calendar" aria-label="Search">
-        <select id="f-source" aria-label="Source"><option value="">All sources</option></select>
-        <input id="f-from" placeholder="From (name, address or @domain)" aria-label="From">
-        <label class="date">After <input id="f-after" type="date"></label>
-        <label class="date">Before <input id="f-before" type="date"></label>
-        <button class="btn primary" type="submit">Search</button>
-      </form>
-      <div class="panes">
-        <div class="list" id="results" role="list"></div>
-        <div class="reader" id="reader"><div class="empty">Select an item to read it.</div></div>
+      <div class="card setting">
+        <h3>Apps on this Mac (local MCP)</h3>
+        <p class="muted">Add this to a local MCP client's config (Claude Desktop, for example) to give it the same read-only, scrubbed search tools, with no link and nothing leaving this Mac.</p>
+        <pre id="mcp-json" class="code"></pre>
+        <button class="btn small" id="mcp-copy">Copy</button>
       </div>
     </section>
 
-    <!-- Sources -->
-    <section id="view-sources" class="view" hidden>
-      <h2>Sources</h2>
-      <p class="muted">Each source is copied to this Mac and scrubbed before it's saved. Nothing leaves your Mac unless you turn on Use in Grok or connect another AI app.</p>
-      <div class="source-grid" id="source-grid"></div>
-    </section>
-
-    <!-- What was removed -->
+    <!-- Security Dashboard: what the scrubber removed -->
     <section id="view-removed" class="view" hidden>
-      <h2>What was removed</h2>
+      <h2>Security Dashboard</h2>
       <p class="muted">Everything below was removed on this Mac before anything was saved.</p>
       <div class="tiles">
         <div class="tile"><div class="num" id="t-kept">0</div><div class="lbl">items kept (scrubbed)</div></div>
@@ -191,15 +205,9 @@
         </div>
         <p class="hint">Google Calendar and other sources are on the <a href="#" data-goto="sources">Sources</a> screen.</p>
       </div>
-      <div class="card setting">
-        <h3>Use from AI apps on this Mac (MCP)</h3>
-        <p class="muted">Add this to a local MCP client's config (Claude Desktop, for example) to give it the same read-only, scrubbed search tools. For Grok, use the Use in Grok card on the Search screen.</p>
-        <pre id="mcp-json" class="code"></pre>
-        <button class="btn small" id="mcp-copy">Copy</button>
-      </div>
     </section>
-    <!-- Mail: browse what's synced, see what isn't (mail.js) -->
-    <section id="view-mail" class="view" hidden>
+    <!-- One source (picked under Sources in the sidebar): browse what's synced, see what isn't (mail.js) -->
+    <section id="view-mail" class="view">
       <div class="mail-shell">
         <nav class="mail-folders" id="mail-folders" aria-label="Mailboxes"></nav>
         <div class="mail-main">
@@ -235,10 +243,10 @@
   </form>
 </dialog>
 
-<dialog id="grok-approve" class="approve">
+<dialog id="mcp-approve" class="approve">
   <div class="approve-body">
-    <h2>Grok wants to connect</h2>
-    <p class="muted"><span id="ga-client">Grok</span> is asking for read-only access to your scrubbed mail and calendar.</p>
+    <h2><span id="ga-title">An AI app</span> wants to connect</h2>
+    <p class="muted"><span id="ga-client">It</span> is asking for read-only access to your scrubbed mail and calendar.</p>
     <p class="approve-code" id="ga-code"></p>
     <p class="hint">Check that the page in your browser shows the same number.</p>
     <div class="actions">

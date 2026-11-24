@@ -1,29 +1,32 @@
-"""Use SafeContext inside Grok (grok.com and the Grok apps) through a live relay.
+"""The MCP link: use SafeContext from cloud AI apps (Grok, Claude, Muse) through a live relay.
 
-Grok's custom connectors call a remote MCP server from xAI's cloud, so they
-can't reach this Mac directly. Instead the app keeps one outbound WebSocket
+The app shows this as "MCP". (The module keeps its old name, and its Keychain
+entry and settings keep theirs, so existing links keep working.)
+
+Custom connectors in these apps call a remote MCP server from the vendor's cloud,
+so they can't reach this Mac directly. Instead the app keeps one outbound WebSocket
 open to SafeContext's relay (relay/ in this repo, a Cloudflare Worker). The
-relay checks Grok's sign-in, then forwards each MCP request down the socket.
+relay checks the app's sign-in, then forwards each MCP request down the socket.
 This module answers it here, from the scrubbed store, and sends the answer
 back. Nothing is copied to the relay: it stores no request or response bodies
 and only works while the Mac is awake and the app is open.
 
-    Grok cloud --HTTPS (MCP Streamable HTTP)--> relay --WebSocket--> this Mac
+    AI app cloud --HTTPS (MCP Streamable HTTP)--> relay --WebSocket--> this Mac
 
 Pieces:
   * MCPHttpHandler: the MCP Streamable HTTP endpoint, reusing mcp_server/tools.
     Only the read-only primary tools are served (no aliases, nothing else).
-  * ActivityLog: what Grok asked for (time, tool, query, number of results),
+  * ActivityLog: what AI apps asked for (time, tool, query, number of results),
     shown in the app. Results themselves are never kept.
   * RelayClient: the outbound socket, with reconnect and backoff.
   * KeepAwake: optional `caffeinate -s` (stop idle sleep while on power).
   * GrokLink: ties them together for the app window.
 
 Relay protocol (JSON text frames):
-  relay -> Mac  {"t":"hello","grants":n}           connected; n = sign-ins Grok holds
+  relay -> Mac  {"t":"hello","grants":n}           connected; n = sign-ins apps hold
                 {"t":"grants","n":n}               that number changed
                 {"t":"http","id":..,"method":..,"headers":{..},"body":".."}
-                {"t":"approve","id":..,"client":..,"code":"1234"}   Grok wants to connect
+                {"t":"approve","id":..,"client":..,"code":"1234"}   an app wants to connect
                 {"t":"approve_cancel","id":..}
   Mac -> relay  {"t":"http_result","id":..,"status":200,"headers":{..},"body":".."}
                 {"t":"approve_result","id":..,"ok":true}
@@ -55,6 +58,12 @@ log = logging.getLogger("safecontext.grok")
 
 DEFAULT_RELAY_URL = "https://relay.safecontext.me"
 GROK_CONNECTORS_URL = "https://grok.com/connectors"
+# Where each app the MCP card has setup steps for adds a custom connector. Muse has no
+# such page: you ask Muse in chat to set one up.
+CONNECTOR_PAGES = {
+    "grok": GROK_CONNECTORS_URL,
+    "claude": "https://claude.ai/customize/connectors",
+}
 KEYRING_SERVICE = keychain_service("SafeContext Grok")  # "SafeContext Grok (Dev)" in a checkout
 KEYRING_USER = "relay-link"
 
@@ -483,7 +492,7 @@ class GrokLink:
         if not ids:
             return {}
         root = f"{self.base_url}/g/{ids['link_id']}"
-        return {"client_id": "grok", "authorize": f"{root}/authorize", "token": f"{root}/token"}
+        return {"client_id": "safecontext", "authorize": f"{root}/authorize", "token": f"{root}/token"}
 
     # lifecycle
     def start(self) -> None:
@@ -582,7 +591,7 @@ class GrokLink:
         elif t == "approve" and isinstance(msg.get("id"), str):
             with self._lock:
                 self._approvals = {msg["id"]: {"id": msg["id"], "code": str(msg.get("code", ""))[:12],
-                                               "client": str(msg.get("client") or "Grok")[:60],
+                                               "client": str(msg.get("client") or "An AI app")[:60],
                                                "ts_ms": _now_ms()}}
         elif t == "approve_cancel":
             with self._lock:
@@ -618,7 +627,7 @@ class GrokLink:
                 "url": self.connector_url() if self.enabled else None, "last_used_ms": last_used,
                 "grants": self._grants, "keep_awake": self.keep_awake, "keeping_awake": self._keep_awake.active,
                 "link_only": self.link_only, "approval": pending, "oauth": self.oauth_urls() if self.enabled else {},
-                "activity": self.activity.entries(30), "connectors_url": GROK_CONNECTORS_URL}
+                "activity": self.activity.entries(30), "connectors": dict(CONNECTOR_PAGES)}
 
 
 # --- demo ---------------------------------------------------------------------------------------

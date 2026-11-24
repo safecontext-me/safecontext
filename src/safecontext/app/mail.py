@@ -15,7 +15,7 @@ from ..sync import read_heartbeat
 ERROR_GROUP = "Couldn't be processed"
 
 # Reason code -> (short label for a row, one sentence on why). Groups for the
-# filter chips are backend.REASON_LABELS, the same names "What was removed" uses.
+# filter chips are backend.REASON_LABELS, the same names the Security Dashboard uses.
 REASON_SHORT: Dict[str, tuple] = {
     "spam_trash": ("Spam or Trash", "It was in Spam or Trash."),
     "draft": ("Draft", "Drafts aren't synced."),
