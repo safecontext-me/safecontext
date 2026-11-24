@@ -2,6 +2,7 @@
 
     python -m safecontext connect [--headers-only] [--email you@gmail.com]   # Gmail
     python -m safecontext connect --source gcal [--email you@gmail.com]      # Google Calendar
+    python -m safecontext connect --source imessage   # Messages on this Mac (needs Full Disk Access)
     python -m safecontext sync [--source gcal]       # every connected source, or one
     python -m safecontext status
     python -m safecontext sources
@@ -35,6 +36,7 @@ def _sources(store):
 
 def cmd_connect(args) -> int:
     from . import auth
+    from .errors import NeedsPermission
     store = _store(args)
     src = _sources(store).get(args.source)
     opts = {"email": args.email}
@@ -47,6 +49,12 @@ def cmd_connect(args) -> int:
         return 2 if "already holds" not in str(e) else 1
     except auth.NeedsReconnect as e:
         print(e.message)
+        return 1
+    except NeedsPermission as e:
+        help_ = src.missing_permission()
+        print(e.message)
+        for i, step in enumerate(help_.steps if help_ else (), start=1):
+            print(f"  {i}. {step}")
         return 1
     what = ""
     if args.source == "gmail":
@@ -146,7 +154,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="safecontext")
     p.add_argument("--data-dir", help=f"defaults to {DEFAULT_DATA_DIR}")
     sub = p.add_subparsers(dest="cmd")
-    source_ids = ["gmail", "gcal"]
+    source_ids = ["gmail", "gcal", "imessage"]
     c = sub.add_parser("connect")
     c.add_argument("--source", choices=source_ids, default="gmail")
     c.add_argument("--headers-only", action="store_true", help="Gmail: use gmail.metadata, no message bodies")

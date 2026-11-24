@@ -157,8 +157,9 @@ def test_tools_reach_reader_sources(store):
 def test_statuses_include_coming_soon_cards(store):
     st = default_sources(store).statuses()
     by = {s["id"]: s for s in st}
-    assert list(by)[:2] == ["gmail", "gcal"]
-    for cid in ("imessage", "whatsapp", "recordings"):
+    assert list(by)[:3] == ["gmail", "gcal", "imessage"]
+    assert by["imessage"]["available"] and by["imessage"]["state"] == "not_connected"
+    for cid in ("whatsapp", "recordings"):
         assert by[cid]["state"] == "coming_soon" and not by[cid]["available"] and by[cid]["requirements"]
     assert any(r["kind"] == FOLDER for r in by["recordings"]["requirements"])
     gcal_req = by["gcal"]["requirements"][0]

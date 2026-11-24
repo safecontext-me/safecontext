@@ -1,5 +1,5 @@
-"""Demo wiring: a fake Gmail, a fake Google Calendar and a stand-in for the Grok relay, so the app
-can be tried without a Google client or a Gmail account.
+"""Demo wiring: a fake Gmail, a fake Google Calendar, a synthetic Messages database and a stand-in
+for the Grok relay, so the app can be tried without a Google client, a Gmail account or Full Disk Access.
 Nothing in demo mode touches the network."""
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 
 from ..demo.fake_calendar import make_fake_calendar
 from ..demo.fake_gmail import FakeGmail
+from ..demo.fake_messages import demo_imessage_options
 from ..demo.synthetic import demo_mailbox, mailbox, msg
 from ..grok_link import demo_link
 
@@ -47,12 +48,16 @@ def make_fake_gmail() -> FakeGmail:
 def demo_backend_kwargs(data_dir: Optional[Path] = None) -> Dict[str, Any]:
     gmail = make_fake_gmail()
     calendar = make_fake_calendar(DEMO_ACCOUNT)
+    data_dir = data_dir or Path(tempfile.mkdtemp(prefix="safecontext-demo-"))
     return dict(
-        data_dir=data_dir or Path(tempfile.mkdtemp(prefix="safecontext-demo-")),
+        data_dir=data_dir,
         demo=True,
         gmail_factory=lambda account, mode: gmail,
         connect_fn=lambda mode, email: (time.sleep(0.8), DEMO_ACCOUNT)[1],
         calendar_factory=lambda account: calendar,
         calendar_connect_fn=lambda email: (time.sleep(0.8), DEMO_ACCOUNT)[1],
         grok_link=demo_link,
+        # A synthetic chat.db beside the demo data; Full Disk Access starts "off" and the
+        # Open System Settings button turns it on. Never the real ~/Library/Messages.
+        imessage_options=demo_imessage_options(Path(data_dir) / "demo-messages"),
     )

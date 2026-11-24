@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .. import auth, env, migrate
+from ..errors import NeedsPermission
 from ..grok_link import GROK_CONNECTORS_URL, GrokLink
 from ..sources import Sources, default_sources
 from ..store import DEFAULT_DATA_DIR, GMAIL, Store
@@ -63,6 +64,8 @@ def _safe(fn: Callable) -> Callable:
             return {"ok": True, **(out or {})}
         except auth.NeedsReconnect as e:
             return {"ok": False, "error": e.message, "needs_reconnect": True}
+        except NeedsPermission as e:  # a macOS permission is missing; the Sources card explains it
+            return {"ok": False, "error": e.message, "needs_permission": True, "requirement": e.requirement}
         except auth.NotConfigured as e:
             return {"ok": False, "error": str(e)}
         except Exception as e:  # never leak a traceback (or mail content) into the UI
@@ -84,6 +87,7 @@ class Backend:
                  calendar_factory: Optional[Callable[[str], Any]] = None,
                  calendar_connect_fn: Optional[Callable[[Optional[str]], str]] = None,
                  grok_link: Optional[Callable[[Store, Path], GrokLink]] = None,
+                 imessage_options: Optional[Dict[str, Any]] = None,
                  auto_sync: bool = True) -> None:
         self._demo = demo
         self._data_dir = Path(data_dir or DEFAULT_DATA_DIR)
@@ -93,7 +97,7 @@ class Backend:
             self._store, gmail_factory=gmail_factory,
             gmail_connect=lambda mode, email: (self._connect_fn or _real_gmail_connect)(mode, email),
             calendar_factory=calendar_factory, calendar_connect=calendar_connect_fn,
-            revoke_fn=_NOOP_REVOKE if demo else None)
+            revoke_fn=_NOOP_REVOKE if demo else None, imessage_options=imessage_options)
         if not demo:
             migrate.remove_ask_leftovers(self._store)  # the old Ask feature's xAI key, once
         self._grok = (grok_link or GrokLink)(self._store, self._data_dir)
@@ -175,6 +179,19 @@ class Backend:
         account = src.connect(**opts)
         self._start_sync(source_id)
         return {"account": account}
+
+    @_safe
+    def open_source_settings(self, source_id: str) -> Dict[str, Any]:
+        """Open the System Settings pane for the permission this source is missing (Full Disk
+        Access for iMessage). Only ever on a click: the user turns the access on themselves."""
+        src = self._sources.get(source_id)
+        help_ = src.missing_permission() or next(iter(src.permission_help.values()), None)
+        if help_ is None:
+            return {"ok": False, "error": f"{src.name} doesn't need a Mac permission."}
+        if not src.open_settings(help_.requirement):
+            return {"ok": False, "error": "Couldn't open System Settings. Open it yourself and go to "
+                                          f"Privacy & Security → {help_.title}."}
+        return {"opened": True}
 
     @_safe
     def sync_source(self, source_id: str) -> Dict[str, Any]:
