@@ -16,7 +16,10 @@
 //   * No console logging at all (and Workers observability is off in wrangler.toml).
 //   * Read-only tools only, by allowlist; everything else is refused here and again on the Mac.
 //   * Per-link rate limits, size limits and timeouts.
+//   * Usage stats (stats.js) are anonymous counts from fixed lists, keyed by an HMAC of the link,
+//     and a silent no-op when the STATS binding or STATS_KEY secret is missing.
 import { DurableObject } from "cloudflare:workers";
+import { appOf, recordStat, toolOf } from "./stats.js";
 
 const LINK_RE = /^[A-Za-z0-9_-]{43}$/;          // 256 random bits, base64url
 const SECRET_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -82,6 +85,11 @@ export class LinkRelay extends DurableObject {
     this.env = env;
     this.pending = new Map();   // request id -> {resolve, timer}; in memory only, never stored
     this.buckets = new Map();
+    this.statsCache = {};
+  }
+
+  stat(link, fields) {
+    return recordStat(this.env, this.statsCache, link, fields);
   }
 
   async fetch(request) {
@@ -214,46 +222,74 @@ export class LinkRelay extends DurableObject {
 
   // --- MCP --------------------------------------------------------------------------------------
   async mcp(request, ctx) {
-    if (!(await this.authorized(request))) {
-      if (!this.take("denied")) return json({ error: "rate_limited" }, 429);
+    const who = await this.authorized(request);
+    const app = who ? who.app : "other";
+    let tool = "";
+    const stat = (event, outcome, extra = {}) => this.stat(ctx.link, { event, outcome, app, tool, ...extra });
+    if (!who) {
+      if (!this.take("denied")) {
+        await stat("rate_limited", "rate_limited");
+        return json({ error: "rate_limited" }, 429);
+      }
+      await stat("mcp_request", "unauthorized");
       const given = !!request.headers.get("Authorization");
       const challenge = `Bearer resource_metadata="${ctx.origin}/.well-known/oauth-protected-resource/g/${ctx.link}/mcp"` +
         (given ? ', error="invalid_token"' : "") + `, scope="${SCOPE}"`;
       return json({ error: "unauthorized" }, 401, { "WWW-Authenticate": challenge });
     }
     if (request.method !== "POST") {
+      await stat("mcp_request", "method_not_allowed");
       return json(rpcError(null, -32000, "Method not allowed: send JSON-RPC with POST."), 405, { Allow: "POST" });
     }
     if (!this.take("mcp")) {
+      await stat("rate_limited", "rate_limited");
       return json(rpcError(null, -32000, "Too many requests. Wait a minute and try again."), 429, { "Retry-After": "30" });
     }
     const len = Number(request.headers.get("content-length") || 0);
-    if (len > MAX_REQUEST_BYTES) return json(rpcError(null, -32600, "Request too large."), 413);
-    const body = await readCapped(request, MAX_REQUEST_BYTES);
-    if (body === null) return json(rpcError(null, -32600, "Request too large."), 413);
+    const body = len > MAX_REQUEST_BYTES ? null : await readCapped(request, MAX_REQUEST_BYTES);
+    if (body === null) {
+      await stat("mcp_request", "too_large");
+      return json(rpcError(null, -32600, "Request too large."), 413);
+    }
     let payload;
-    try { payload = JSON.parse(body); } catch { return json(rpcError(null, -32700, "Parse error"), 400); }
+    try { payload = JSON.parse(body); } catch {
+      await stat("mcp_request", "parse_error");
+      return json(rpcError(null, -32700, "Parse error"), 400);
+    }
     const msgs = Array.isArray(payload) ? payload : [payload];
-    if (!msgs.length) return json(rpcError(null, -32600, "Invalid Request"), 400);
+    if (!msgs.length) {
+      await stat("mcp_request", "invalid_request");
+      return json(rpcError(null, -32600, "Invalid Request"), 400);
+    }
+    tool = toolOf(msgs);
     const refused = checkAllowlist(msgs);
-    if (refused) return json(Array.isArray(payload) ? [refused] : refused, 200);
+    if (refused) {
+      await stat("mcp_request", refused.error.code === -32600 ? "invalid_request" : "refused");
+      return json(Array.isArray(payload) ? [refused] : refused, 200);
+    }
 
     const headers = {};
     for (const h of ["content-type", "accept", "mcp-protocol-version"]) {
       const v = request.headers.get(h);
       if (v) headers[h] = v.slice(0, 200);
     }
+    const started = Date.now();
     const answer = await this.askMac({ t: "http", method: "POST", headers, body });
+    const latencyMs = Date.now() - started;
     if (answer === null || answer === "timeout") {
+      await stat("mac_offline", answer === null ? "offline" : "timeout", { latencyMs });
       const text = answer === null ? OFFLINE_MESSAGE
         : "SafeContext on your Mac didn't answer in time. Check that your Mac is awake, then try again.";
       return offlineReply(msgs, Array.isArray(payload), text);
     }
     const out = typeof answer.body === "string" ? answer.body : "";
-    if (new TextEncoder().encode(out).length > MAX_RESPONSE_BYTES) {
+    const bytes = new TextEncoder().encode(out).length;
+    if (bytes > MAX_RESPONSE_BYTES) {
+      await stat("mcp_request", "result_too_large", { latencyMs, bytes });
       return json(rpcError(null, -32603, "The result was too large to send."), 200);
     }
     const status = Number.isInteger(answer.status) && answer.status >= 200 && answer.status < 600 ? answer.status : 502;
+    await stat("mcp_request", status < 400 ? "ok" : status < 500 ? "http_4xx" : "http_5xx", { latencyMs, bytes });
     const outHeaders = { "Cache-Control": "no-store" };
     const ct = answer.headers && answer.headers["content-type"];
     if (out) outHeaders["Content-Type"] = ct === "application/json" ? ct : "application/json";
@@ -261,14 +297,21 @@ export class LinkRelay extends DurableObject {
     return new Response([202, 204, 205, 304].includes(status) ? null : out, { status, headers: outHeaders });
   }
 
+  // null when the request may not use MCP; otherwise { app }, the app class for stats.
   async authorized(request) {
     const token = bearer(request);
     if (token) {
       const rec = await this.ctx.storage.get(`at:${await sha256(token)}`);
-      return !!rec && rec.exp > now();
+      if (!rec || rec.exp <= now()) return null;
+      return { app: rec.app || await this.appOfClient(rec.client_id) };
     }
     const settings = await this.ctx.storage.get("settings");
-    return !!(settings && settings.link_only);  // the user chose "connect with just the link"
+    return settings && settings.link_only ? { app: "other" } : null;  // the user chose "connect with just the link"
+  }
+
+  async appOfClient(clientId) {
+    const c = await this.client(clientId);
+    return appOf(c && c.redirect_uris ? c.redirect_uris[0] : null, c ? c.client_name : "");
   }
 
   // --- OAuth 2.1 (MCP authorization) ---------------------------------------------------------
@@ -451,7 +494,10 @@ export class LinkRelay extends DurableObject {
       if (!/^[A-Za-z0-9._~-]{43,128}$/.test(p.code_verifier) || !equal(await s256(p.code_verifier), rec.challenge)) {
         return tokenError("invalid_grant");
       }
-      return json(await this.issue(client.client_id), 200, { "Cache-Control": "no-store" });
+      const app = appOf(rec.redirect, client.client_name);
+      const issued = await this.issue(client.client_id, app);
+      await this.stat(ctx.link, { event: "oauth_connect", outcome: "ok", app });
+      return json(issued, 200, { "Cache-Control": "no-store" });
     }
     if (p.grant_type === "refresh_token") {
       if (typeof p.refresh_token !== "string") return tokenError("invalid_request");
@@ -459,18 +505,20 @@ export class LinkRelay extends DurableObject {
       const rec = await this.ctx.storage.get(key);
       if (!rec || rec.exp < now() || rec.client_id !== client.client_id) return tokenError("invalid_grant");
       await this.ctx.storage.delete([key, `at:${rec.at}`]);  // rotate
-      return json(await this.issue(client.client_id), 200, { "Cache-Control": "no-store" });
+      const app = rec.app || await this.appOfClient(client.client_id);
+      return json(await this.issue(client.client_id, app), 200, { "Cache-Control": "no-store" });
     }
     return tokenError("unsupported_grant_type");
   }
 
-  async issue(clientId) {
+  // `app` is "grok", "claude" or "other" (for stats), kept with the token hashes.
+  async issue(clientId, app) {
     await this.purgeExpired();
     const access = randomId(32), refresh = randomId(32);
     const atHash = await sha256(access);
     await this.ctx.storage.put({
-      [`at:${atHash}`]: { client_id: clientId, exp: now() + ACCESS_TTL_S },
-      [`rt:${await sha256(refresh)}`]: { client_id: clientId, at: atHash, exp: now() + REFRESH_TTL_S },
+      [`at:${atHash}`]: { client_id: clientId, app, exp: now() + ACCESS_TTL_S },
+      [`rt:${await sha256(refresh)}`]: { client_id: clientId, app, at: atHash, exp: now() + REFRESH_TTL_S },
     });
     const ws = this.mac();
     if (ws) { try { ws.send(JSON.stringify({ t: "grants", n: await this.grantCount() })); } catch {} }

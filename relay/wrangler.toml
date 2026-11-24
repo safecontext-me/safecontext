@@ -11,6 +11,7 @@ preview_urls = false
 routes = [{ pattern = "relay.safecontext.me", custom_domain = true }]
 
 # No logs of any kind: no Workers Logs, no Logpush. The code never calls console.* either.
+# (Anonymous counts go to Analytics Engine instead; see below.)
 # (logpush must stay above the first [table] so it is a top-level setting.)
 logpush = false
 
@@ -21,6 +22,13 @@ class_name = "LinkRelay"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["LinkRelay"]
+
+# Anonymous usage counts (see src/stats.js and "Usage stats" in README.md). The dataset is created
+# on the first write. Each point is keyed by an HMAC of the link with the STATS_KEY secret
+# (`wrangler secret put STATS_KEY`); without that secret nothing is written.
+[[analytics_engine_datasets]]
+binding = "STATS"
+dataset = "safecontext_relay"
 
 [vars]
 # OAuth callback hosts of the AI apps that may connect (https only). Exact host match;

@@ -2,6 +2,7 @@
 import { SELF, env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { OFFLINE_MESSAGE, callbackAllowed, cleanName, hostAllowed, route, s256 } from "../src/relay.js";
+import { APPS, EVENTS, OUTCOMES, dataPoint, linkToken, sizeBucket, toolAllowed } from "../src/stats.js";
 
 const ORIGIN = "https://relay.safecontext.me";
 const REDIRECT = "https://grok.com/connectors/oauth/callback";
@@ -419,5 +420,121 @@ describe("MCP forwarding rules", () => {
     expect(dump).not.toContain("ran search");
     expect(dump).not.toContain(t.access_token);   // tokens are stored hashed
     expect(dump).not.toContain(mac.secret);
+  });
+});
+
+// --- usage stats ------------------------------------------------------------------------------
+// Swaps the link's Durable Object env for one with a recording STATS binding (and STATS_KEY).
+async function recordStats(link, { key = "test-stats-key", binding = "record" } = {}) {
+  const points = [];
+  const fake = binding === "record" ? { writeDataPoint: (p) => points.push(structuredClone(p)) }
+    : binding === "throw" ? { writeDataPoint: () => { throw new Error("boom"); } }
+    : undefined;  // "none": no binding
+  await runInDurableObject(env.LINKS.get(env.LINKS.idFromName(link)), async (instance) => {
+    const e = { ...instance.env };
+    if (key === "none") delete e.STATS_KEY; else e.STATS_KEY = key;
+    if (fake === undefined) delete e.STATS; else e.STATS = fake;
+    instance.env = e;
+  });
+  return points;
+}
+
+// Every point must have exactly the allowlisted shape. Anything more fails the test.
+async function checkShape(points, link, key) {
+  const token = await linkToken(key, link);
+  for (const p of points) {
+    expect(Object.keys(p).sort()).toEqual(["blobs", "doubles", "indexes"]);
+    expect(p.indexes).toEqual([token]);
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    expect(p.blobs).toHaveLength(4);
+    expect(p.blobs.every((b) => typeof b === "string")).toBe(true);
+    expect(EVENTS.has(p.blobs[0])).toBe(true);
+    expect(toolAllowed(p.blobs[1])).toBe(true);
+    expect(APPS.has(p.blobs[2])).toBe(true);
+    expect(OUTCOMES.has(p.blobs[3])).toBe(true);
+    expect(p.doubles).toHaveLength(3);
+    expect(p.doubles.every((d) => typeof d === "number" && Number.isFinite(d) && d >= 0)).toBe(true);
+    expect(p.doubles[0]).toBe(1);
+    expect([0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]).toContain(p.doubles[2]);
+  }
+}
+
+const summary = (points) => points.map((p) => p.blobs.join("/"));
+
+describe("usage stats", () => {
+  it("writes only allowlisted, anonymous fields, keyed by an HMAC of the link", { timeout: 20_000 }, async () => {
+    const l = rand();
+    const points = await recordStats(l);
+    const mac = await connectMac(l);
+    const t = await signIn(l, mac, { name: "Grok (my-secret-name)" });
+    const spy = { "user-agent": "Spy-Agent/9.9", "cf-connecting-ip": "203.0.113.77", "cf-ipcountry": "ZZ" };
+    await call(l, t.access_token, toolCall("search", { query: "very-private-words" }), spy);
+    await call(l, t.access_token, { jsonrpc: "2.0", id: 2, method: "initialize", params: {} }, spy);
+    await call(l, t.access_token, toolCall("evil_tool_name"), spy);
+    await call(l, t.access_token, { jsonrpc: "2.0", id: 3, method: "secret/method", params: {} }, spy);
+    await call(l, t.access_token, "{not json", spy);
+    await call(l, "wrong-token", toolCall("search"), spy);
+    mac.ws.close(1000, "bye");
+    await new Promise((r) => setTimeout(r, 200));
+    await call(l, t.access_token, toolCall("read", { id: "private-id-123" }), spy);
+
+    expect(summary(points)).toEqual([
+      "oauth_connect//grok/ok",
+      "mcp_request/search/grok/ok",
+      "mcp_request/initialize/grok/ok",
+      "mcp_request/tools/call/grok/refused",
+      "mcp_request//grok/refused",
+      "mcp_request//grok/parse_error",
+      "mcp_request//other/unauthorized",
+      "mac_offline/read/grok/offline",
+    ]);
+    await checkShape(points, l, "test-stats-key");
+    const all = JSON.stringify(points);
+    for (const bad of [l, t.access_token, t.refresh_token, t.client_id, mac.secret, "very-private-words", "ran search",
+      "private-id-123", "evil_tool_name", "secret/method", "my-secret-name", "Spy-Agent", "203.0.113.77", "ZZ"]) {
+      expect(all).not.toContain(bad);
+    }
+    expect(points[1].doubles[2]).toBe(1);  // a tiny answer is in the 1 KiB bucket
+  });
+
+  it("tells Claude, Grok and other apps apart, and counts rate limits", { timeout: 30_000 }, async () => {
+    const l = rand();
+    const points = await recordStats(l);
+    const mac = await connectMac(l);
+    await signIn(l, mac, { name: "Claude", redirect: CLAUDE_REDIRECT });
+    await signIn(l, mac, { name: "", redirect: "http://127.0.0.1:5555/cb" });
+    const t = await signIn(l, mac, { name: "", clientId: "grok" });
+    for (let i = 0; i < 400; i++) {
+      if ((await call(l, t.access_token, { jsonrpc: "2.0", id: i, method: "ping" })).status === 429) break;
+    }
+    const s = summary(points);
+    expect(s.slice(0, 3)).toEqual(["oauth_connect//claude/ok", "oauth_connect//other/ok", "oauth_connect//grok/ok"]);
+    expect(s.at(-1)).toBe("rate_limited//grok/rate_limited");  // refused before the body is read
+    await checkShape(points, l, "test-stats-key");
+  });
+
+  it("is a silent no-op without the key or the binding, and never breaks the relay", async () => {
+    for (const opts of [{ key: "none" }, { key: "" }, { binding: "none" }, { binding: "throw" }]) {
+      const l = rand();
+      const points = await recordStats(l, opts);
+      const mac = await connectMac(l);
+      const t = await signIn(l, mac);
+      const r = await (await call(l, t.access_token, toolCall("search", { query: "x" }))).json();
+      expect(r.result.content[0].text).toBe("ran search");
+      expect(points).toEqual([]);
+    }
+  });
+
+  it("replaces anything off the lists instead of passing it through", () => {
+    const p = dataPoint("t", { event: "query: hello", tool: "evil", app: "Grok 2", outcome: "error: details", latencyMs: -5, bytes: 3000 });
+    expect(p).toEqual({ indexes: ["t"], blobs: ["", "", "other", ""], doubles: [1, 0, 4] });
+    expect([0, 1, 1024, 1025, 900 * 1024].map(sizeBucket)).toEqual([0, 1, 1, 2, 1024]);
+  });
+
+  it("gives each link a different, stable token", async () => {
+    const a = await linkToken("k", "link-a");
+    expect(await linkToken("k", "link-a")).toBe(a);
+    expect(await linkToken("k", "link-b")).not.toBe(a);
+    expect(await linkToken("other-key", "link-a")).not.toBe(a);
   });
 });

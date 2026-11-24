@@ -32,8 +32,9 @@ Source: [src/relay.js](src/relay.js) (entry point `src/index.js`). Mac side: `sr
 
 | Rule | How |
 | --- | --- |
-| No storage of bodies | Requests and answers exist only in memory while in flight. Durable Object storage holds auth metadata only: the device-secret hash, OAuth client registrations, SHA-256 hashes of codes and tokens (with expiry), pending approvals (client, callback, PKCE challenge, 4-digit code) and one setting. A test dumps storage after a call and checks the query and result aren't there. |
+| No storage of bodies | Requests and answers exist only in memory while in flight. Durable Object storage holds auth metadata only: the device-secret hash, OAuth client registrations, SHA-256 hashes of codes and tokens (with expiry), pending approvals (client, callback, PKCE challenge, 4-digit code) and one setting. Token records also keep the app class (`grok`, `claude` or `other`) for the usage counts. A test dumps storage after a call and checks the query and result aren't there. |
 | No body logging | The code never calls `console.*`. `wrangler.toml` turns off Workers observability and Logpush. Errors are caught and answered without being logged. |
+| Anonymous usage counts only | One Analytics Engine data point per MCP request and per sign-in, with fields from fixed lists only (see "Usage stats" below). No IP, user agent, location, headers, queries, arguments or results. A test checks every point written against the allowlist. |
 | Read-only, allowlisted | Only `initialize`, `ping`, `tools/list`, `tools/call`, `notifications/initialized` and `notifications/cancelled`; `tools/call` only for `search`, `read`, `list_items`, `list_sources`. Anything else is answered by the relay and never reaches the Mac. The Mac checks the same allowlist again. |
 | Per-user limits | Per link (token buckets): 120 MCP requests/min, 20 OAuth calls/min, 10 Mac connections/min, 60 refused requests/min. Requests ≤ 64 KiB, answers ≤ 1 MiB (the Mac caps itself at 900 KiB), OAuth bodies ≤ 8 KiB (MCP bodies are read in chunks and cut off at the limit), at most 20 registered clients (more are refused, never evicted). |
 | Timeouts | 25 s for the Mac to answer, 5 min for an approval or an authorization code. Access tokens last 30 days, refresh tokens 180 days (rotated on use). |
@@ -141,6 +142,42 @@ To update later, repeat step 4. To take the relay down entirely:
 ```bash
 npx wrangler delete
 ```
+
+## Usage stats
+
+The relay writes anonymous counts to Workers Analytics Engine (binding `STATS`, dataset
+`safecontext_relay`; code in [src/stats.js](src/stats.js)). One data point per MCP request and
+per completed sign-in, and nothing else:
+
+| Field | Value |
+| --- | --- |
+| `index1` | link token: hex HMAC-SHA256 of the link ID, keyed with the `STATS_KEY` Worker secret. The same link always gives the same token; the token can't be turned back into the link, so it can't reach anyone's Mac. |
+| `blob1` | event: `mcp_request`, `oauth_connect`, `mac_offline`, `rate_limited` |
+| `blob2` | tool (`search`, `read`, `list_items`, `list_sources`) or, for other calls, the MCP method from the allowlist; otherwise empty |
+| `blob3` | app: `grok`, `claude`, `other` (from the sign-in callback host) |
+| `blob4` | outcome: `ok`, `http_4xx`, `http_5xx`, `unauthorized`, `method_not_allowed`, `too_large`, `result_too_large`, `parse_error`, `invalid_request`, `refused`, `offline`, `timeout`, `rate_limited` |
+| `double1` | 1 (a count) |
+| `double2` | Mac round trip in ms (0 if the request never reached the Mac) |
+| `double3` | answer size rounded up to a power of two KiB (0 if none) |
+
+Analytics Engine adds a timestamp and keeps points for about three months. Any value off these
+lists is replaced before writing. If `STATS_KEY` or the binding is missing, or a write fails,
+nothing is written and the relay works as before.
+
+### Viewing them
+
+From the repo root, with a read-only Cloudflare API token (permission **Account → Account
+Analytics → Read**, nothing else) in the Keychain under the service `safecontext-stats`, or in
+the `SAFECONTEXT_STATS_TOKEN` environment variable for one run (never in a file):
+
+```bash
+CLOUDFLARE_ACCOUNT_ID=<account id> .venv/bin/python scripts/stats.py --days 14
+```
+
+It prints per-day tables: active links, requests (ok, errors, unauthorized, offline, rate
+limited), sign-ins, requests per link (median, p90), and latency; then requests per link over
+the period with the top 10 tokens (truncated), requests by app and by tool, outcomes, and
+installs by app version once the update-check counter on safecontext.me is live.
 
 ## Protocol between the relay and the Mac
 
