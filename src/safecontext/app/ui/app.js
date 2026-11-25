@@ -1195,5 +1195,15 @@ function start() {
   setInterval(refreshUpdate, 1500);
 }
 
+// ---------- window dragging ----------
+// A mouse-down on the empty part of the header (.window-drag itself, not a button or the search field in
+// it) hands the drag to macOS, which moves the window like a normal title bar (see _start_window_drag in
+// main.py). Bound now, not on pywebviewready, so the sign-in strip drags as soon as the page shows.
+document.addEventListener("mousedown", (e) => {
+  if (e.button !== 0 || e.detail > 1 || !e.target.classList.contains("window-drag")) return;
+  const fn = window.pywebview && window.pywebview.api && window.pywebview.api.start_window_drag;
+  if (fn) fn();
+});
+
 if (window.pywebview && window.pywebview.api) start();
 else window.addEventListener("pywebviewready", start, { once: true });

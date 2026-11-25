@@ -16,7 +16,7 @@
 </head>
 <body>
 <!-- With the title bar hidden (Mac app), this strip drags the window on the sign-in screen (the app has its header). -->
-<div class="titlebar pywebview-drag-region" aria-hidden="true"></div>
+<div class="titlebar window-drag" aria-hidden="true"></div>
 <div id="loading" class="loading">Loading…</div>
 
 <!-- First run: connect Gmail -->
@@ -55,7 +55,7 @@
 <div id="shell" class="shell" hidden>
   <!-- Header: the top row of the window (the Mac title area, where the traffic lights sit). Dragging its empty
        space moves the window; search sits in the middle and works from any screen (mail.js). -->
-  <header class="app-header pywebview-drag-region">
+  <header class="app-header window-drag">
     <!-- Next to the traffic lights: hide/show the sidebar, and back / forward through pages (app.js) -->
     <div class="header-nav">
       <button class="icon-btn" id="nav-sidebar" aria-label="Hide sidebar" title="Hide sidebar (⌘\)">
