@@ -1030,9 +1030,10 @@ function reviewRow(c) {
     c.items.length ? el("ul", { class: "rv-items" }, ...c.items.map((i) => el("li", {}, i))) : null,
     c.fix ? el("p", { class: "rv-fix" }, el("b", {}, "What to do: "), c.fix) : null);
   if (c.manual) {
-    const acts = el("div", { class: "rv-actions", role: "group", "aria-label": `What you found: ${c.title}` });
+    // What you found: a Toggle Group (shadcn.css), one answer or none; pressing the chosen one again clears it
+    const acts = el("div", { class: "toggle-group rv-actions", role: "group", "aria-label": `What you found: ${c.title}` });
     for (const [a, text] of RV_ANSWERS) {
-      acts.append(el("button", { class: `btn small${c.answer === a ? " chosen" : ""}`, "aria-pressed": String(c.answer === a),
+      acts.append(el("button", { class: "toggle toggle-outline toggle-sm", type: "button", "aria-pressed": String(c.answer === a),
         onclick: () => reviewAnswer(c.id, c.answer === a ? "" : a) }, text));
     }
     if (c.answered_ms) acts.append(el("span", { class: "muted rv-when" }, `Checked ${new Date(c.answered_ms).toLocaleDateString()}`));
@@ -1051,7 +1052,7 @@ async function reviewOpen(id) {
 async function reviewAnswer(id, answer) {
   rvOpenRows.add(id);  // keep the row open so the new colour and the chosen answer show together
   await loadReview(await api().review_answer(id, answer));
-  document.querySelector(`.rv-row[data-id="${id}"] .rv-actions .btn.chosen`)?.focus({ preventScroll: true });
+  document.querySelector(`.rv-row[data-id="${id}"] .rv-actions [aria-pressed="true"]`)?.focus({ preventScroll: true });
 }
 
 async function reviewScan(e) {

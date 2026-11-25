@@ -166,6 +166,8 @@ code { font: var(--text-sm) var(--font-mono); word-break: break-all; }
    title, 8px, description, 32px, content. */
 .view.page { padding-top: var(--space-10); padding-bottom: var(--space-10); }
 .view.page > * { max-width: var(--page-width); margin-left: auto; margin-right: auto; }
+/* a Tabs list is inline-flex (shadcn), which auto margins can't center: as a page row it's a block-level flex */
+.view.page > .tabs-list { display: flex; width: 100%; }  /* and full width, so the tabs start at the column edge */
 .view.page > h2, .page-head h2 { margin-top: 0; margin-bottom: 0; line-height: var(--leading-tight); }
 .view.page > h2 + p.muted, .view.page > .page-head + p.muted {
   margin-top: var(--space-2); margin-bottom: var(--space-8); line-height: var(--leading-normal); }
@@ -438,8 +440,7 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .rv-detail, .rv-fix { margin: 0 0 8px; font-size: var(--text-base); }
 .rv-detail { color: var(--muted-foreground); }
 .rv-items { margin: 0 0 8px 18px; padding: 0; font-size: var(--text-sm); color: var(--muted-foreground); }
-.rv-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.rv-actions .btn.chosen { border-color: var(--primary); color: var(--primary); background: var(--primary-subtle); font-weight: var(--font-weight-semibold); }
+.rv-actions { flex-wrap: wrap; }  /* a .toggle-group; "Checked …" wraps beside it */
 .rv-when { font-size: var(--text-sm); }
 .rv-tab-log { margin-left: auto; }
 .rv-log-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
