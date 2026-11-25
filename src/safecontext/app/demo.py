@@ -12,6 +12,7 @@ from ..demo.fake_ai_configs import demo_ai_home
 from ..demo.fake_calendar import make_fake_calendar
 from ..demo.fake_gmail import FakeGmail
 from ..demo.fake_messages import demo_imessage_options
+from ..demo.fake_update import demo_updater
 from ..demo.synthetic import demo_mailbox, mailbox, msg
 from ..grok_link import demo_link
 
@@ -63,4 +64,7 @@ def demo_backend_kwargs(data_dir: Optional[Path] = None) -> Dict[str, Any]:
         imessage_options=demo_imessage_options(Path(data_dir) / "demo-messages"),
         # The AI access review's opt-in scan reads a made-up home, never the real one.
         review_home=demo_ai_home(Path(data_dir) / "demo-home"),
+        # Check for updates finds a made-up next version; installing goes through the real updater
+        # against fakes and never replaces, spawns or opens anything (demo/fake_update.py).
+        updater=demo_updater(Path(data_dir)),
     )

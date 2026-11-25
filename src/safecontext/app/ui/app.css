@@ -225,7 +225,17 @@ input:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--prima
           background: var(--warning-subtle); border-bottom: 1px solid var(--warning-border); padding: var(--space-2-5) var(--space-6); }
 .banner.info { background: var(--card); border-bottom-color: var(--border); }
 .banner .actions { display: flex; gap: var(--space-2); margin: 0; }
-.u-auto { display: flex; gap: var(--space-2); align-items: center; margin: var(--space-2-5) 0 0; }
+/* Update banner: text and actions on one row; "What's new" opens the notes under them. */
+.u-banner { flex-wrap: wrap; }
+.u-banner-text { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.u-banner-notes { flex-basis: 100%; display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.u-banner-notes[hidden] { display: none; }
+.u-banner-notes p { margin: 0; white-space: pre-wrap; color: var(--muted-foreground); font-size: var(--text-sm); }
+.u-switch { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+            padding-top: var(--space-3); margin-top: var(--space-3); border-top: 1px solid var(--border); }
+.u-switch .hint { margin-top: var(--space-0-5, 2px); }
+#u-notes { white-space: pre-line; }
+.u-switch-title { font-weight: var(--font-weight-medium, 500); }
 
 /* ---------- reader cards ---------- */
 mark { background: var(--highlight); color: inherit; border-radius: var(--radius-xs); padding: 0 1px; }

@@ -205,8 +205,10 @@ def run(demo: bool = False, data_dir: Optional[Path] = None, debug: bool = False
         window.events.before_show += _unified_title_bar
         window.events.before_show += _keep_window_on_screen
     backend._quit_fn = window.destroy  # "Update and restart" closes the window; the helper does the rest
+    window.events.closing += backend._on_window_closing  # "Install when I quit" (red button and ⌘Q both come here)
     window.events.shown += _set_dock_icon  # once the app is up; see _set_dock_icon
     try:
         webview.start(debug=debug, private_mode=True, icon=str(Path(__file__).with_name("icon.png")))
     finally:
+        backend._on_window_closing()  # no-op if closing already ran it
         backend._shutdown()
