@@ -19,7 +19,9 @@ macOS privacy grants (TCC.db needs Full Disk Access; Apple offers no API), so th
 guided checks rather than detections.
 
 Statuses, worst first: risk (fix this), warn (worth a look), todo (not checked yet),
-info, ok.
+info, ok. The app and report show them as red "Fix", yellow "Worth a look", grey "Not checked
+yet" and green "OK", grouped by app or account (Grok, Claude, Google, GitHub, SafeContext,
+This Mac). group_of, colour_of, rollup and summarize are pure so they can be tested alone.
 """
 from __future__ import annotations
 
@@ -41,18 +43,38 @@ DAY_MS = 86_400_000
 META_ANSWERS = "review_answers"
 META_SCAN = "review_scan"
 
+# Grouped by the app or account people think in, in a fixed order so answering a check never moves
+# a group out from under the pointer. The summary at the top says which groups need attention.
 GROUPS = [
-    ("safecontext", "SafeContext"),
-    ("local", "AI apps on this Mac"),
-    ("online", "Your accounts and AI apps"),
-    ("mac", "This Mac's privacy settings"),
+    ("grok", "Grok", "Connectors, data controls, and Grok on X."),
+    ("claude", "Claude", "claude.ai, Claude in Chrome, Claude Desktop and Claude Code."),
+    ("google", "Google", "Apps with access to your Google account, including SafeContext."),
+    ("github", "GitHub", "Apps and tokens that can read or change your code."),
+    ("safecontext", "SafeContext", "The MCP link Grok, Claude and other AI apps use to reach this Mac."),
+    ("mac", "This Mac", "macOS privacy permissions that let apps read files, see the screen or control the Mac."),
 ]
+GROUP_IDS = [g[0] for g in GROUPS]
+_GROUP_OF = {
+    "grok_connectors": "grok", "grok_data": "grok", "x_grok": "grok",
+    "claude_connectors": "claude", "claude_data": "claude", "claude_chrome": "claude",
+    "google_connections": "google", "sc_gmail": "google", "sc_gcal": "google",
+    "github_apps": "github",
+    "sc_link": "safecontext", "sc_link_only": "safecontext", "sc_awake": "safecontext",
+    "sc_fda": "mac", "mac_full_disk": "mac", "mac_accessibility": "mac", "mac_screen": "mac",
+    "mac_automation": "mac",
+}
+
+# Status → what the user sees. Colour is always paired with a word and an icon shape.
+RED, YELLOW, GREEN, GREY = "red", "yellow", "green", "grey"
+COLOUR_OF = {RISK: RED, WARN: YELLOW, TODO: GREY, INFO: GREEN, OK: GREEN}
+# Worst first. Grey ("not checked yet") ranks above green so an unchecked group never looks safe.
+COLOUR_ORDER = [RED, YELLOW, GREY, GREEN]
+COLOUR_LABEL = {RED: "Fix", YELLOW: "Worth a look", GREEN: "OK", GREY: "Not checked yet"}
 
 
 @dataclass
 class Check:
     id: str
-    group: str
     title: str
     status: str
     detail: str = ""
@@ -62,68 +84,71 @@ class Check:
     answer: str = ""       # ok | fixed | issue | skip
     answered_ms: Optional[int] = None
     items: List[str] = field(default_factory=list)  # names to list under it (server names, rules)
+    group: str = ""        # set by build_review from group_of()
+    colour: str = ""       # set by build_review from colour_of()
+    label: str = ""        # the word shown with the colour
 
 
 # --- guided checks --------------------------------------------------------------------------
-# (id, group, title, why it matters, what to do, link). Links are the official pages; System
+# (id, title, why it matters, what to do, link). The group comes from group_of(). Links are the official pages; System
 # Settings links use the x-apple.systempreferences scheme and only open the right pane.
 
 _PANE = "x-apple.systempreferences:com.apple.preference.security?"
 GUIDED = [
-    ("google_connections", "online", "Google: apps with access to your account",
+    ("google_connections", "Apps with access to your Google account",
      "Apps you let into Gmail, Calendar or Drive keep that access until you remove it, even after you "
      "stop using them or disconnect them inside Claude or Grok.",
      "Remove any app you don't recognize or no longer use: open it → See details → Remove access.",
      "https://myaccount.google.com/connections"),
-    ("grok_connectors", "online", "Grok: connectors",
+    ("grok_connectors", "Grok connectors",
      "A connector lets Grok read that account on your behalf. Gmail can include sending and changing mail "
      "if it was turned on.",
      "Disconnect any connector you don't use.",
      "https://grok.com/connectors"),
-    ("grok_data", "online", "Grok: data controls",
+    ("grok_data", "Grok data controls",
      "Training and memory decide how long your chats are kept and what they're used for.",
      "In grok.com, open your profile → Settings → Data controls. Check \"Improve the model\", memory, "
      "and unshare old shared links.",
      "https://grok.com/"),
-    ("x_grok", "online", "X: Grok training and connected apps",
+    ("x_grok", "X: Grok training and connected apps",
      "X lets Grok train on your posts and Grok chats by default. Connected apps can act on your X account.",
      "Settings → Privacy and safety → Grok & Third-party collaborators: untick training if you want. "
      "Then Security and account access → Apps and sessions → Connected apps: revoke what you don't use.",
      "https://x.com/settings/connected_apps"),
-    ("claude_connectors", "online", "Claude: connectors and tool permissions",
+    ("claude_connectors", "claude.ai connectors and tool permissions",
      "Connectors let Claude read and sometimes act in other accounts. A tool set to \"Always allow\" runs "
      "without asking, which matters most for tools that send, post or write.",
      "Remove connectors you don't use. For the rest, set tools that send, post or write to \"Needs approval\".",
      "https://claude.ai/customize/connectors/yours"),
-    ("claude_data", "online", "Claude: memory, training and shared chats",
+    ("claude_data", "claude.ai memory, training and shared chats",
      "With \"Help improve Claude\" on, chats can be kept for up to 5 years. Shared links stay public until "
      "you unshare them. Deleting a chat doesn't delete memories made from it.",
      "Settings → Memory: review what it remembers. Settings → Privacy: check the training toggle and "
      "Manage shared chats.",
      "https://claude.ai/settings"),
-    ("claude_chrome", "online", "Claude in Chrome: approved sites",
+    ("claude_chrome", "Claude in Chrome: approved sites",
      "Sites set to \"always allow\" let Claude click and type as you there, where you're signed in.",
      "Click the extension icon → ⋯ → Extension settings → Your approved sites. Remove mail, banking and "
      "admin sites. Skip this if you don't use the extension.",
      ""),
-    ("github_apps", "online", "GitHub: authorized apps and tokens",
+    ("github_apps", "Authorized apps and tokens",
      "OAuth apps, GitHub Apps and personal access tokens can read or change your code.",
      "Revoke apps you don't use (and check Installed apps too: uninstalling doesn't revoke). Delete tokens "
      "that are old or unused. Skip this if you don't use GitHub.",
      "https://github.com/settings/applications"),
-    ("mac_full_disk", "mac", "Full Disk Access",
+    ("mac_full_disk", "Full Disk Access",
      "Apps here can read everything in your home folder, including Messages and Mail.",
      "Turn off anything you don't need, especially Terminal or AI apps you no longer use.",
      _PANE + "Privacy_AllFiles"),
-    ("mac_accessibility", "mac", "Accessibility",
+    ("mac_accessibility", "Accessibility",
      "Apps here can control your Mac: click, type and read what's on screen in other apps.",
      "Turn off AI or automation apps you don't use.",
      _PANE + "Privacy_Accessibility"),
-    ("mac_screen", "mac", "Screen & System Audio Recording",
+    ("mac_screen", "Screen & System Audio Recording",
      "Apps here can see everything on your screen.",
      "Turn off anything you don't recognize or no longer use.",
      _PANE + "Privacy_ScreenCapture"),
-    ("mac_automation", "mac", "Automation",
+    ("mac_automation", "Automation",
      "Apps here can control other apps, such as Mail, Messages or Finder, through scripts.",
      "Untick pairs you don't recognize.",
      _PANE + "Privacy_Automation"),
@@ -133,7 +158,7 @@ GUIDED_BY_ID = {g[0]: g for g in GUIDED}
 
 def guided_link(check_id: str) -> Optional[str]:
     g = GUIDED_BY_ID.get(check_id)
-    return g[5] if g and g[5] else None
+    return g[4] if g and g[4] else None
 
 
 def load_answers(raw: Optional[str]) -> Dict[str, Dict[str, Any]]:
@@ -149,7 +174,7 @@ def load_answers(raw: Optional[str]) -> Dict[str, Dict[str, Any]]:
 
 def guided_checks(answers: Dict[str, Dict[str, Any]], now_ms: int) -> List[Check]:
     out = []
-    for cid, group, title, why, fix, link in GUIDED:
+    for cid, title, why, fix, link in GUIDED:
         a = answers.get(cid) or {}
         ts = a.get("ts")
         fresh = isinstance(ts, (int, float)) and now_ms - ts < REVIEW_EXPIRE_DAYS * DAY_MS
@@ -162,7 +187,7 @@ def guided_checks(answers: Dict[str, Dict[str, Any]], now_ms: int) -> List[Check
             detail = "You don't use this. " + why
         elif answer == "issue":
             detail = "You found something to fix here. " + why
-        out.append(Check(cid, group, title, status, detail, fix, link, manual=True, answer=answer,
+        out.append(Check(cid, title, status, detail, fix, link, manual=True, answer=answer,
                          answered_ms=int(ts) if fresh else None))
     return out
 
@@ -181,19 +206,19 @@ def safecontext_checks(sources: Iterable[Dict[str, Any]], mcp: Dict[str, Any], n
     gmail = by_id.get("gmail") or {}
     if gmail.get("account"):
         headers = gmail.get("mode") == "headers"
-        out.append(Check("sc_gmail", "safecontext", "Gmail: read-only", OK,
+        out.append(Check("sc_gmail", "SafeContext's Gmail access: read-only", OK,
                          "SafeContext can only read " + ("headers (sender, subject, date)" if headers else "your mail")
                          + ". It can't send, change or delete anything. Google lists it under your "
                            "account's third-party connections.",
                          "To remove it: Sources → Gmail → Disconnect, which also revokes it at Google."))
     gcal = by_id.get("gcal") or {}
     if gcal.get("account"):
-        out.append(Check("sc_gcal", "safecontext", "Google Calendar: read-only", OK,
+        out.append(Check("sc_gcal", "SafeContext's Calendar access: read-only", OK,
                          "SafeContext can read your events. It can't create, change or delete them.",
                          "To remove it: Sources → Google Calendar → Disconnect."))
     imsg = by_id.get("imessage") or {}
     if imsg.get("account"):
-        out.append(Check("sc_fda", "safecontext", "Full Disk Access for iMessage", INFO,
+        out.append(Check("sc_fda", "SafeContext's Full Disk Access (for iMessage)", INFO,
                          "SafeContext needs Full Disk Access to read Messages. That access covers your whole "
                          "home folder, though SafeContext only opens the Messages database.",
                          "If you stop using iMessage here, disconnect it and turn SafeContext off in "
@@ -203,7 +228,7 @@ def safecontext_checks(sources: Iterable[Dict[str, Any]], mcp: Dict[str, Any], n
     grants = int(mcp.get("grants") or 0)
     last = mcp.get("last_used_ms")
     if not enabled:
-        out.append(Check("sc_link", "safecontext", "MCP link: off", OK,
+        out.append(Check("sc_link", "MCP link: off", OK,
                          "AI apps in the cloud can't reach SafeContext. Local apps set up with the MCP "
                          "config (like Claude Desktop) still can while SafeContext is installed."))
     else:
@@ -212,22 +237,22 @@ def safecontext_checks(sources: Iterable[Dict[str, Any]], mcp: Dict[str, Any], n
         signins = f"{grants} sign-in{'s' if grants != 1 else ''} held by AI apps." if grants else \
             "No AI app is signed in."
         if idle:
-            out.append(Check("sc_link", "safecontext", "MCP link: on but not used lately", WARN,
+            out.append(Check("sc_link", "MCP link: on but not used lately", WARN,
                              f"AI apps can search your scrubbed data while SafeContext is open. {used} {signins}",
                              "If you don't use it, turn MCP off. To sign every AI app out, use Regenerate link "
                              "on the MCP screen."))
         else:
-            out.append(Check("sc_link", "safecontext", "MCP link: on", INFO,
+            out.append(Check("sc_link", "MCP link: on", INFO,
                              f"AI apps can search your scrubbed data while SafeContext is open. {used} {signins}",
                              "Check the Activity list on the MCP screen for anything you don't recognize."))
         if mcp.get("link_only"):
-            out.append(Check("sc_link_only", "safecontext", "Link-only mode is on", RISK,
+            out.append(Check("sc_link_only", "Link-only mode is on", RISK,
                              "Anyone who has your link can read your scrubbed data without approval. Links "
                              "end up in chat histories, screenshots and shared notes.",
                              "Turn off \"Connect with just the link\" on the MCP screen, then reconnect each app "
                              "with Approve. If the link may have leaked, Regenerate it."))
         if mcp.get("keep_awake"):
-            out.append(Check("sc_awake", "safecontext", "Keep awake is on", INFO,
+            out.append(Check("sc_awake", "Keep awake is on", INFO,
                              "Your Mac stays awake on power so AI apps can reach SafeContext at any time.",
                              "Turn it off on the MCP screen if you only use AI apps while you're at the Mac."))
     return out
@@ -329,7 +354,7 @@ def local_checks(scan: Optional[Dict[str, Any]]) -> List[Check]:
     out: List[Check] = []
     d = scan.get("claude_desktop")
     if d is None:
-        out.append(Check("lc_desktop", "local", "Claude Desktop: no MCP config found", OK,
+        out.append(Check("lc_desktop", "Claude Desktop: no MCP config found", OK,
                          "Either Claude Desktop isn't installed or it has no local MCP servers."))
     else:
         others = [s for s in d["servers"] if not s["own"]]
@@ -339,42 +364,41 @@ def local_checks(scan: Optional[Dict[str, Any]]) -> List[Check]:
                   "everything you can access.")
         if own:
             detail += " SafeContext is one of them."
-        out.append(Check("lc_desktop", "local",
-                         f"Claude Desktop: {len(others)} other MCP server{'s' if len(others) != 1 else ''}",
+        out.append(Check("lc_desktop", f"Claude Desktop: {len(others)} other MCP server{'s' if len(others) != 1 else ''}",
                          WARN if others else OK, detail if others or own else "No local MCP servers.",
                          "Remove any you don't use: Claude → Settings → Developer → Edit Config, delete its "
                          "entry, then restart Claude." if others else "", items=names))
         leaky = [s["name"] for s in d["servers"] if s["secrets"]]
         if leaky:
-            out.append(Check("lc_desktop_secrets", "local", "Claude Desktop: keys stored in plain text", WARN,
+            out.append(Check("lc_desktop_secrets", "Claude Desktop: keys stored in plain text", WARN,
                              "These servers keep an API key or token in the config file, where any app that can "
                              "read your home folder can copy it. SafeContext didn't read the values.",
                              "Use a short-lived or narrowly scoped key, and remove servers you don't use.",
                              items=leaky))
     c = scan.get("claude_code")
     if c is None:
-        out.append(Check("lc_code", "local", "Claude Code: no settings found", OK,
+        out.append(Check("lc_code", "Claude Code: no settings found", OK,
                          "Either Claude Code isn't installed or it uses its defaults."))
         return out
     mode = c["mode"]
     if mode == "bypassPermissions" or c["skip_prompt"]:
-        out.append(Check("lc_code_mode", "local", "Claude Code: skips permission prompts", RISK,
+        out.append(Check("lc_code_mode", "Claude Code: skips permission prompts", RISK,
                          "Claude Code is set to run commands and edit files without asking. A prompt injection "
                          "in a web page, issue or file it reads can then act on your Mac.",
                          "Remove \"defaultMode\": \"bypassPermissions\" (and skipDangerousModePermissionPrompt) "
                          "from ~/.claude/settings.json. Turn it on per session only when you need it."))
     elif mode == "auto":
-        out.append(Check("lc_code_mode", "local", "Claude Code: auto mode by default", WARN,
+        out.append(Check("lc_code_mode", "Claude Code: auto mode by default", WARN,
                          "A classifier approves most actions for you. That's safer than skipping prompts, but "
                          "you won't see most of what runs.",
                          "Consider the default mode for repositories you don't fully trust."))
     else:
-        out.append(Check("lc_code_mode", "local", "Claude Code: asks before acting", OK,
+        out.append(Check("lc_code_mode", "Claude Code: asks before acting", OK,
                          f"Default mode: {mode or 'default'}."))
     broad = c["broad"]
     if broad:
         worst = RISK if any(b["level"] == RISK for b in broad) else WARN
-        out.append(Check("lc_code_allow", "local", f"Claude Code: {len(broad)} broad \"always allow\" rule"
+        out.append(Check("lc_code_allow", f"Claude Code: {len(broad)} broad \"always allow\" rule"
                          + ("s" if len(broad) != 1 else ""), worst,
                          "These rules in ~/.claude/settings.json let Claude run whole tools, or commands that can "
                          "send data out or run anything, without asking.",
@@ -383,7 +407,7 @@ def local_checks(scan: Optional[Dict[str, Any]]) -> List[Check]:
                          "doesn't open your project folders.",
                          items=[b["rule"] for b in broad[:10]]))
     else:
-        out.append(Check("lc_code_allow", "local", "Claude Code: no broad global allow rules", OK,
+        out.append(Check("lc_code_allow", "Claude Code: no broad global allow rules", OK,
                          f"{c['allow_count']} global allow rule{'s' if c['allow_count'] != 1 else ''}, none broad. "
                          "Project rules live in each project's .claude/settings.local.json, which SafeContext "
                          "doesn't open."))
@@ -391,7 +415,7 @@ def local_checks(scan: Optional[Dict[str, Any]]) -> List[Check]:
     names = [s["name"] for s in servers] + [n + " (one project)" for n in c["project_servers"]
                                             if n not in OWN_SERVERS]
     if names:
-        out.append(Check("lc_code_mcp", "local", f"Claude Code: {len(names)} MCP server"
+        out.append(Check("lc_code_mcp", f"Claude Code: {len(names)} MCP server"
                          + ("s" if len(names) != 1 else ""), WARN,
                          "Each MCP server can give Claude new abilities. Local ones run as you.",
                          "Run claude mcp list in a terminal, and claude mcp remove <name> for any you don't use.",
@@ -400,6 +424,54 @@ def local_checks(scan: Optional[Dict[str, Any]]) -> List[Check]:
 
 
 # --- the whole review -----------------------------------------------------------------------------
+
+def group_of(check_id: str) -> str:
+    """Which app or account a check belongs to. The opt-in scan's checks (lc_*) are all Claude's."""
+    if check_id.startswith("lc_"):
+        return "claude"
+    return _GROUP_OF.get(check_id, "safecontext")
+
+
+def colour_of(status: str) -> str:
+    return COLOUR_OF.get(status, GREY)
+
+
+def label_of(status: str, answer: str = "") -> str:
+    """The word shown next to the colour. A "don't use this" answer is green but says so."""
+    if answer == "skip":
+        return "Not used"
+    return COLOUR_LABEL[colour_of(status)]
+
+
+def worst_colour(colours: Iterable[str]) -> str:
+    """Worst of the colours given; GREEN when there are none."""
+    ranked = [COLOUR_ORDER.index(c) for c in colours if c in COLOUR_ORDER]
+    return COLOUR_ORDER[min(ranked)] if ranked else GREEN
+
+
+def colour_counts(checks: Iterable[Dict[str, Any]]) -> Dict[str, int]:
+    counts = {c: 0 for c in COLOUR_ORDER}
+    for c in checks:
+        counts[colour_of(c["status"])] += 1
+    return counts
+
+
+def rollup(checks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """A group header: its worst colour, counts per colour, and whether the user said they don't use
+    any of it (every check answered "skip"), in which case the UI collapses it."""
+    counts = colour_counts(checks)
+    skipped = bool(checks) and all(c.get("answer") == "skip" for c in checks)
+    colour = worst_colour(c for c, n in counts.items() if n)
+    return {"colour": colour, "label": "Not used" if skipped else COLOUR_LABEL[colour],
+            "counts": counts, "skipped": skipped, "total": len(checks)}
+
+
+def counts_line(counts: Dict[str, int]) -> str:
+    """"2 red · 3 yellow · 9 green · 4 not checked", leaving out zeros (all zero: "nothing to check")."""
+    words = {RED: "red", YELLOW: "yellow", GREEN: "green", GREY: "not checked"}
+    parts = [f"{counts[c]} {words[c]}" for c in (RED, YELLOW, GREEN, GREY) if counts.get(c)]
+    return " · ".join(parts) or "nothing to check"
+
 
 def summarize(checks: List[Check]) -> Dict[str, Any]:
     counts = {k: 0 for k in STATUS_ORDER}
@@ -413,25 +485,39 @@ def summarize(checks: List[Check]) -> Dict[str, Any]:
         verdict, tone = f"{counts[TODO]} check{'s' if counts[TODO] != 1 else ''} left to do", TODO
     else:
         verdict, tone = "Looking good", OK
-    return {"counts": counts, "verdict": verdict, "tone": tone}
+    colours = colour_counts(asdict(c) for c in checks)
+    return {"counts": counts, "verdict": verdict, "tone": tone, "colour": colour_of(tone),
+            "colours": colours, "counts_line": counts_line(colours)}
 
 
 def build_review(sources: Iterable[Dict[str, Any]], mcp: Dict[str, Any], answers: Dict[str, Dict[str, Any]],
                  scan: Optional[Dict[str, Any]], now_ms: Optional[int] = None) -> Dict[str, Any]:
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
     checks = safecontext_checks(sources, mcp, now_ms) + local_checks(scan) + guided_checks(answers, now_ms)
+    for c in checks:
+        c.group, c.colour, c.label = group_of(c.id), colour_of(c.status), label_of(c.status, c.answer)
     groups = []
-    for gid, title in GROUPS:
-        rows = sorted((c for c in checks if c.group == gid), key=lambda c: STATUS_ORDER[c.status])
-        groups.append({"id": gid, "title": title, "checks": [asdict(c) for c in rows]})
-    return {"generated_ms": now_ms, "scan_on": scan is not None, **summarize(checks), "groups": groups}
+    for gid, title, blurb in GROUPS:
+        # Fixed order inside a group too (SafeContext's own facts, then the scan, then guided checks),
+        # so a row stays put when its colour changes. The header carries the worst colour.
+        rows = [asdict(c) for c in checks if c.group == gid]
+        groups.append({"id": gid, "title": title, "blurb": blurb, "checks": rows, **rollup(rows)})
+    summary = summarize(checks)
+    attention = [g["title"] for g in groups if g["checks"] and g["colour"] in (RED, YELLOW)]
+    return {"generated_ms": now_ms, "scan_on": scan is not None, **summary, "attention": attention,
+            "groups": groups}
 
 
 # --- the saved report -----------------------------------------------------------------------------
 # Self-contained HTML (inline CSS, no scripts, nothing remote). It holds no account addresses,
 # no MCP link and no config values, so it's safe to share.
 
-_LABEL = {RISK: "Fix", WARN: "Look", TODO: "To check", INFO: "Note", OK: "OK"}
+_GLYPH = {RED: "✕", YELLOW: "!", GREEN: "✓", GREY: "?"}  # shape as well as colour
+
+
+def _badge(colour: str, label: str) -> str:
+    return (f"<span class='p {colour}'><span aria-hidden='true'>{_GLYPH[colour]}</span> "
+            f"{html.escape(label)}</span>")
 
 
 def report_html(review: Dict[str, Any], app_version: str = "") -> str:
@@ -440,36 +526,44 @@ def report_html(review: Dict[str, Any], app_version: str = "") -> str:
     parts = [
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>",
         "<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; style-src 'unsafe-inline'\">",
+        "<meta name='color-scheme' content='light dark'>",
         f"<title>AI access review · {e(when)}</title><style>",
+        ":root{--t:#1d1d1f;--m:#666;--l:#ddd;--rb:#fde2e1;--r:#b3261e;--yb:#fff3cd;--y:#7a5600;--gb:#e3f4e8;"
+        "--g:#1e7b3c;--nb:#ececec;--n:#555}"
+        "@media (prefers-color-scheme:dark){:root{--t:#ececea;--m:#a09f9a;--l:#3a3a3e;--rb:#4a2420;--r:#ff8a7d;"
+        "--yb:#3d3420;--y:#f2cf6b;--gb:#1f3a2a;--g:#6fd39a;--nb:#333336;--n:#bdbcb7}body{background:#1b1b1d}}"
         "body{font:15px/1.5 -apple-system,system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;"
-        "color:#1d1d1f}h1{font-size:26px;margin:0}h2{font-size:17px;margin:28px 0 8px;border-bottom:1px solid #ddd;"
-        "padding-bottom:4px}.sub{color:#666}.verdict{font-size:18px;font-weight:600;margin:14px 0}"
-        ".c{padding:10px 0;border-bottom:1px solid #eee}.t{font-weight:600}.p{display:inline-block;font-size:11px;"
-        "font-weight:700;padding:1px 7px;border-radius:9px;margin-right:6px;vertical-align:1px}"
-        ".risk{background:#fde2e1;color:#b3261e}.warn{background:#fff3cd;color:#8a6100}.todo{background:#e8eaf6;"
-        "color:#3949ab}.info{background:#eee;color:#555}.ok{background:#e3f4e8;color:#1e7b3c}"
-        ".d{color:#444;margin:3px 0}.f{margin:3px 0}ul{margin:4px 0 0 18px;padding:0;color:#444}"
+        "color:var(--t)}h1{font-size:26px;margin:0}h2{font-size:17px;margin:28px 0 2px;display:flex;gap:8px;"
+        "align-items:center;flex-wrap:wrap}.gh{border-bottom:1px solid var(--l);padding-bottom:6px}"
+        ".sub{color:var(--m)}.verdict{font-size:18px;font-weight:600;margin:14px 0 2px}"
+        ".c{padding:10px 0;border-bottom:1px solid var(--l)}.t{font-weight:600}.p{display:inline-block;"
+        "font-size:11px;font-weight:700;padding:1px 7px;border-radius:9px;margin-right:6px;vertical-align:1px}"
+        ".red{background:var(--rb);color:var(--r)}.yellow{background:var(--yb);color:var(--y)}"
+        ".green{background:var(--gb);color:var(--g)}.grey{background:var(--nb);color:var(--n)}"
+        ".n{font-size:13px;font-weight:400;color:var(--m)}"
+        ".d{color:var(--m);margin:3px 0}.f{margin:3px 0}ul{margin:4px 0 0 18px;padding:0;color:var(--m)}"
         "@media print{body{margin:0}}</style></head><body>",
         "<h1>AI access review</h1>",
         f"<div class='sub'>{e(when)} · made by SafeContext{(' ' + e(app_version)) if app_version else ''} "
         "on this Mac</div>",
-        f"<div class='verdict'>{e(review['verdict'])}</div>",
+        f"<div class='verdict'>{_badge(review['colour'], COLOUR_LABEL[review['colour']])}{e(review['verdict'])}</div>",
+        f"<div class='sub'>{e(review['counts_line'])}</div>",
     ]
-    n = review["counts"]
-    parts.append(f"<div class='sub'>{n[RISK]} to fix · {n[WARN]} worth a look · {n[TODO]} not checked · "
-                 f"{n[OK] + n[INFO]} fine</div>")
+    if review.get("attention"):
+        parts.append(f"<div class='sub'>Start with: {e(', '.join(review['attention']))}</div>")
     for g in review["groups"]:
         if not g["checks"]:
             continue
-        parts.append(f"<h2>{e(g['title'])}</h2>")
+        parts.append(f"<div class='gh'><h2>{_badge(g['colour'], g['label'])}{e(g['title'])}"
+                     f"<span class='n'>{e(counts_line(g['counts']))}</span></h2>"
+                     f"<div class='sub'>{e(g['blurb'])}</div></div>")
         for c in g["checks"]:
-            parts.append(f"<div class='c'><div class='t'><span class='p {c['status']}'>{_LABEL[c['status']]}</span>"
-                         f"{e(c['title'])}</div>")
+            parts.append(f"<div class='c'><div class='t'>{_badge(c['colour'], c['label'])}{e(c['title'])}</div>")
             if c["detail"]:
                 parts.append(f"<div class='d'>{e(c['detail'])}</div>")
             if c["items"]:
                 parts.append("<ul>" + "".join(f"<li>{e(i)}</li>" for i in c["items"]) + "</ul>")
-            if c["fix"] and c["status"] in (RISK, WARN, TODO):
+            if c["fix"]:
                 parts.append(f"<div class='f'><b>What to do:</b> {e(c['fix'])}</div>")
             if c["link"].startswith("https://"):
                 parts.append(f"<div class='f sub'>{e(c['link'])}</div>")

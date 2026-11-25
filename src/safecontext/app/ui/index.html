@@ -233,21 +233,17 @@
 
     <!-- AI access review (review.py) -->
     <section id="view-review" class="view" hidden>
-      <h2>AI access review</h2>
-      <p class="muted">What you've granted to AI apps like Grok and Claude, what each grant lets them do, and how to tighten it. SafeContext checks its own grants itself. For the rest, open each page, look, and record what you found.</p>
-      <div class="card rv-summary">
+      <div class="rv-top">
         <div>
-          <div class="rv-verdict" id="rv-verdict">—</div>
-          <div class="muted" id="rv-counts"></div>
+          <h2>AI access review</h2>
+          <p class="muted rv-intro">What Grok, Claude and other AI apps can reach, one app at a time.</p>
         </div>
-        <button class="btn" id="rv-save">Save report</button>
+        <button class="btn small" id="rv-save">Save report</button>
       </div>
-      <div class="card rv-scan">
-        <label class="rv-scan-row"><input type="checkbox" id="rv-scan">
-          <span><b>Check AI apps on this Mac</b><br><small class="muted">Reads Claude Desktop's MCP config and Claude Code's settings to list MCP servers and "always allow" rules. Keys and other values in those files are never kept or shown. Nothing leaves this Mac.</small></span></label>
-      </div>
-      <div id="rv-groups"></div>
-      <p class="hint">What SafeContext can't see: grants that xAI and Anthropic keep on their servers, and other apps' macOS privacy permissions. Neither has an API, so those are checks you do yourself. Answers older than 90 days come back as not checked.</p>
+      <div class="rv-tally" id="rv-tally"></div>
+      <div class="rv-tabs" role="tablist" aria-label="Apps and accounts" id="rv-tabs"></div>
+      <div class="rv-panel" role="tabpanel" id="rv-panel"></div>
+      <p class="hint">SafeContext checks its own access itself. Checks marked grey are ones you do yourself: open the page, look, then say what you found. Answers expire after 90 days.</p>
     </section>
 
     <!-- Settings -->
