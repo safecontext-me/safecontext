@@ -197,6 +197,17 @@ PASSWORD = RegexRule("PASSWORD", re.compile(
     r"(?:\s*[:=]\s*|[ \t]+-[ \t]+|\s+(?:is|was)\s*:?\s*)"  # not "password-protected"
     r"(?!\[REDACTED)(\S+)", _I), group=1)
 
+# Meeting dial-in secrets. With the dial-in number, a PIN, conference ID or host
+# key lets anyone join (or take over) the call. They are often written in groups
+# ("PIN: 123 456 789#"), which PASSWORD would only half-eat, so this runs first.
+DIAL_IN_PIN = RegexRule("PASSWORD", re.compile(
+    r"\b(?:pin|passcode|password|host[ \t]+(?:key|pin)|moderator[ \t]+pin|participant[ \t]+(?:code|pin)|"
+    r"attendee[ \t]+(?:id|pin)|(?:phone[ \t]+)?conference[ \t]+id)\b"
+    r"[ \t]*[:=#]?[ \t]*(\d{3,}(?:[ \t.-]\d{2,}){0,4})#?(?!\d)", _I), group=1)
+# One-tap dial strings ("+16699006833,,81234567890#,,,,*482913#"): the digits
+# after the pauses are the meeting ID and passcode or conference PIN.
+DIAL_IN_ONE_TAP = RegexRule("PASSWORD", re.compile(r",\*?(\d{4,})#"), group=1)
+
 CVV = RegexRule("CVV", re.compile(r"\b(?:cvv2?|cvc2?|csc|card security code)\b\D{0,12}?(\d{3,4})\b", _I),
                 group=1)
 
@@ -279,6 +290,8 @@ REDACTORS: List[Tuple[str, Redactor]] = [
     ("API_KEY", API_KEY),
     ("API_KEY", AWS_SECRET),
     ("PASSWORD", URL_CREDENTIALS),
+    ("PASSWORD", DIAL_IN_ONE_TAP),
+    ("PASSWORD", DIAL_IN_PIN),
     ("PASSWORD", PASSWORD),
     ("IBAN", redact_ibans),
     ("CREDIT_CARD", redact_cards),

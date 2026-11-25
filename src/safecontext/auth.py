@@ -52,6 +52,8 @@ RECONNECT_MESSAGE = "Gmail access was revoked or has expired. Click “Reconnect
 CALENDAR_RECONNECT_MESSAGE = ("Google Calendar access was revoked or has expired. Click “Reconnect” on the "
                               "Google Calendar card to continue syncing.")
 CALENDAR_NOT_CONNECTED = "Google Calendar isn't connected yet. Connect it on the Sources screen."
+CALENDAR_API_DISABLED = ("Google turned the request down because the Google Calendar API isn't switched on for "
+                         "SafeContext yet. This is on SafeContext's side, not your account. Please try again later.")
 
 
 class NeedsReconnect(Exception):
@@ -276,12 +278,26 @@ def connect_calendar(login_hint: Optional[str] = None, *, client_config: Optiona
     return creds, account
 
 
+def is_api_disabled(err: Exception) -> bool:
+    """HTTP 403 because the API isn't enabled in the OAuth client's Google Cloud project."""
+    status = int(getattr(getattr(err, "resp", None), "status", 0) or 0)
+    text = str(getattr(err, "content", b"") or err).lower()
+    return status == 403 and ("accessnotconfigured" in text or "service_disabled" in text
+                              or "has not been used in project" in text)
+
+
 def fetch_calendar_account(creds: Credentials) -> str:
     """The primary calendar's id is the account's email address."""
     from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
 
     svc = build("calendar", "v3", credentials=creds, cache_discovery=False)
-    return svc.calendars().get(calendarId="primary").execute()["id"].lower()
+    try:
+        return svc.calendars().get(calendarId="primary").execute()["id"].lower()
+    except HttpError as e:
+        if is_api_disabled(e):
+            raise NotConfigured(CALENDAR_API_DISABLED) from None
+        raise
 
 
 def refresh(creds: Credentials, request: Optional[Request] = None) -> None:

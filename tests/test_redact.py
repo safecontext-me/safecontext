@@ -296,3 +296,29 @@ def test_booking_codes(text, code):
 ])
 def test_booking_words_without_codes_untouched(text):
     assert_untouched(text)
+
+
+# --- meeting dial-in secrets --------------------------------------------------
+
+@pytest.mark.parametrize("text,secret", [
+    ("Join by phone\n(US) +1 413-555-0199 PIN: 123 456 789#", "456 789"),           # Google Meet
+    ("Phone conference ID: 123 456 789#", "456 789"),                                # Teams
+    ("+1 323-555-0142,,987654321# United States", "987654321"),                      # Teams one-tap
+    ("+16699006833,,81234567890#,,,,*482913# US", "482913"),                         # Zoom one-tap
+    ("Host key: 774410", "774410"),                                                  # Webex
+    ("Participant PIN: 5521 8830", "8830"),
+    ("Attendee PIN: 409 122#", "122"),
+])
+def test_dial_in_secrets(text, secret):
+    out, counts = redact(text)
+    assert secret not in out, out
+    assert counts.keys() & {"PASSWORD", "ONE_TIME_CODE"}, (out, counts)  # short PINs can read as codes
+
+
+@pytest.mark.parametrize("text", [
+    "Meeting ID: 812 3456 7890",
+    "Pin the tab, then share it",
+    "Ticket #4821 is fixed",
+])
+def test_dial_in_leaves_meeting_ids_and_prose(text):
+    assert_untouched(text)

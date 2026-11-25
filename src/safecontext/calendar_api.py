@@ -19,7 +19,8 @@ except ImportError:  # pragma: no cover
     Protocol = object  # type: ignore
 
 from .auth import CALENDAR_RECONNECT_MESSAGE as CALENDAR_RECONNECT
-from .auth import NeedsReconnect, TransientAuthError, is_invalid_grant
+from .auth import CALENDAR_API_DISABLED, NeedsReconnect, NotConfigured, TransientAuthError, is_api_disabled
+from .auth import is_invalid_grant
 from .errors import TransientError
 from .gmail_api import _is_rate_limit, _status
 
@@ -66,6 +67,8 @@ class GoogleCalendarAPI:
             raise TransientError(str(err)) from None
         if _status(err) == 401:
             raise NeedsReconnect("unauthorized", CALENDAR_RECONNECT) from None
+        if is_api_disabled(err):  # nothing the user can fix; the source shows it and retries later
+            raise NotConfigured(CALENDAR_API_DISABLED) from None
         if _status(err) == 403 and not _is_rate_limit(err):
             text = str(getattr(err, "content", b"") or err).lower()
             if "insufficient" in text or "scope" in text:

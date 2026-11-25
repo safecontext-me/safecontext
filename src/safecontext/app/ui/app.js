@@ -126,7 +126,15 @@ function sourceName(id) {
 
 function fmtRange(start, end, allDay) {
   if (!start) return "";
-  if (allDay) return fmtDate(start) + " · all day";
+  if (allDay) {
+    // All-day dates are stored as UTC midnight with an exclusive end: read them in UTC,
+    // or anyone west of Greenwich sees the day before.
+    const day = (ms) => { const d = new Date(ms), o = { month: "short", day: "numeric", timeZone: "UTC" };
+      if (d.getUTCFullYear() !== new Date().getFullYear()) o.year = "numeric";
+      return d.toLocaleDateString(undefined, o); };
+    const last = end ? new Date(end).getTime() - 86400000 : 0;
+    return day(start) + (last > new Date(start).getTime() ? ` – ${day(last)}` : "") + " · all day";
+  }
   const s = fmtDate(start, true);
   if (!end) return s;
   const sd = new Date(start), ed = new Date(end);
