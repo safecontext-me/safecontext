@@ -79,7 +79,7 @@ def test_claude_signs_in_with_approve_and_muse_stays_link_only():
 
 
 def test_approve_dialog_names_the_app_it_was_sent():
-    assert '<h2><span id="ga-title">' in HTML and 'id="ga-client"' in HTML
+    assert '<h2 class="dialog-title"><span id="ga-title">' in HTML and 'id="ga-client"' in HTML
     assert '$("ga-title").textContent = who;' in JS and '$("ga-client").textContent = who;' in JS
     assert 'const who = g.approval.client || "An AI app";' in JS
 

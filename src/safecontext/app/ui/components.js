@@ -29,7 +29,7 @@ class ScMenu extends HTMLElement {
     if (this._panel) return;
     const label = this.getAttribute("label") || "";
     const hotkey = this.getAttribute("hotkey");
-    this._panel = scEl("div", { class: "sc-menu-panel", role: "dialog", "aria-label": label, hidden: "" },
+    this._panel = scEl("div", { class: "dropdown-menu sc-menu-panel", role: "dialog", "aria-label": label, hidden: "" },
       ...this.childNodes);
     this._badge = scEl("span", { class: "sc-menu-badge", hidden: "" });
     this._btn = scEl("button", { class: `btn btn-ghost ${this.getAttribute("size") === "icon" ? "btn-icon" : "btn-icon-sm"} sc-menu-btn`, type: "button", "aria-label": label, "aria-haspopup": "dialog",
@@ -80,7 +80,7 @@ class ScFilterList extends HTMLElement {
     this._input = scEl("input", { class: "sc-filter-q", type: "text", placeholder: "Add filter…",
       "aria-label": "Add filter", autocomplete: "off", spellcheck: "false" });
     this._list = scEl("div", { class: "sc-filter-items", role: "menu" });
-    this._fly = scEl("div", { class: "sc-filter-fly", role: "menu", hidden: "" });
+    this._fly = scEl("div", { class: "dropdown-menu sc-filter-fly", role: "menu", hidden: "" });
     this._foot = scEl("div", { class: "sc-filter-foot" });
     const hotkey = this.getAttribute("hotkey");
     this.append(scEl("div", { class: "sc-filter-head" }, this._input, hotkey ? scEl("kbd", {}, hotkey) : null),
@@ -100,7 +100,7 @@ class ScFilterList extends HTMLElement {
 
   _option(cat, o, prefix) {
     const on = this._isOn(cat.id, o.value);
-    return scEl("button", { class: "sc-filter-opt", type: "button", role: "menuitemcheckbox", "aria-checked": String(on),
+    return scEl("button", { class: "dropdown-menu-item sc-filter-opt", type: "button", role: "menuitemcheckbox", "aria-checked": String(on),
       tabindex: "-1", "data-key": `${prefix ? "q" : "f"}:${cat.id}:${o.value}`, onclick: () => this._toggle(cat, o) },
     scEl("span", { class: "sc-check" + (on ? " on" : "") }, on ? icon("check", "sc-svg") : null),
     scEl("span", { class: "sc-filter-label" }, prefix ? scEl("span", { class: "sc-muted" }, `${prefix} › `) : null, o.label),
@@ -124,7 +124,7 @@ class ScFilterList extends HTMLElement {
     } else {
       this._list.replaceChildren(...this._cats.map((c) => {
         const n = (this._sel[c.id] || []).length;
-        return scEl("button", { class: "sc-filter-cat" + (this._open === c.id ? " open" : ""), type: "button",
+        return scEl("button", { class: "dropdown-menu-item sc-filter-cat" + (this._open === c.id ? " open" : ""), type: "button",
           role: "menuitem", "aria-haspopup": "menu", "aria-expanded": String(this._open === c.id), tabindex: "-1",
           "data-cat": c.id, "data-key": `c:${c.id}`, onclick: () => this._openCat(c.id, true), onmouseenter: () => this._openCat(c.id) },
         icon(c.icon || "list-filter", "sc-svg"),
@@ -135,7 +135,7 @@ class ScFilterList extends HTMLElement {
       this._renderFly();
     }
     const any = Object.values(this._sel).some((v) => v && v.length);
-    this._foot.replaceChildren(...(any ? [scEl("button", { class: "sc-filter-clear", type: "button", tabindex: "-1",
+    this._foot.replaceChildren(...(any ? [scEl("button", { class: "dropdown-menu-item sc-filter-clear", type: "button", tabindex: "-1",
       onclick: () => this.dispatchEvent(new CustomEvent("sc-filter-clear")) }, icon("x", "sc-svg"), "Clear filters")] : []));
     if (focused) { const f = this.querySelector(`[data-key="${CSS.escape(focused)}"]`); if (f) f.focus(); }
   }
@@ -189,3 +189,48 @@ class ScFilterList extends HTMLElement {
 
 customElements.define("sc-menu", ScMenu);
 customElements.define("sc-filter-list", ScFilterList);
+
+
+// ---------- Tooltip (shadcn.css .tooltip) ----------
+// Every title="…" in the app shows as a shadcn Tooltip: on hover or keyboard focus the title moves into
+// data-tooltip (so the browser's own tooltip never appears) and one shared .tooltip is placed above the element.
+// Code that sets .title again later (status text, the account email) just works: it's picked up on the next hover.
+const scTooltip = (() => {
+  const tip = scEl("div", { class: "tooltip", role: "tooltip", hidden: "" });
+  let owner = null;
+  const GAP = 4 + 5;  // shadcn's sideOffset (4px) plus the arrow
+  function textOf(el) {
+    if (el.hasAttribute("title")) {
+      const t = el.getAttribute("title");
+      el.removeAttribute("title");
+      if (t) el.dataset.tooltip = t; else delete el.dataset.tooltip;
+      if (t && !el.hasAttribute("aria-label") && !el.textContent.trim()) el.setAttribute("aria-label", t);
+    }
+    return el.dataset.tooltip || "";
+  }
+  function show(el) {
+    const text = textOf(el);
+    if (!text) return hide();
+    if (!tip.isConnected) document.body.append(tip);
+    owner = el;
+    tip.textContent = text;
+    tip.hidden = false;
+    const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+    const side = r.top - t.height - GAP >= 4 ? "top" : "bottom";
+    const left = Math.min(Math.max(4, r.left + r.width / 2 - t.width / 2), innerWidth - t.width - 4);
+    tip.dataset.side = side;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${side === "top" ? r.top - t.height - GAP : r.bottom + GAP}px`;
+    tip.style.setProperty("--tooltip-arrow-x", `${r.left + r.width / 2 - left}px`);
+  }
+  function hide() { owner = null; tip.hidden = true; }
+  const target = (e) => e.target instanceof Element ? e.target.closest("[title], [data-tooltip]") : null;
+  document.addEventListener("mouseover", (e) => { const el = target(e); if (el !== owner) el ? show(el) : hide(); });
+  document.addEventListener("focusin", (e) => { const el = target(e); if (el && el.matches(":focus-visible")) show(el); });
+  document.addEventListener("focusout", hide);
+  document.addEventListener("pointerdown", hide, true);
+  document.addEventListener("scroll", hide, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && owner) hide(); });
+  window.addEventListener("blur", hide);
+  return { show, hide };
+})();

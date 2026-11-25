@@ -12,6 +12,9 @@
      Input    bases/base/ui/input.tsx  + styles/style-nova.css (.cn-input)
      Textarea bases/base/ui/textarea.tsx + styles/style-nova.css (.cn-textarea)
      Tabs     bases/base/ui/tabs.tsx   + styles/style-nova.css (.cn-tabs*)
+     Dropdown Menu  bases/base/ui/dropdown-menu.tsx + styles/style-nova.css (.cn-dropdown-menu*)
+     Dialog   bases/base/ui/dialog.tsx + styles/style-nova.css (.cn-dialog*)
+     Tooltip  bases/base/ui/tooltip.tsx + styles/style-nova.css (.cn-tooltip*)
 
    Rules:
    - Use these components for every button (and, as they're added, cards, badges, menus…).
@@ -23,11 +26,13 @@
 /* ---------- Reset ----------
    shadcn assumes Tailwind's reset (preflight), which this app doesn't have. This does the same job for
    the components in this file only, so the app's global rules (h1, label, small, p margins…) can't leak in. */
-:where(.btn, .badge, .switch, .tabs-list), :where(.btn, .badge, .switch, .tabs-list) *, :where(.btn) *::before, :where(.btn) *::after {
+:where(.btn, .badge, .switch, .tabs-list, .dropdown-menu), :where(.btn, .badge, .switch, .tabs-list, .dropdown-menu) *, :where(.btn) *::before, :where(.btn) *::after {
   box-sizing: border-box; margin: 0; border: 0 solid;
 }
 /* Form controls: same job as Tailwind's preflight for inputs */
 :where(.input, .textarea) { box-sizing: border-box; margin: 0; font: inherit; color: inherit; }
+/* A Dialog's own parts only (the browser gives <dialog> padding, a border and a max size) */
+:where(.dialog, .dialog-header, .dialog-title, .dialog-description, .dialog-footer) { box-sizing: border-box; margin: 0; border: 0 solid; }
 /* A Card's own parts only, not what's inside them: the app's content inside a card keeps its spacing. */
 :where(.card, .card-header, .card-title, .card-description, .card-action, .card-content, .card-footer) {
   box-sizing: border-box; margin: 0; border: 0 solid;
@@ -255,3 +260,92 @@ a.badge-destructive:hover { background-color: color-mix(in srgb, var(--destructi
   .tabs-trigger[aria-selected="true"] { border-color: var(--input); background-color: color-mix(in srgb, var(--input) 30%, transparent); }
   .tabs-line .tabs-trigger[aria-selected="true"] { border-color: transparent; background-color: transparent; }
 }
+
+/* ---------- Dropdown Menu ----------
+   <div class="dropdown-menu" role="menu">
+     <div class="dropdown-menu-label">…</div>
+     <button class="dropdown-menu-item" role="menuitem">[icon] Label <span class="dropdown-menu-shortcut">⌘K</span></button>
+     <button class="dropdown-menu-item" data-variant="destructive" role="menuitem">Delete</button>
+     <div class="dropdown-menu-separator" role="separator"></div>
+   </div>
+   Opening, placement, outside-click and Escape are in the app's JS (<sc-menu>, the account menu). */
+.dropdown-menu {
+  z-index: 50; min-width: 128px; padding: var(--space-1); overflow: hidden auto;
+  border-radius: var(--radius-lg); background-color: var(--popover); color: var(--popover-foreground);
+  box-shadow: var(--shadow-menu), 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);
+  animation: sc-pop-in var(--duration-fast) var(--ease-out);
+}
+.dropdown-menu[hidden] { display: none; }
+.dropdown-menu-item {
+  position: relative; display: flex; align-items: center; gap: var(--space-1-5); width: 100%;
+  padding: var(--space-1) var(--space-1-5); border-radius: var(--radius-md); background: transparent;
+  font-size: var(--text-md); line-height: 20px; text-align: left; color: inherit;
+  cursor: default; user-select: none; -webkit-user-select: none; outline: none;
+}
+.dropdown-menu-item:hover, .dropdown-menu-item:focus-visible, .dropdown-menu-item[aria-expanded="true"] {
+  background-color: var(--accent); color: var(--accent-foreground); }
+.dropdown-menu-item:disabled, .dropdown-menu-item[aria-disabled="true"] { pointer-events: none; opacity: .5; }
+.dropdown-menu-item svg { pointer-events: none; flex-shrink: 0; }
+.dropdown-menu-item svg:not([class*="size-"]) { width: 16px; height: 16px; }
+.dropdown-menu-item[data-variant="destructive"], .dropdown-menu-item[data-variant="destructive"] svg { color: var(--destructive); }
+.dropdown-menu-item[data-variant="destructive"]:hover, .dropdown-menu-item[data-variant="destructive"]:focus-visible {
+  background-color: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
+.dropdown-menu-label { padding: var(--space-1) var(--space-1-5); color: var(--muted-foreground);
+                       font-size: var(--text-sm); font-weight: var(--font-weight-medium); }
+.dropdown-menu-separator { height: 1px; margin: var(--space-1) calc(-1 * var(--space-1)); background-color: var(--border); }
+.dropdown-menu-shortcut { margin-left: auto; color: var(--muted-foreground); font-size: var(--text-sm); letter-spacing: .1em; }
+@media (prefers-color-scheme: dark) {
+  .dropdown-menu-item[data-variant="destructive"]:hover, .dropdown-menu-item[data-variant="destructive"]:focus-visible {
+    background-color: color-mix(in srgb, var(--destructive) 20%, transparent); }
+}
+
+/* ---------- Dialog ----------
+   <dialog class="dialog">                      (opened with showModal(): focus, Escape and the backdrop come from the browser)
+     <div class="dialog-header"><h2 class="dialog-title">…</h2><p class="dialog-description">…</p></div>
+     …
+     <div class="dialog-footer"><button class="btn btn-outline">Cancel</button><button class="btn">OK</button></div>
+   </dialog> */
+.dialog[open] {
+  position: fixed; inset: 0; margin: auto; height: fit-content;  /* centered (shadcn: fixed top-1/2 left-1/2) */
+  display: grid; gap: var(--space-4); width: 100%; max-width: min(calc(100% - 32px), 384px); max-height: none;
+  padding: var(--space-4); border: 0; border-radius: var(--radius-xl); outline: none;
+  background-color: var(--popover); color: var(--popover-foreground); font-size: var(--text-md);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);
+  animation: sc-pop-in var(--duration-fast) var(--ease-out);
+}
+.dialog::backdrop { background-color: var(--dialog-overlay); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+.dialog > form { display: contents; }  /* <form method="dialog"> wrappers don't break the grid */
+.dialog-header { display: flex; flex-direction: column; gap: var(--space-2); }
+.dialog-title { font-size: var(--text-lg); line-height: var(--leading-none); font-weight: var(--font-weight-medium); }
+.dialog-description { color: var(--muted-foreground); font-size: var(--text-md); }
+.dialog-description a { text-decoration: underline; text-underline-offset: 3px; }
+.dialog-description a:hover { color: var(--foreground); }
+.dialog-footer {
+  display: flex; flex-direction: column-reverse; gap: var(--space-2);
+  margin: 0 calc(-1 * var(--space-4)) calc(-1 * var(--space-4)); padding: var(--space-4);
+  border-top: 1px solid var(--border); border-bottom-left-radius: var(--radius-xl); border-bottom-right-radius: var(--radius-xl);
+  background-color: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+@media (min-width: 640px) { .dialog-footer { flex-direction: row; justify-content: flex-end; } }
+
+/* ---------- Tooltip ----------
+   Any element with a title="…" gets this instead of the browser's tooltip (components.js moves the title into
+   data-tooltip on hover or keyboard focus and draws one .tooltip at a time). It opens above, or below if there's no room. */
+.tooltip {
+  position: fixed; z-index: 60; width: fit-content; max-width: 320px; pointer-events: none;
+  display: inline-flex; align-items: center; gap: var(--space-1-5);
+  padding: var(--space-1-5) var(--space-3); border-radius: var(--radius-md);
+  background-color: var(--foreground); color: var(--background);
+  font-size: var(--text-sm); line-height: 16px; white-space: normal; text-align: left;
+  animation: sc-pop-in var(--duration-fast) var(--ease-out);
+}
+.tooltip[hidden] { display: none; }
+.tooltip::after {  /* the arrow: a 10px square turned 45°, half showing */
+  content: ""; position: absolute; left: var(--tooltip-arrow-x); width: 10px; height: 10px; z-index: -1;
+  border-radius: var(--radius-2xs); background-color: var(--foreground); transform: translateX(-50%) rotate(45deg);
+}
+.tooltip[data-side="top"]::after { bottom: -3px; }
+.tooltip[data-side="bottom"]::after { top: -3px; }
+
+/* shadcn's open animation (fade-in-0 zoom-in-95) */
+@keyframes sc-pop-in { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: none; } }

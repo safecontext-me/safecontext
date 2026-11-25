@@ -111,19 +111,11 @@ code { font: var(--text-sm) var(--font-mono); word-break: break-all; }
                background: var(--primary); color: var(--primary-foreground); font-size: var(--text-xs); font-weight: var(--font-weight-semibold); }
 .acct-email { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct-chev { color: var(--muted-foreground); width: 14px; height: 14px; }
-.acct-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 20; background: var(--card);
-             border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-1-5);
-             box-shadow: var(--shadow-popover); }
-.acct-menu[hidden] { display: none; }
-.acct-menu-email { color: var(--muted-foreground); font-size: var(--text-sm); padding: var(--space-1-5) var(--space-2) var(--space-1); overflow: hidden; text-overflow: ellipsis; }
-.acct-menu-sep { height: 1px; background: var(--border); margin: var(--space-1-5) var(--space-0-5); }
-.acct-menu button { display: flex; align-items: center; gap: var(--space-2); width: 100%; font: inherit; font-size: var(--text-base);
-                    color: var(--foreground); background: transparent; border: 0; border-radius: var(--radius-sm); padding: var(--space-2) var(--space-2);
-                    cursor: pointer; text-align: left; }
-.acct-menu button:hover { background: var(--hover); }
-.acct-menu button:focus-visible { background: var(--active); outline: none; }
-.acct-menu button.active { font-weight: var(--font-weight-semibold); }
-.sync { flex: none; margin-top: auto; cursor: pointer; }  /* a small Card (shadcn.css); margin-top: auto pins it to the bottom of the sidebar */  /* margin-top: auto pins it to the bottom of the sidebar */
+/* the account menu: a Dropdown Menu (shadcn.css) opening above the account button */
+.acct-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); }
+.acct-menu-email { overflow: hidden; text-overflow: ellipsis; }
+.acct-menu .dropdown-menu-item.active { font-weight: var(--font-weight-semibold); }
+.sync { flex: none; margin-top: auto; cursor: pointer; }  /* a small Card (shadcn.css); margin-top: auto pins it to the bottom of the sidebar */
 .sync:hover { background-image: linear-gradient(var(--hover), var(--hover)); }  /* the hover wash over the card */
 .sync-line { display: flex; align-items: center; gap: var(--space-2); font-weight: var(--font-weight-semibold); font-size: var(--text-base); }
 .sync-more { margin-left: auto; color: var(--muted-foreground); font-weight: var(--font-weight-regular); font-size: var(--text-base); line-height: var(--leading-none); }
@@ -238,10 +230,9 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .kv { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-2-5); margin: 0 0 var(--space-2-5); }
 .kv dt { color: var(--muted-foreground); }
 .kv dd { margin: 0; }
-.approve { width: min(420px, 92vw); padding: 0; }
-.approve-body { padding: var(--space-6) var(--space-6); text-align: center; }
-.approve-code { font: var(--font-weight-semibold) var(--text-display)/var(--leading-none) var(--font-mono); letter-spacing: .2em; margin: var(--space-5) 0 var(--space-1-5); }
-.approve .actions { justify-content: center; margin-top: var(--space-5); }
+/* the Approve dialog: a Dialog (shadcn.css) with the 4-digit code in the middle */
+.approve-check { text-align: center; }
+.approve-code { font: var(--font-weight-semibold) var(--text-display)/var(--leading-none) var(--font-mono); letter-spacing: .2em; margin: var(--space-2) 0 var(--space-2-5); }
 
 /* ---------- sources ---------- */
 .source-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--space-2-5); margin-top: var(--space-4); }
@@ -360,9 +351,7 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .code { background: var(--background); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3);
         overflow: auto; font: var(--text-sm) var(--font-mono); margin: var(--space-2-5) 0; }
 
-dialog { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); color: var(--foreground);
-         padding: var(--space-5); max-width: 420px; }
-dialog::backdrop { background: var(--overlay); }
+/* Dialogs are shadcn's Dialog: see shadcn.css (.dialog, .dialog-header, .dialog-footer…). */
 
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--foreground);
          color: var(--background); padding: var(--space-2) var(--space-3-5); border-radius: var(--radius-md); font-size: var(--text-base); }

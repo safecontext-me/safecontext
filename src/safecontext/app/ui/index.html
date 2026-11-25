@@ -121,14 +121,14 @@
     </div></div>
     <!-- Account: at the bottom of the sidebar; the email opens a menu with Sync status and Settings (app.js) -->
     <div class="acct">
-      <div class="acct-menu" id="acct-menu" role="menu" aria-label="Account" hidden>
-        <div class="acct-menu-email" id="acct-menu-email"></div>
-        <div class="acct-menu-sep" role="separator"></div>
-        <button role="menuitem" data-menu-view="sync">
+      <div class="dropdown-menu acct-menu" id="acct-menu" role="menu" aria-label="Account" hidden>
+        <div class="dropdown-menu-label acct-menu-email" id="acct-menu-email"></div>
+        <div class="dropdown-menu-separator" role="separator"></div>
+        <button class="dropdown-menu-item" role="menuitem" data-menu-view="sync">
           <svg class="nav-svg" data-lucide="refresh-cw"></svg>
           Sync status
         </button>
-        <button role="menuitem" data-menu-view="settings">
+        <button class="dropdown-menu-item" role="menuitem" data-menu-view="settings">
           <svg class="nav-svg" data-lucide="settings"></svg>
           Settings
         </button>
@@ -407,26 +407,28 @@
   </main>
 </div>
 
-<dialog id="confirm">
+<dialog id="confirm" class="dialog">
   <form method="dialog">
-    <p id="confirm-text"></p>
-    <div class="actions">
+    <div class="dialog-header"><h2 class="dialog-title" id="confirm-title">Are you sure?</h2><p class="dialog-description" id="confirm-text"></p></div>
+    <div class="dialog-footer">
       <button class="btn btn-outline" value="cancel">Cancel</button>
       <button class="btn btn-destructive" value="ok" id="confirm-ok">Delete</button>
     </div>
   </form>
 </dialog>
 
-<dialog id="mcp-approve" class="approve">
-  <div class="approve-body">
-    <h2><span id="ga-title">An AI app</span> wants to connect</h2>
-    <p class="muted"><span id="ga-client">It</span> is asking for read-only access to your scrubbed mail and calendar.</p>
+<dialog id="mcp-approve" class="dialog approve">
+  <div class="dialog-header">
+    <h2 class="dialog-title"><span id="ga-title">An AI app</span> wants to connect</h2>
+    <p class="dialog-description"><span id="ga-client">It</span> is asking for read-only access to your scrubbed mail and calendar.</p>
+  </div>
+  <div class="approve-check">
     <p class="approve-code" id="ga-code"></p>
     <p class="hint">Check that the page in your browser shows the same number.</p>
-    <div class="actions">
-      <button class="btn btn-outline" id="ga-deny">Deny</button>
-      <button class="btn" id="ga-ok">Approve</button>
-    </div>
+  </div>
+  <div class="dialog-footer">
+    <button class="btn btn-outline" id="ga-deny">Deny</button>
+    <button class="btn" id="ga-ok">Approve</button>
   </div>
 </dialog>
 

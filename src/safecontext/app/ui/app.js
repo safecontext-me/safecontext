@@ -106,9 +106,11 @@ function toast(msg) {
   toast._t = setTimeout(() => (t.hidden = true), 2600);
 }
 
+// A Dialog (shadcn.css) asking to confirm a destructive action: the title is the action ("Disconnect?"), the text says what happens.
 function confirmDialog(text, okLabel) {
   return new Promise((resolve) => {
     const d = $("confirm");
+    $("confirm-title").textContent = `${okLabel}?`;
     $("confirm-text").textContent = text;
     $("confirm-ok").textContent = okLabel;
     d.addEventListener("close", () => resolve(d.returnValue === "ok"), { once: true });
@@ -491,7 +493,7 @@ function sourceTile(x) {
 // A connected source's ⋯ menu on its page: Disconnect lives here, not as a button, so it's harder to hit by accident.
 function sourceMoreMenu(x) {
   const menu = el("sc-menu", { icon: "ellipsis", size: "icon", label: `More options for ${x.name}`, align: "end", compact: "" },
-    el("button", { class: "sc-item danger", role: "menuitem", onclick: () => { menu.hide(); disconnectSource(x); } }, "Disconnect"));
+    el("button", { class: "dropdown-menu-item", "data-variant": "destructive", role: "menuitem", onclick: () => { menu.hide(); disconnectSource(x); } }, "Disconnect"));
   return menu;
 }
 
