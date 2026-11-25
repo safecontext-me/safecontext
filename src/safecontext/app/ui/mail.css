@@ -8,10 +8,7 @@
 .mail-search input { flex: 1 1 auto; padding-left: var(--space-8); padding-right: var(--space-16); }  /* an Input (shadcn.css) with room for the icon and keys */
 .mail-search input::-webkit-search-cancel-button { display: none; }
 .mail-search-ico { width: 14px; height: 14px; position: absolute; left: 11px; color: var(--muted-foreground); pointer-events: none; }
-.mail-search-keys { position: absolute; right: 8px; display: flex; gap: var(--space-1); pointer-events: none; }
-.mail-search-keys kbd { font: var(--text-xs) var(--font-sans); color: var(--muted-foreground);
-                        min-width: 18px; height: 18px; display: grid; place-items: center; padding: 0 var(--space-1); margin: 0;
-                        border: 1px solid var(--border); border-radius: var(--radius-xs); background: transparent; }
+.mail-search-keys { position: absolute; right: 8px; pointer-events: none; }  /* a .kbd-group (shadcn.css) */
 .mail-search:focus-within .mail-search-keys { display: none; }  /* hide the hint while typing */
 
 /* All mail / Synced / Not synced tabs at the top of the message list; reason dropdown below them on Not synced */
@@ -24,8 +21,7 @@
                    font-size: var(--text-base); font-weight: var(--font-weight-semibold);
                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mail-tools { margin-left: auto; align-self: center; display: flex; gap: var(--space-0-5); }
-kbd { font: var(--text-xs) var(--font-mono); border: 1px solid var(--border); border-bottom-width: 2px;
-      border-radius: var(--radius-xs); padding: 0 var(--space-1); margin: 0 1px; background: var(--card); color: var(--foreground); }
+
 
 /* coverage, shown per source on the Sync status page */
 .coverage { display: grid; gap: var(--space-3-5); }
@@ -57,7 +53,6 @@ kbd { font: var(--text-xs) var(--font-mono); border: 1px solid var(--border); bo
 .cov-detail .bar-row { cursor: pointer; font-size: var(--text-sm); border-radius: var(--radius-sm); padding: var(--space-0-5) var(--space-1); margin: 0 calc(var(--space-1) * -1); }
 .cov-detail .bar-row:hover span:first-child, .cov-detail .bar-row:focus-visible span:first-child { color: var(--primary); }
 .cov-detail .bar-row:focus-visible { outline: 2px solid var(--primary); }
-.cov-warn { color: var(--destructive); margin: 0; font-size: var(--text-sm); }
 
 /* panes */
 /* The list and reader fill the page panel edge to edge with one divider between them (no boxes of their own).

@@ -83,7 +83,7 @@ class ScFilterList extends HTMLElement {
     this._fly = scEl("div", { class: "dropdown-menu sc-filter-fly", role: "menu", hidden: "" });
     this._foot = scEl("div", { class: "sc-filter-foot" });
     const hotkey = this.getAttribute("hotkey");
-    this.append(scEl("div", { class: "sc-filter-head" }, this._input, hotkey ? scEl("kbd", {}, hotkey) : null),
+    this.append(scEl("div", { class: "sc-filter-head" }, this._input, hotkey ? scEl("kbd", { class: "kbd" }, hotkey) : null),
       this._list, this._foot, this._fly);
     this._input.addEventListener("input", () => { this._open = null; this.render(); });
     this.addEventListener("keydown", (e) => this._keys(e));

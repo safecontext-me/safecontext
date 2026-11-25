@@ -30,11 +30,13 @@
         <h2>SafeContext</h2>
         <p class="muted">Your private context layer</p>
       </div>
-      <div class="card onboard-card"><div class="card-content">
-        <label class="field"><span>Email</span>
-          <input class="input" id="ob-email" type="email" placeholder="you@gmail.com" autocomplete="off"></label>
+      <div class="card onboard-card"><div class="card-content field-group">
+        <div class="field">
+          <label class="field-label" for="ob-email">Email</label>
+          <input class="input" id="ob-email" type="email" placeholder="you@gmail.com" autocomplete="off">
+        </div>
         <button id="ob-connect" class="btn btn-lg">Connect Gmail</button>
-        <p class="error" id="ob-error" hidden></p>
+        <div class="alert alert-destructive" role="alert" id="ob-error" hidden><svg data-lucide="circle-exclamation-point"></svg><div class="alert-title" data-alert-text></div></div>
       </div></div>
       <p class="hint ob-foot" id="ob-hint">Google will warn that this app isn't verified. That's expected for a small app like this: click <b>Advanced</b>, then <b>Go to SafeContext</b>.</p>
     </div>
@@ -71,10 +73,10 @@
     </div>
     <!-- Search: results drop down under the field; a page opens only when one is chosen (mail.js searchInit) -->
     <div class="header-search">
-      <label class="mail-search" title="⌘K to search from anywhere · ↑ ↓ to pick a result · Enter to open it · Esc to close">
+      <label class="mail-search">
         <svg class="nav-svg mail-search-ico" data-lucide="search"></svg>
         <input class="input" id="mail-q" type="search" placeholder="Search" aria-label="Search mail" aria-controls="search-results" aria-autocomplete="list" autocomplete="off">
-        <span class="mail-search-keys" aria-hidden="true"><kbd>⌘</kbd><kbd>K</kbd></span>
+        <span class="kbd-group mail-search-keys" aria-hidden="true"><kbd class="kbd">⌘</kbd><kbd class="kbd">K</kbd></span>
       </label>
       <div class="search-results" id="search-results" role="listbox" aria-label="Search results" hidden></div>
     </div>
@@ -142,16 +144,21 @@
   </aside>
 
   <main class="main">
-    <div id="banner" class="banner" hidden>
-      <span id="banner-text"></span>
-      <button class="btn btn-sm" id="reconnect">Reconnect Gmail</button>
+    <!-- Window-wide notices at the top of the page: Alerts (shadcn.css) with their buttons under the message -->
+    <div id="banner" class="alert alert-warning page-alert" role="alert" hidden>
+      <svg data-lucide="triangle-exclamation-point"></svg>
+      <div class="alert-title" id="banner-text"></div>
+      <div class="alert-description page-alert-actions">
+        <button class="btn btn-sm" id="reconnect">Reconnect Gmail</button>
+      </div>
     </div>
-    <div id="update-banner" class="banner info" hidden>
-      <span id="update-banner-text"></span>
-      <span class="actions">
-        <button class="btn btn-outline btn-sm" id="update-later">Later</button>
+    <div id="update-banner" class="alert page-alert" role="status" hidden>
+      <svg data-lucide="refresh-cw"></svg>
+      <div class="alert-title" id="update-banner-text"></div>
+      <div class="alert-description page-alert-actions">
         <button class="btn btn-sm" id="update-now">Update and restart</button>
-      </span>
+        <button class="btn btn-outline btn-sm" id="update-later">Later</button>
+      </div>
     </div>
 
     <!-- Sources -->
@@ -169,7 +176,7 @@
         <button class="btn" id="files-add-folder">Add folder</button>
         <button class="btn btn-outline" id="files-add-file">Add PDF</button>
       </div>
-      <p class="error" id="files-error" hidden></p>
+      <div class="alert alert-destructive" role="alert" id="files-error" hidden><svg data-lucide="circle-exclamation-point"></svg><div class="alert-title" data-alert-text></div></div>
       <div class="card setting">
         <div class="card-header"><div class="card-title">Added</div></div><div class="card-content">
         <div id="files-entries"></div>
@@ -210,20 +217,22 @@
             <button class="btn btn-sm" id="mcp-link-copy">Copy link</button>
           </div>
           <div class="mcp-opts">
-            <label class="check"><input type="checkbox" id="mcp-awake"> Keep Mac awake while plugged in</label>
-            <button class="linkish" id="mcp-regen">Regenerate link</button>
-            <button class="linkish" id="mcp-activity-btn">Activity</button>
-            <button class="linkish" id="mcp-help-btn">Trouble connecting?</button>
+            <label class="field" data-orientation="horizontal"><input type="checkbox" class="checkbox" id="mcp-awake"><span class="field-label">Keep Mac awake while plugged in</span></label>
+            <button class="btn btn-link" id="mcp-regen">Regenerate link</button>
+            <button class="btn btn-link" id="mcp-activity-btn">Activity</button>
+            <button class="btn btn-link" id="mcp-help-btn">Trouble connecting?</button>
           </div>
           <div class="mcp-activity" id="mcp-activity" hidden>
-            <div class="mcp-sub-head"><span>What AI apps asked for</span><button class="linkish" id="mcp-clear">Clear</button></div>
+            <div class="mcp-sub-head"><span>What AI apps asked for</span><button class="btn btn-link" id="mcp-clear">Clear</button></div>
             <ul id="mcp-activity-list"></ul>
             <p class="hint">Only the time, the request and how many results are kept here. The results themselves aren't saved.</p>
           </div>
           <div class="mcp-help" id="mcp-help" hidden>
             <p>If an app asks for OAuth details, use Client ID <code>safecontext</code>, leave the secret blank, and these endpoints:</p>
             <dl class="kv"><dt>Authorization</dt><dd><code id="mcp-auth-url"></code></dd><dt>Token</dt><dd><code id="mcp-token-url"></code></dd></dl>
-            <label class="check"><input type="checkbox" class="link-only-box"> Let apps connect with just the link (no Approve step). Anyone with the link can then search your scrubbed data, so keep it private.</label>
+            <label class="field" data-orientation="horizontal"><input type="checkbox" class="checkbox link-only-box">
+              <span class="field-content"><span class="field-label">Let apps connect with just the link (no Approve step)</span>
+                <span class="field-description">Anyone with the link can then search your scrubbed data, so keep it private.</span></span></label>
           </div>
 
           <div class="mcp-howto">
@@ -259,7 +268,9 @@
                 <li>In Muse, ask it to set up a custom connector for this MCP server, and paste your link.</li>
                 <li>Follow Muse's steps to finish. Then ask Muse about your mail or calendar.</li>
               </ol>
-              <label class="check"><input type="checkbox" class="link-only-box"> Connect with just the link. Anyone with the link can search your scrubbed data, so keep it private.</label>
+              <label class="field" data-orientation="horizontal"><input type="checkbox" class="checkbox link-only-box">
+                <span class="field-content"><span class="field-label">Connect with just the link</span>
+                  <span class="field-description">Anyone with the link can search your scrubbed data, so keep it private.</span></span></label>
               <p class="mcp-soon">Signing in with Approve is coming for Muse.</p>
             </div>
           </div>
@@ -300,17 +311,25 @@
         <div class="card-header"><div class="card-title">What gets removed from files</div><div class="card-description">These rules run when SafeContext reads text out of a PDF or another file on this Mac. The built-in ones always run. A pattern you add runs after them. Mail and calendar keep the scrubber they already use.</div></div><div class="card-content">
         <ul class="scrub-builtin" id="scrub-builtin"></ul>
         <div id="scrub-patterns"></div>
-        <form id="scrub-add" class="scrub-add">
-          <label class="field">Name
-            <input class="input" id="scrub-name" maxlength="40" autocomplete="off" placeholder="Employee ID"></label>
-          <label class="field">Pattern
-            <input class="input" id="scrub-pattern" maxlength="200" spellcheck="false" autocomplete="off" placeholder="EMP-\d{4}"></label>
-          <button class="btn" type="submit">Add pattern</button>
+        <form id="scrub-add" class="field-group scrub-add">
+          <div class="field">
+            <label class="field-label" for="scrub-name">Name</label>
+            <input class="input" id="scrub-name" maxlength="40" autocomplete="off" placeholder="Employee ID">
+          </div>
+          <div class="field">
+            <label class="field-label" for="scrub-pattern">Pattern</label>
+            <input class="input" id="scrub-pattern" maxlength="200" spellcheck="false" autocomplete="off" placeholder="EMP-\d{4}">
+          </div>
+          <div class="field" data-orientation="horizontal"><button class="btn" type="submit">Add pattern</button></div>
         </form>
-        <label class="field">Try a sample. It is not saved.
-          <textarea class="textarea" id="scrub-sample" rows="3" maxlength="4000" placeholder="Paste an example of the text a file would contain"></textarea>
-        </label>
-        <button class="btn btn-outline" type="button" id="scrub-try">See what would be removed</button>
+        <div class="field-group scrub-try-group">
+          <div class="field">
+            <label class="field-label" for="scrub-sample">Try a sample</label>
+            <textarea class="textarea" id="scrub-sample" rows="3" maxlength="4000" placeholder="Paste an example of the text a file would contain"></textarea>
+            <p class="field-description">It is not saved.</p>
+          </div>
+          <div class="field" data-orientation="horizontal"><button class="btn btn-outline" type="button" id="scrub-try">See what would be removed</button></div>
+        </div>
         <div id="scrub-preview" class="scrub-preview" hidden></div>
       </div></div>
     </section>
@@ -349,7 +368,7 @@
         <div class="row"><span class="muted">Version</span><span id="u-current">—</span></div>
         <div class="row"><span class="muted">Status</span><span id="u-state">—</span></div>
         <p class="hint" id="u-notes" hidden></p>
-        <label class="u-auto"><input type="checkbox" id="u-auto"> Check for updates automatically (once a day)</label>
+        <label class="field u-auto" data-orientation="horizontal"><input type="checkbox" class="checkbox" id="u-auto"><span class="field-label">Check for updates automatically (once a day)</span></label>
         <div class="actions">
           <button class="btn btn-outline" id="u-check">Check for updates</button>
           <button class="btn" id="u-install" hidden>Update and restart</button>
@@ -373,13 +392,16 @@
                   <sc-menu id="mail-filter" icon="list-filter" label="Filter" hotkey="F">
                     <sc-filter-list id="mail-filter-list" hotkey="F"></sc-filter-list>
                   </sc-menu>
-                  <sc-menu id="mail-display" icon="sliders-horizontal" label="Display options">
+                  <sc-menu id="mail-display" icon="settings-2" label="Display options">
                     <div class="sc-section">
                       <label class="sc-row">Ordering
-                        <select id="mail-order" class="sc-select">
-                          <option value="newest">Newest first</option>
-                          <option value="oldest">Oldest first</option>
-                        </select>
+                        <div class="native-select" data-size="sm">
+                          <select id="mail-order">
+                            <option value="newest">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                          </select>
+                          <svg class="native-select-icon" data-lucide="chevron-down"></svg>
+                        </div>
                       </label>
                     </div>
                   </sc-menu>
@@ -476,7 +498,7 @@
 <path fill="#fff" fill-rule="evenodd" d="M68.772 55.603c-1.378-3.061-2.828-3.123-4.137-3.176l-3.524-.043c-1.226 0-3.218.46-4.902 2.3s-6.435 6.287-6.435 15.332 6.588 17.785 7.506 19.013 12.718 20.381 31.405 27.75c15.529 6.124 18.689 4.906 22.061 4.6s10.877-4.447 12.408-8.74 1.532-7.971 1.073-8.74-1.685-1.226-3.525-2.146-10.877-5.367-12.562-5.981-2.91-.919-4.137.921-4.746 5.979-5.819 7.206-2.144 1.381-3.984.462-7.76-2.861-14.784-9.124c-5.465-4.873-9.154-10.891-10.228-12.73s-.114-2.835.808-3.751c.825-.824 1.838-2.147 2.759-3.22s1.224-1.84 1.836-3.065.307-2.301-.153-3.22-4.032-10.011-5.666-13.647"/>
 </svg></template>
 
-<div id="toast" class="toast" hidden></div>
+<ol class="toaster" id="toaster" aria-live="polite" aria-label="Notifications"></ol>
 <script src="icons.js"></script>
 <script src="components.js"></script>
 <script src="app.js"></script>

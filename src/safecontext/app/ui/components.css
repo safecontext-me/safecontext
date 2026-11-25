@@ -15,24 +15,22 @@ sc-menu { position: relative; display: inline-block; }
 .sc-menu-panel { position: absolute; top: calc(100% + 6px); left: 0; }
 sc-menu[align="end"] .sc-menu-panel { left: auto; right: 0; }
 sc-menu:not([compact]) .sc-menu-panel { min-width: 260px; padding: 0; }
+/* The filter menu's options open in a flyout beside the panel. A Dropdown Menu scrolls (overflow: auto), so
+   focusing an option in the flyout would scroll the panel sideways to it; this panel lets the flyout hang outside. */
+.sc-menu-panel:has(.sc-filter-fly) { overflow: visible; }
 
 /* rows inside a menu panel: a label on the left, a control on the right */
 .sc-section { padding: var(--space-1-5); }
 .sc-section + .sc-section { border-top: 1px solid var(--border); }
 .sc-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-1-5) var(--space-2);
           font-size: var(--text-base); color: var(--muted-foreground); }
-.sc-select { font: inherit; font-size: var(--text-base); color: var(--foreground); background: var(--background); border: 1px solid var(--border);
-             border-radius: var(--radius-md); padding: var(--space-1) var(--space-2); cursor: pointer; }
-.sc-select:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 
 /* ---------- <sc-filter-list> ---------- */
 sc-filter-list { display: block; position: relative; width: 280px; }
 .sc-filter-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2-5) var(--space-3); border-bottom: 1px solid var(--border); }
 .sc-filter-q { flex: 1; border: 0; background: transparent; padding: var(--space-0-5) 0; font-size: var(--text-base); }
 .sc-filter-q:focus { outline: none; }
-.sc-filter-head kbd { font: var(--text-xs) var(--font-sans); color: var(--muted-foreground);
-                      min-width: 20px; height: 20px; display: grid; place-items: center; padding: 0 var(--space-1);
-                      border: 1px solid var(--border); border-radius: var(--radius-xs); background: transparent; }
+
 .sc-filter-items, .sc-filter-foot { padding: var(--space-1); }
 .sc-filter-foot:empty { display: none; }
 .sc-filter-foot { border-top: 1px solid var(--border); }

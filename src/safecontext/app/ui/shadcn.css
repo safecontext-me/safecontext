@@ -15,6 +15,13 @@
      Dropdown Menu  bases/base/ui/dropdown-menu.tsx + styles/style-nova.css (.cn-dropdown-menu*)
      Dialog   bases/base/ui/dialog.tsx + styles/style-nova.css (.cn-dialog*)
      Tooltip  bases/base/ui/tooltip.tsx + styles/style-nova.css (.cn-tooltip*)
+     Checkbox bases/base/ui/checkbox.tsx + styles/style-nova.css (.cn-checkbox*)
+     Native Select  bases/base/ui/native-select.tsx + styles/style-nova.css (.cn-native-select*)
+     Field    bases/base/ui/field.tsx  + styles/style-nova.css (.cn-field*)
+     Label    bases/base/ui/label.tsx  + styles/style-nova.css (.cn-label)
+     Alert    bases/base/ui/alert.tsx  + styles/style-nova.css (.cn-alert*)
+     Kbd      bases/base/ui/kbd.tsx    + styles/style-nova.css (.cn-kbd*)
+     Sonner   bases/base/ui/sonner.tsx + styles/style-nova.css (.cn-toast) + the sonner library's own toast styles
 
    Rules:
    - Use these components for every button (and, as they're added, cards, badges, menus…).
@@ -30,7 +37,11 @@
   box-sizing: border-box; margin: 0; border: 0 solid;
 }
 /* Form controls: same job as Tailwind's preflight for inputs */
-:where(.input, .textarea) { box-sizing: border-box; margin: 0; font: inherit; color: inherit; }
+:where(.input, .textarea, .checkbox) { box-sizing: border-box; margin: 0; font: inherit; color: inherit; }
+:where(.field-group, .field, .field-content, .field-label, .field-description, .field-error, .label) { box-sizing: border-box; margin: 0; }
+:where(.alert, .alert-title, .alert-description, .alert-action) { box-sizing: border-box; margin: 0; }
+:where(.kbd, .kbd-group) { box-sizing: border-box; margin: 0; border: 0 solid; }
+:where(.toaster, .toast, .toast-title) { box-sizing: border-box; margin: 0; }
 /* A Dialog's own parts only (the browser gives <dialog> padding, a border and a max size) */
 :where(.dialog, .dialog-header, .dialog-title, .dialog-description, .dialog-footer) { box-sizing: border-box; margin: 0; border: 0 solid; }
 /* A Card's own parts only, not what's inside them: the app's content inside a card keeps its spacing. */
@@ -208,6 +219,97 @@ a.badge-destructive:hover { background-color: color-mix(in srgb, var(--destructi
   .switch:not(:has(> input:checked)) { background-color: color-mix(in srgb, var(--input) 80%, transparent); }
 }
 
+/* ---------- Checkbox ----------
+   <input type="checkbox" class="checkbox">
+   A native checkbox styled as shadcn's: a 16px rounded box that fills with --primary and shows Lucide's
+   check (14px) when checked. Put it in a label with its text; the label's layout lives with the screen. */
+.checkbox {
+  appearance: none; -webkit-appearance: none; position: relative; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border: 1px solid var(--input); border-radius: var(--radius-xs);
+  background-color: transparent; color: var(--primary-foreground); cursor: pointer; outline: none;
+  transition: background-color var(--duration-fast), border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+.checkbox:checked { background-color: var(--primary); border-color: var(--primary); }
+.checkbox:checked::after {
+  content: ""; width: 14px; height: 14px; background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.checkbox:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.checkbox:disabled { cursor: not-allowed; opacity: .5; }
+@media (prefers-color-scheme: dark) {
+  .checkbox:not(:checked) { background-color: color-mix(in srgb, var(--input) 30%, transparent); }
+}
+
+/* ---------- Native Select ----------
+   <div class="native-select" [data-size="sm"]>
+     <select>…</select><svg class="native-select-icon" data-lucide="chevron-down"></svg>
+   </div> */
+.native-select { position: relative; width: fit-content; }
+.native-select:has(select:disabled) { opacity: .5; }
+.native-select select {
+  box-sizing: border-box; width: 100%; min-width: 0; height: var(--control); margin: 0;
+  padding: var(--space-1) var(--space-8) var(--space-1) var(--space-2-5);
+  border: 1px solid var(--input); border-radius: var(--radius-lg); background: transparent;
+  color: var(--foreground); font: inherit; font-size: var(--text-md);
+  outline: none; appearance: none; -webkit-appearance: none; user-select: none; cursor: pointer;
+  transition: color var(--duration-fast), background-color var(--duration-fast), border-color var(--duration-fast);
+}
+.native-select select:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.native-select select:disabled { pointer-events: none; cursor: not-allowed; }
+.native-select[data-size="sm"] select { height: var(--control-sm); padding-top: var(--space-0-5); padding-bottom: var(--space-0-5);
+                                        border-radius: var(--radius-md); }
+.native-select option, .native-select optgroup { background: Canvas; color: CanvasText; }
+.native-select-icon { position: absolute; top: 50%; right: var(--space-2-5); width: 16px; height: 16px;
+                      color: var(--muted-foreground); pointer-events: none; user-select: none; transform: translateY(-50%); }
+@media (prefers-color-scheme: dark) {
+  .native-select select { background: color-mix(in srgb, var(--input) 30%, transparent); }
+}
+@media (prefers-color-scheme: dark) and (hover: hover) {
+  .native-select select:hover { background: color-mix(in srgb, var(--input) 50%, transparent); }
+}
+
+/* ---------- Field and Label ----------
+   <div class="field-group">                          a stack of fields, 20px apart
+     <div class="field">                              vertical: label, control, description, 8px apart
+       <label class="field-label" for="x">Email</label>
+       <input class="input" id="x">
+       <p class="field-description">…</p>
+     </div>
+     <label class="field" data-orientation="horizontal">   a checkbox (or switch) beside its label
+       <input type="checkbox" class="checkbox">
+       <span class="field-content">                   optional: a label with a description under it
+         <span class="field-label">…</span> <span class="field-description">…</span>
+       </span>
+     </label>
+   </div>
+   A standalone label is <label class="label">. Invalid field: data-invalid="true" on .field. */
+.field-group { display: flex; flex-direction: column; gap: var(--space-5); width: 100%; }
+.field-group > .field-group { gap: var(--space-4); }
+.field { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; }
+.field > :not(.checkbox, .switch) { width: 100%; }
+.field[data-invalid="true"] { color: var(--destructive); }
+.field[data-orientation="horizontal"] { flex-direction: row; align-items: center; }
+.field[data-orientation="horizontal"] > :not(.checkbox, .switch) { width: auto; }  /* a checkbox or switch keeps its own size */
+.field[data-orientation="horizontal"] > .field-label { flex: 1 1 auto; }
+.field[data-orientation="horizontal"]:has(> .field-content) { align-items: flex-start; }
+.field[data-orientation="horizontal"]:has(> .field-content) > .checkbox { margin-top: 1px; }
+.field-content { display: flex; flex: 1; flex-direction: column; gap: var(--space-0-5); line-height: 1.375; }
+.label, .field-label {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-md); font-weight: var(--font-weight-medium); line-height: 1; user-select: none; -webkit-user-select: none;
+}
+.field-label { width: fit-content; line-height: 1.375; }
+label.field, .field[data-orientation="horizontal"] .field-label { cursor: pointer; }
+.field:has(:disabled) .field-label, .label:has(+ :disabled) { opacity: .5; cursor: not-allowed; }
+.field-description { color: var(--muted-foreground); font-size: var(--text-md); font-weight: var(--font-weight-regular);
+                     line-height: 1.5; text-align: left; }
+.field-description:nth-last-child(2) { margin-top: calc(-1 * var(--space-1)); }
+.field-description:last-child { margin-top: 0; }
+.field-description > a { text-decoration: underline; text-underline-offset: 4px; }
+.field-error { color: var(--destructive); font-size: var(--text-md); font-weight: var(--font-weight-regular); }
+
 /* ---------- Input and Textarea ----------
    <input class="input">   <textarea class="textarea"></textarea> */
 .input, .textarea {
@@ -327,6 +429,70 @@ a.badge-destructive:hover { background-color: color-mix(in srgb, var(--destructi
   background-color: color-mix(in srgb, var(--muted) 50%, transparent);
 }
 @media (min-width: 640px) { .dialog-footer { flex-direction: row; justify-content: flex-end; } }
+
+/* ---------- Alert ----------
+   <div class="alert [alert-destructive]" role="alert">
+     <svg data-lucide="circle-exclamation-point"></svg>        optional icon, beside the title and description
+     <div class="alert-title">…</div>
+     <div class="alert-description">…</div>
+     <div class="alert-action">…</div>                         optional, pinned top right
+   </div> */
+.alert {
+  position: relative; display: grid; gap: var(--space-0-5); width: 100%;
+  padding: var(--space-2) var(--space-2-5); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background-color: var(--card); color: var(--card-foreground); font-size: var(--text-md); text-align: left;
+}
+.alert[hidden] { display: none; }
+.alert:has(> .alert-action) { padding-right: 72px; }
+.alert:has(> svg) { grid-template-columns: auto 1fr; column-gap: var(--space-2); }
+.alert > svg { grid-row: span 2; width: 16px; height: 16px; color: currentColor; transform: translateY(2px); }
+.alert-title { font-weight: var(--font-weight-medium); }
+.alert:has(> svg) > .alert-title, .alert:has(> svg) > .alert-description { grid-column: 2; }
+.alert-description { color: var(--muted-foreground); font-size: var(--text-md); text-wrap: pretty; }
+.alert-description p:not(:last-child) { margin-bottom: var(--space-4); }
+.alert-action { position: absolute; top: var(--space-2); right: var(--space-2); }
+.alert-destructive { color: var(--destructive); }
+.alert-destructive > .alert-description { color: color-mix(in srgb, var(--destructive) 90%, transparent); }
+/* SafeContext addition: a warning variant (missing permissions, a source that needs attention),
+   tinted like .badge-warning. */
+.alert-warning { background-color: var(--warning-subtle); border-color: var(--warning-border); color: var(--foreground); }
+.alert-warning > svg { color: var(--warning); }
+
+/* ---------- Kbd ----------
+   <kbd class="kbd">K</kbd>     a key;  <span class="kbd-group"><kbd class="kbd">⌘</kbd><kbd class="kbd">K</kbd></span>
+   shadcn's text-xs is 12px, which is this app's --text-sm. shadcn inverts a Kbd inside a Tooltip; this app's
+   tooltips use popover colors, so a Kbd there keeps its normal look. */
+.kbd {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1);
+  width: fit-content; min-width: 20px; height: 20px; padding: 0 var(--space-1); border-radius: var(--radius-sm);
+  background-color: var(--muted); color: var(--muted-foreground);
+  font-family: var(--font-sans); font-size: var(--text-sm); font-weight: var(--font-weight-medium); line-height: 1;
+  pointer-events: none; user-select: none; -webkit-user-select: none;
+}
+.kbd svg { width: 12px; height: 12px; }
+.kbd-group { display: inline-flex; align-items: center; gap: var(--space-1); }
+
+/* ---------- Sonner (toasts) ----------
+   <ol class="toaster" id="toaster" aria-live="polite"></ol>   once, in the page; app.js toast(msg, type) fills it.
+   <li class="toast" data-type="error"><svg data-lucide="octagon-x"></svg><div class="toast-title">…</div></li>
+   Sonner's defaults: bottom right, 24px from the edges, 356px wide, 4 seconds. shadcn's toast uses the popover
+   colors and Nova rounds it to rounded-2xl (the radius × 1.8). Icons (shadcn's): success circle-check,
+   error octagon-x, warning triangle-alert; a plain message has none. */
+.toaster {
+  position: fixed; right: 24px; bottom: 24px; z-index: 100; display: flex; flex-direction: column; gap: var(--space-3-5);
+  width: 356px; max-width: calc(100vw - 48px); padding: 0; list-style: none; pointer-events: none;
+}
+.toast {
+  display: flex; align-items: center; gap: var(--space-1-5); width: 100%; padding: var(--space-4);
+  border: 1px solid var(--border); border-radius: calc(var(--radius-lg) * 1.8);
+  background-color: var(--popover); color: var(--popover-foreground); box-shadow: var(--shadow-toast);
+  font-size: var(--text-base); pointer-events: auto;
+  animation: sc-toast-in var(--duration-slow) var(--ease-out);
+}
+.toast.leaving { opacity: 0; transform: translateY(8px); transition: opacity var(--duration-base), transform var(--duration-base); }
+.toast > svg { width: 16px; height: 16px; flex-shrink: 0; }
+.toast-title { font-weight: var(--font-weight-medium); line-height: 1.5; }
+@keyframes sc-toast-in { from { opacity: 0; transform: translateY(100%); } to { opacity: 1; transform: none; } }
 
 /* ---------- Tooltip ----------
    Any element with a title="…" gets this instead of the browser's tooltip (components.js moves the title into

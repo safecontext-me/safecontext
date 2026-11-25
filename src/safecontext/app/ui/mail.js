@@ -207,7 +207,8 @@ function mailCoverageCard(c) {
       (p.per_min ? ` · ${n(Math.round(p.per_min))}/min` : "")) : null));
   }
   card.append(tiles);
-  if (c.last_error) card.append(el("p", { class: "cov-warn" }, c.last_error));
+  if (c.last_error) card.append(el("div", { class: "alert alert-destructive", role: "alert" },
+    icon("circle-exclamation-point"), el("div", { class: "alert-title" }, c.last_error)));
 
   const reasons = el("div", { class: "bars" });
   bars(reasons, c.dropped_by_group);
@@ -289,7 +290,7 @@ async function mailMore() {
   if (gen !== mail.gen) return;
   mail.loading = false;
   if (r.ok) { mail.rows = mail.rows.concat(r.rows); mail.next = r.next; }
-  else { mail.next = null; toast(r.error); }
+  else { mail.next = null; toast(r.error, "error"); }
   mailRender();
 }
 

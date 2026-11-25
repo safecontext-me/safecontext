@@ -20,7 +20,6 @@ code { font: var(--text-sm) var(--font-mono); word-break: break-all; }
 
 /* ---------- buttons & inputs ---------- */
 /* Buttons, inputs, switches and tabs are shadcn components: see shadcn.css (.btn, .input, .textarea, .switch, .tabs-list…). */
-.error { color: var(--destructive); margin: var(--space-2-5) 0 0; }
 .hint { color: var(--muted-foreground); font-size: var(--text-sm); margin: var(--space-3) 0 0; }
 
 /* Cards have no border for now: the card fill on the page is the edge. */
@@ -41,7 +40,6 @@ code { font: var(--text-sm) var(--font-mono); word-break: break-all; }
 .ob-pitch-side { background: var(--background); border-left: 1px solid var(--page-border); }
 .ob-col { width: 100%; max-width: 420px; }
 .onboard-card { width: 100%; }
-.onboard-card .card-content { display: grid; gap: var(--space-3); }
 .onboard-card .btn { width: 100%; }  /* Connect Gmail spans the card */
 .ob-foot { text-align: center; margin: var(--space-4) var(--space-2) 0; }
 .ob-pitch { max-width: 460px; }
@@ -56,8 +54,6 @@ code { font: var(--text-sm) var(--font-mono); word-break: break-all; }
   .onboarding { grid-template-columns: 1fr; }
   .ob-pitch-side { display: none; }
 }
-.field { display: grid; gap: var(--space-1-5); margin-bottom: var(--space-4); }
-.field input { width: 100%; }
 
 /* ---------- shell ---------- */
 /* The window frame (--chrome) holds a header row across the top and the sidebar down the left. The page
@@ -174,11 +170,10 @@ code { font: var(--text-sm) var(--font-mono); word-break: break-all; }
 .view.page > h2 + p.muted, .view.page > .page-head + p.muted {
   margin-top: var(--space-2); margin-bottom: var(--space-8); line-height: var(--leading-normal); }
 .view.page > h2:not(:has(+ p.muted)) { margin-bottom: var(--space-8); }  /* a title with no description */
-.banner { display: flex; gap: var(--space-3); align-items: center; justify-content: space-between;
-          background: var(--warning-subtle); border-bottom: 1px solid var(--warning-border); padding: var(--space-2-5) var(--space-6); }
-.banner.info { background: var(--card); border-bottom-color: var(--border); }
-.banner .actions { display: flex; gap: var(--space-2); margin: 0; }
-.u-auto { display: flex; gap: var(--space-2); align-items: center; margin: var(--space-2-5) 0 0; }
+/* Window-wide Alerts at the top of the page (reconnect, update available): inset from the page edge */
+.page-alert { width: auto; margin: var(--space-3) var(--space-3) 0; flex: none; }
+.page-alert-actions { display: flex; gap: var(--space-2); margin-top: var(--space-1-5); }
+.u-auto { margin-top: var(--space-2-5); }
 
 /* ---------- reader cards ---------- */
 mark { background: var(--highlight); color: inherit; border-radius: var(--radius-xs); padding: 0 1px; }
@@ -210,10 +205,7 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
   border: 1px solid var(--primary); color: var(--foreground); font-size: var(--text-base); overflow-wrap: anywhere;
   user-select: all; -webkit-user-select: all; }
 .mcp-opts { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; margin-top: var(--space-2-5); font-size: var(--text-base); }
-.check { display: inline-flex; gap: var(--space-1-5); align-items: flex-start; }
-.check input { margin-top: var(--space-1); }
-.linkish { font: inherit; border: 0; background: none; color: var(--primary); padding: 0; cursor: pointer; }
-.linkish:hover { text-decoration: underline; }
+.mcp-opts > .field { width: auto; }  /* the keep-awake checkbox sits in a row with links */
 .mcp-activity, .mcp-help { margin-top: var(--space-3); padding-top: var(--space-2-5); border-top: 1px solid var(--border); font-size: var(--text-base); }
 .mcp-help p { margin: 0 0 var(--space-2); }
 .mcp-sub-head { display: flex; justify-content: space-between; font-weight: var(--font-weight-semibold); margin-bottom: var(--space-1-5); }
@@ -223,7 +215,7 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .mcp-tabs { margin-bottom: var(--space-2); }  /* Tabs (shadcn.css) */
 .mcp-panel ol { margin: 0 0 var(--space-2); padding-left: var(--space-5); }
 .mcp-panel li { margin: var(--space-0-5) 0; }
-.mcp-panel .check { margin-bottom: var(--space-1-5); }
+.mcp-panel > .field { margin-bottom: var(--space-1-5); }
 .mcp-soon { margin: 0 0 var(--space-2); color: var(--muted-foreground); font-size: var(--text-sm); }
 .act-time, .act-n { color: var(--muted-foreground); }
 .act-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -266,12 +258,8 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .src-icon.xl { width: 72px; height: 72px; border-radius: var(--radius-2xl); font-size: var(--icon-xl);
                background: transparent; border: 1px solid var(--border-strong); color: var(--foreground); }
 
-.src-msg { font-size: var(--text-sm); background: var(--warning-subtle); border: 1px solid var(--warning-border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-2-5); }
-.perm { font-size: var(--text-sm); background: var(--warning-subtle); border: 1px solid var(--warning-border); border-radius: var(--radius-md);
-        padding: var(--space-2-5) var(--space-3); display: grid; gap: var(--space-1-5); justify-items: start; }
-.perm-title { font-weight: var(--font-weight-semibold); }
-.perm p { margin: 0; }
-.perm ol { margin: 0; padding-left: var(--space-5); display: grid; gap: var(--space-1); }
+.perm ol { margin: var(--space-2) 0 var(--space-3); padding-left: var(--space-5); display: grid; gap: var(--space-1); }
+.perm .alert-description p { margin: 0; }
 
 /* a source's page */
 .sp { padding: 0; }  /* width, centering and top space come from .view.page */
@@ -300,8 +288,6 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
   .sp-body { grid-template-columns: 1fr; gap: var(--space-6); }
   .sp-head { flex-wrap: wrap; }
 }
-.toolbar select { font: inherit; color: var(--foreground); background: var(--card); border: 1px solid var(--border);
-                  border-radius: var(--radius-md); padding: var(--space-2) var(--space-2); }
 .details { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); font-size: var(--text-base); margin: 0 0 var(--space-2-5); }
 .details dt { color: var(--muted-foreground); }
 .details dd { margin: 0; word-break: break-word; }
@@ -328,12 +314,13 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .scrub-builtin li { margin: 4px 0; }
 .scrub-row { display: flex; gap: 10px; align-items: center; justify-content: space-between;
   padding: 8px 0; border-top: 1px solid var(--border); }
-.scrub-row code { margin-left: 8px; }
-.scrub-add { margin-top: 12px; }
+.scrub-add { margin-top: var(--space-3); }
+.scrub-try-group { margin-top: var(--space-5); }
 .scrub-preview { margin-top: 12px; white-space: pre-wrap; }
 
 /* ---------- files (opted-in folders and PDFs) ---------- */
 .file-sub { margin-top: 18px; }
+#view-files > .alert { margin-top: var(--space-3); }  /* the error under Add folder / Add PDF */
 .file-list { display: grid; }
 .file-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3);
             padding: var(--space-2) 0; border-top: 1px solid var(--border); }
@@ -353,8 +340,6 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 
 /* Dialogs are shadcn's Dialog: see shadcn.css (.dialog, .dialog-header, .dialog-footer…). */
 
-.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--foreground);
-         color: var(--background); padding: var(--space-2) var(--space-3-5); border-radius: var(--radius-md); font-size: var(--text-base); }
 
 /* Smaller windows: the sidebar collapses and the page takes the full width. The header's sidebar button
    opens it as a floating panel over the page (app.js toggles .sidebar-open; picking an item, clicking
@@ -409,7 +394,7 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 
 .rv-panel { padding-top: 12px; }
 .rv-blurb { margin: 0 0 10px; color: var(--muted-foreground); font-size: var(--text-base); }
-.rv-scan-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; font-size: var(--text-base); cursor: pointer; }
+.rv-scan-row { margin-bottom: var(--space-2-5); }
 .rv-list { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); }
 
 .rv-row + .rv-row { border-top: 1px solid var(--border); }

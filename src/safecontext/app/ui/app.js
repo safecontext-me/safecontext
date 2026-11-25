@@ -28,6 +28,9 @@ let state = { status: null, view: "removed", shown: false,  // opens on the Secu
               mcp: null, mcpBusy: false };
 
 // ---------- DOM helpers ----------
+// An Alert (shadcn.css) kept in the page: put the message in its [data-alert-text] part, keeping the icon.
+function setAlert(alertEl, text) { alertEl.querySelector("[data-alert-text]").textContent = text; }
+
 function el(tag, attrs = {}, ...children) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -98,12 +101,14 @@ function ago(ms) {
 
 const n = (x) => Number(x || 0).toLocaleString();
 
-function toast(msg) {
-  const t = $("toast");
-  t.textContent = msg;
-  t.hidden = false;
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => (t.hidden = true), 2600);
+// A Sonner toast (shadcn.css): bottom right for 4 seconds. type "success" | "error" | "warning" adds shadcn's icon.
+const TOAST_ICONS = { success: "circle-check", error: "octagon-x", warning: "triangle-exclamation-point" };
+function toast(msg, type) {
+  if (!msg) return;
+  const t = el("li", { class: "toast", "data-type": type || "default", role: type === "error" ? "alert" : "status" },
+    TOAST_ICONS[type] ? icon(TOAST_ICONS[type]) : null, el("div", { class: "toast-title" }, msg));
+  $("toaster").append(t);
+  setTimeout(() => { t.classList.add("leaving"); setTimeout(() => t.remove(), 250); }, 4000);
 }
 
 // A Dialog (shadcn.css) asking to confirm a destructive action: the title is the action ("Disconnect?"), the text says what happens.
@@ -120,7 +125,7 @@ function confirmDialog(text, okLabel) {
 
 async function openLink(url) {
   const r = await api().open_link(url);
-  if (!r.ok) toast(r.error);
+  if (!r.ok) toast(r.error, "error");
 }
 
 function sourceName(id) {
@@ -260,7 +265,7 @@ async function loadFiles(keepError) {
   const err = $("files-error");
   if (!r.ok) {
     err.hidden = false;
-    err.textContent = r.error;
+    setAlert(err, r.error);
     return;
   }
   if (!keepError) err.hidden = true;
@@ -279,7 +284,7 @@ async function addFiles(kind) {
   const err = $("files-error");
   if (!r.ok) {
     err.hidden = false;
-    err.textContent = r.error;
+    setAlert(err, r.error);
     loadFiles(true);  // a later file can fail after an earlier one was saved
     return;
   }
@@ -292,7 +297,7 @@ async function removeFile(path) {
   const err = $("files-error");
   if (!r.ok) {
     err.hidden = false;
-    err.textContent = r.error;
+    setAlert(err, r.error);
     return;
   }
   err.hidden = true;
@@ -552,7 +557,8 @@ function renderSourcePage() {
   }
 
   const main = el("div", { class: "sp-main" });
-  if (x.message && !perm) main.append(el("div", { class: "src-msg" }, x.message));
+  if (x.message && !perm) main.append(el("div", { class: "alert alert-warning", role: "status" },
+    icon("triangle-exclamation-point"), el("div", { class: "alert-title" }, x.message)));
   if (perm) main.append(permissionBox(x, perm));
   if (connected) {
     const tile = (num, lbl) => el("div", { class: "card card-sm sp-tile" }, el("div", { class: "card-content" }, el("div", { class: "sp-num" }, num), el("div", { class: "sp-lbl" }, lbl)));
@@ -583,18 +589,20 @@ function renderSourcePage() {
 // A missing macOS permission (Full Disk Access): what it is, why, the steps, and a button
 // that opens the right System Settings pane. Nothing is requested until the user clicks.
 function permissionBox(x, perm) {
-  return el("div", { class: "perm" },
-    el("div", { class: "perm-title" }, x.message || `SafeContext needs ${perm.title}.`),
-    el("p", {}, perm.explain),
-    el("ol", {}, perm.steps.map((step) => el("li", {}, step))),
-    el("button", { class: "btn", onclick: (e) => openSourceSettings(x, e.target) }, perm.button));
+  return el("div", { class: "alert alert-warning perm", role: "status" },
+    icon("triangle-exclamation-point"),
+    el("div", { class: "alert-title" }, x.message || `SafeContext needs ${perm.title}.`),
+    el("div", { class: "alert-description" },
+      el("p", {}, perm.explain),
+      el("ol", {}, perm.steps.map((step) => el("li", {}, step))),
+      el("button", { class: "btn", onclick: (e) => openSourceSettings(x, e.target) }, perm.button)));
 }
 
 async function openSourceSettings(x, btn) {
   btn.disabled = true;
   const r = await api().open_source_settings(x.id);
   btn.disabled = false;
-  if (!r.ok) toast(r.error);
+  if (!r.ok) toast(r.error, "error");
 }
 
 async function connectSource(x, btn) {
@@ -608,13 +616,13 @@ async function connectSource(x, btn) {
   // A missing permission isn't an error to dismiss: the card now shows what to do.
   if (r.ok) toast(`Connected ${x.name}`);
   else if (r.needs_permission) toast(`${x.name} needs ${x.requirements.find((q) => q.value === r.requirement)?.label || "a Mac permission"}. See its page for the steps.`);
-  else toast(r.error);
+  else toast(r.error, "error");
   refreshStatus();
 }
 
 async function cancelSource(x) {
   const r = await api().disconnect_source(x.id, true);  // nothing was synced yet; this only forgets the attempt
-  if (!r.ok) toast(r.error);
+  if (!r.ok) toast(r.error, "error");
   refreshStatus();
 }
 
@@ -709,7 +717,7 @@ async function mcpToggle() {
   if (want) {
     const r = await api().grok_enable();
     state.mcpBusy = false;
-    if (!r.ok) { $("mcp-toggle").checked = false; toast(r.error); return; }
+    if (!r.ok) { $("mcp-toggle").checked = false; toast(r.error, "error"); return; }
     const copied = await copyText(r.url, r.copied);
     toast(copied ? "Link copied. Paste it into your AI app." : "Copy the link below and paste it into your AI app.");
     renderMcp(r);
@@ -722,7 +730,7 @@ async function mcpToggle() {
 
 async function mcpCopy() {
   const r = await api().grok_copy_link();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   toast((await copyText(r.url, r.copied)) ? "Link copied." : "Select the link and copy it with ⌘C.");
 }
 
@@ -730,7 +738,7 @@ async function mcpRegenerate() {
   const ok = await confirmDialog("Make a new link? Every connected AI app loses access right away. Then add the new link in each app (it's copied for you).", "Regenerate");
   if (!ok) return;
   const r = await api().grok_regenerate();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   const copied = await copyText(r.url, r.copied);
   toast(copied ? "New link copied. The old one no longer works." : "New link made. The old one no longer works.");
   renderMcp(r);
@@ -746,7 +754,7 @@ async function mcpAnswer(ok) {
   const who = $("ga-client").textContent || "The app";
   $("mcp-approve").close();
   const r = await api().grok_approve(id, ok);
-  if (!r.ok) toast(r.error);
+  if (!r.ok) toast(r.error, "error");
   else toast(ok ? `Approved. ${who} can now search your scrubbed data.` : "Denied.");
   refreshMcp();
 }
@@ -767,7 +775,7 @@ function bars(container, data) {
 
 async function loadRemoved() {
   const r = await api().privacy_report();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   $("t-kept").textContent = n(r.kept);
   $("t-dropped").textContent = n(r.dropped_total);
   $("t-redacted").textContent = n(Object.values(r.redacted).reduce((a, b) => a + b, 0));
@@ -785,10 +793,11 @@ function renderScrubber(r) {
     el("li", {}, el("b", {}, rule.label), el("span", { class: "muted" }, " · always on. " + rule.detail))));
   const rows = r.patterns.length
     ? r.patterns.map((p) => {
-        const box = el("input", { type: "checkbox", onchange: (e) => scrubberSet(p.id, e.target.checked) });
+        const box = el("input", { type: "checkbox", class: "checkbox", onchange: (e) => scrubberSet(p.id, e.target.checked) });
         box.checked = !!p.enabled;
         return el("div", { class: "scrub-row" },
-          el("label", { class: "check" }, box, el("span", {}, el("b", {}, p.name), " ", el("code", {}, p.pattern))),
+          el("label", { class: "field", "data-orientation": "horizontal" }, box,
+            el("span", { class: "field-label" }, p.name, el("code", {}, p.pattern))),
           el("button", { class: "btn btn-outline btn-sm", type: "button", onclick: () => scrubberDelete(p.id) }, "Remove"));
       })
     : [el("p", { class: "muted" }, "No extra patterns yet.")];
@@ -797,13 +806,13 @@ function renderScrubber(r) {
 
 async function loadScrubber() {
   const r = await api().scrubber_rules();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   renderScrubber(r);
 }
 
 async function scrubberSet(id, enabled) {
   const r = await api().scrubber_set_enabled(id, enabled);
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   renderScrubber(r);
 }
 
@@ -811,7 +820,7 @@ async function scrubberDelete(id) {
   const ok = await confirmDialog("Remove this pattern? Files read after this won't use it.", "Remove");
   if (!ok) return;
   const r = await api().scrubber_delete(id);
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   renderScrubber(r);
 }
 
@@ -820,7 +829,8 @@ async function scrubberPreview() {
   const box = $("scrub-preview");
   box.hidden = false;
   if (!r.ok) {
-    box.replaceChildren(el("p", { class: "error" }, r.error));
+    box.replaceChildren(el("div", { class: "alert alert-destructive", role: "alert" },
+      icon("circle-exclamation-point"), el("div", { class: "alert-title" }, r.error)));
     return;
   }
   box.replaceChildren(richText(r.text));
@@ -844,7 +854,7 @@ function rvIcon(colour) {
 
 async function loadReview(r) {
   r = r || await api().review();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   rvLast = r;
   const groups = r.groups.filter((g) => g.checks.length || g.id === "claude");
   if (!groups.some((g) => g.id === rvTab)) {
@@ -893,12 +903,13 @@ function reviewPanel(g, r) {
 }
 
 function reviewScanRow(on) {
-  const box = el("input", { type: "checkbox", id: "rv-scan" });
+  const box = el("input", { type: "checkbox", class: "checkbox", id: "rv-scan" });
   box.checked = on;
   box.addEventListener("change", reviewScan);
-  return el("label", { class: "rv-scan-row" }, box,
-    el("span", {}, "Also check Claude Desktop and Claude Code on this Mac ",
-      el("small", { class: "muted" }, "(names and rules only, never keys or values; nothing leaves this Mac)")));
+  return el("label", { class: "field rv-scan-row", "data-orientation": "horizontal" }, box,
+    el("span", { class: "field-content" },
+      el("span", { class: "field-label" }, "Also check Claude Desktop and Claude Code on this Mac"),
+      el("span", { class: "field-description" }, "Names and rules only, never keys or values. Nothing leaves this Mac.")));
 }
 
 function reviewRow(c) {
@@ -933,7 +944,7 @@ function reviewRow(c) {
 
 async function reviewOpen(id) {
   const r = await api().review_open(id);
-  if (!r.ok) toast(r.error);
+  if (!r.ok) toast(r.error, "error");
   else if (!r.opened) toast(state.status && state.status.demo ? "Demo mode doesn't open pages." : "Couldn't open it.");
 }
 
@@ -951,7 +962,7 @@ async function reviewScan(e) {
 
 async function reviewSave() {
   const r = await api().review_save_report();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   toast(r.opened ? "Report saved and opened. Use File → Print to save it as a PDF." : `Report saved to ${r.path}`);
 }
 
@@ -992,7 +1003,7 @@ async function connect(btn, errEl) {
   btn.disabled = false;
   btn.textContent = label;
   if (!r.ok) {
-    if (errEl) { errEl.textContent = r.error; errEl.hidden = false; } else toast(r.error);
+    if (errEl) { setAlert(errEl, r.error); errEl.hidden = false; } else toast(r.error, "error");
     return;
   }
   toast(`Connected ${r.account}`);
@@ -1053,14 +1064,14 @@ async function updateInstall() {
   const u = state.update || {};
   if (!u.can_install) { await api().update_open_download(); return; }
   const r = await api().update_install();
-  if (!r.ok) toast(r.error);
+  if (!r.ok) toast(r.error, "error");
   refreshUpdate();
 }
 
 async function updateCheck() {
   $("u-state").textContent = UPDATE_PHASES.checking;
   const r = await api().update_check();
-  if (!r.ok) toast(r.error);
+  if (!r.ok) toast(r.error, "error");
   state.updateDismissed = false;
   refreshUpdate();
 }
@@ -1144,7 +1155,7 @@ function wire() {
   $("scrub-add").addEventListener("submit", async (e) => {
     e.preventDefault();
     const r = await api().scrubber_add($("scrub-name").value, $("scrub-pattern").value);
-    if (!r.ok) return toast(r.error);
+    if (!r.ok) return toast(r.error, "error");
     $("scrub-name").value = "";
     $("scrub-pattern").value = "";
     renderScrubber(r);

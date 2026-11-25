@@ -126,6 +126,7 @@
   --shadow-tab: 0 1px 3px rgba(0, 0, 0, .1), 0 1px 2px -1px rgba(0, 0, 0, .1);  /* shadcn shadow-sm: the selected tab */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, .3);           /* small raised parts, like a switch thumb */
   --shadow-outline: 0 0 0 1px var(--border);          /* the active nav item */
+  --shadow-toast: 0 4px 12px rgba(0, 0, 0, .1);       /* Sonner's toast shadow */
   --shadow-popover: 0 12px 32px rgba(0, 0, 0, .28);   /* menus, popovers, flyouts */
 
   /* ---------- layout ---------- */
