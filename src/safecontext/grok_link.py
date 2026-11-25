@@ -56,6 +56,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from .env import keychain_service
 from .mcp_server import SUPPORTED_VERSIONS, MCPServer, _err
 from .migrate import getenv
+from .permlog import PermissionLog
 from .store import Store
 from .tools import grok_tools
 
@@ -458,6 +459,8 @@ class GrokLink:
         self.base_url = (base_url or relay_url()).rstrip("/")
         self.secrets = secrets or KeychainSecrets()
         self.activity = ActivityLog(Path(data_dir) / "grok_activity.json" if data_dir else None)
+        # Approvals, denials and setting changes, kept on this Mac (permlog.py).
+        self.permlog = PermissionLog(Path(data_dir) / "permission_log.json" if data_dir else None)
         self.handler = MCPHttpHandler(store, self.activity)
         self._connect = connect
         self._backoff = backoff
@@ -510,14 +513,20 @@ class GrokLink:
     def enable(self) -> str:
         with self._lock:
             self._ids(create=True)
+            was = self.enabled
             self.store.set_meta(_META_ENABLED, "1")
             self._start_client()
+        if not was:
+            self.permlog.record("link", "on")
         return self.connector_url() or ""
 
     def disable(self) -> None:
         with self._lock:
+            was = self.enabled
             self.store.set_meta(_META_ENABLED, None)
             self._stop_client()
+        if was:
+            self.permlog.record("link", "off")
 
     def regenerate(self) -> str:
         """New link and Mac secret. The old link stops working at once and every sign-in
@@ -534,13 +543,18 @@ class GrokLink:
             self._grants = 0
             if self.enabled:
                 self._start_client()
+        self.permlog.record("link", "regenerated")
         return self.connector_url() or ""
 
     def set_keep_awake(self, on: bool) -> None:
+        if bool(on) != self.keep_awake:
+            self.permlog.record("keep_awake", "on" if on else "off")
         self.store.set_meta(_META_KEEP_AWAKE, "1" if on else None)
         self._keep_awake.set(bool(on) and self.enabled)
 
     def set_link_only(self, on: bool) -> None:
+        if bool(on) != self.link_only:
+            self.permlog.record("link_only", "on" if on else "off")
         self.store.set_meta(_META_LINK_ONLY, "1" if on else None)
         if self._client:
             self._client.send({"t": "settings", "link_only": bool(on)})
@@ -550,7 +564,10 @@ class GrokLink:
             pending = self._approvals.pop(approval_id, None)
         if pending is None or not self._client:
             return False
-        return self._client.send({"t": "approve_result", "id": approval_id, "ok": bool(ok)})
+        sent = self._client.send({"t": "approve_result", "id": approval_id, "ok": bool(ok)})
+        if sent:
+            self.permlog.record("connect", "approved" if ok else "denied", pending.get("client", ""))
+        return sent
 
     def shutdown(self) -> None:
         self._stop_client()
@@ -575,8 +592,15 @@ class GrokLink:
         if client:
             client.stop()
         self._keep_awake.set(False)
-        self._approvals.clear()
+        self._drop_approvals("cancelled")
         self._conn_state, self._conn_message = "off", ""
+
+    def _drop_approvals(self, outcome: str) -> None:
+        """Forget unanswered requests, logging each as cancelled or expired."""
+        with self._lock:
+            gone, self._approvals = list(self._approvals.values()), {}
+        for a in gone:
+            self.permlog.record("connect", outcome, a.get("client", ""))
 
     # relay events
     def _on_state(self, state: str, message: str) -> None:
@@ -586,23 +610,29 @@ class GrokLink:
         if state == "online" and self._client:
             self._client.send({"t": "settings", "link_only": self.link_only})
         if state != "online":
-            self._approvals.clear()
+            self._drop_approvals("cancelled")
 
     def _on_message(self, msg: Dict[str, Any]) -> None:
         t = msg.get("t")
         if t in ("hello", "grants"):
             n = msg.get("grants", msg.get("n"))
-            self._grants = n if isinstance(n, int) and n >= 0 else 0
+            n = n if isinstance(n, int) and n >= 0 else 0
+            if t == "grants" and n != self._grants:
+                self.permlog.record("signins", note=f"{self._grants} → {n}")
+            self._grants = n
         elif t == "http":
             self._pool.submit(self._answer, msg)
         elif t == "approve" and isinstance(msg.get("id"), str):
             with self._lock:
+                self._drop_approvals("expired")  # a newer request replaces an unanswered one
                 self._approvals = {msg["id"]: {"id": msg["id"], "code": str(msg.get("code", ""))[:12],
                                                "client": str(msg.get("client") or "An AI app")[:60],
                                                "ts_ms": _now_ms()}}
         elif t == "approve_cancel":
             with self._lock:
-                self._approvals.pop(msg.get("id"), None)
+                gone = self._approvals.pop(msg.get("id"), None)
+            if gone:
+                self.permlog.record("connect", "cancelled", gone.get("client", ""))
 
     def _answer(self, msg: Dict[str, Any]) -> None:
         headers = msg.get("headers") if isinstance(msg.get("headers"), dict) else {}
@@ -628,7 +658,7 @@ class GrokLink:
             state = "connecting"
         with self._lock:
             for k in [k for k, v in self._approvals.items() if _now_ms() - v["ts_ms"] > APPROVAL_TTL_MS]:
-                del self._approvals[k]
+                self.permlog.record("connect", "expired", self._approvals.pop(k).get("client", ""))
             pending = next(iter(self._approvals.values()), None)
         return {"enabled": self.enabled, "state": state, "message": self._conn_message,
                 "url": self.connector_url() if self.enabled else None, "last_used_ms": last_used,

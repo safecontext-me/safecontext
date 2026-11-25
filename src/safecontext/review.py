@@ -1,27 +1,29 @@
 """AI access review: what you've granted to AI apps, how risky it is, and how to fix it.
 
-The app shows this as "AI access review". It mixes three kinds of checks:
+Only AI clients are covered: Grok, Claude, ChatGPT (and its Dots agent), and the SafeContext link
+they reach this Mac through. Four kinds of checks, automatic ones first:
 
-  * automatic: SafeContext's own grants (Google scopes, the MCP link, link-only mode,
-    sign-ins AI apps hold, Full Disk Access for iMessage), read from SafeContext's
-    own state. Nothing new is read.
+  * automatic: SafeContext's own link (on/off, link-only mode, sign-ins AI apps hold, keep awake)
+    and how often apps asked to connect, from SafeContext's own state and its permission log
+    (permlog.py). Also whether an AI app is installed in /Applications or ~/Applications (the
+    bundle's existence only; nothing inside it is opened).
   * opt-in scan: on the user's click, a few fixed config files other AI tools keep in
     the home folder (Claude Desktop's MCP config, Claude Code's settings). Only names,
     modes and permission rules are read. Environment values and arguments, which often
     hold API keys, are never returned or stored. Nothing here is in a folder macOS
     protects (no Documents/Desktop/Downloads, no app containers), so there's no prompt.
-  * guided: pages only the user can open (Google, Grok, Claude, X, GitHub, System
-    Settings). The user opens each one and records what they found; answers expire
-    after REVIEW_EXPIRE_DAYS so the review comes back around.
+  * guided: pages only the user can open (Grok, X, Google, Claude, ChatGPT, System Settings).
+    The user opens each one and records what they found; answers expire after
+    REVIEW_EXPIRE_DAYS so the review comes back around.
 
-Server-side grants at xAI or Anthropic have no API, and no app can read another app's
-macOS privacy grants (TCC.db needs Full Disk Access; Apple offers no API), so those are
-guided checks rather than detections.
+Server-side grants at xAI, Anthropic, OpenAI and Google have no API for this, and no app can read
+another app's macOS privacy grants (TCC.db needs Full Disk Access; Apple offers no API), so those
+are guided checks rather than detections.
 
 Statuses, worst first: risk (fix this), warn (worth a look), todo (not checked yet),
 info, ok. The app and report show them as red "Fix", yellow "Worth a look", grey "Not checked
-yet" and green "OK", grouped by app or account (Grok, Claude, Google, GitHub, SafeContext,
-This Mac). group_of, colour_of, rollup and summarize are pure so they can be tested alone.
+yet" and green "OK", one group per AI client (GROUPS). group_of, colour_of, rollup and summarize
+are pure so they can be tested alone.
 """
 from __future__ import annotations
 
@@ -38,6 +40,8 @@ STATUS_ORDER = {RISK: 0, WARN: 1, TODO: 2, INFO: 3, OK: 4}
 ANSWERS = ("ok", "fixed", "issue", "skip")
 REVIEW_EXPIRE_DAYS = 90
 LINK_IDLE_DAYS = 30
+REQUEST_WINDOW_DAYS = 30
+REQUESTS_BUSY = 5   # requests from one app in the window that count as "keeps asking"
 DAY_MS = 86_400_000
 
 META_ANSWERS = "review_answers"
@@ -48,20 +52,17 @@ META_SCAN = "review_scan"
 GROUPS = [
     ("grok", "Grok", "Connectors, data controls, and Grok on X."),
     ("claude", "Claude", "claude.ai, Claude in Chrome, Claude Desktop and Claude Code."),
-    ("google", "Google", "Apps with access to your Google account, including SafeContext."),
-    ("github", "GitHub", "Apps and tokens that can read or change your code."),
-    ("safecontext", "SafeContext", "The MCP link Grok, Claude and other AI apps use to reach this Mac."),
-    ("mac", "This Mac", "macOS privacy permissions that let apps read files, see the screen or control the Mac."),
+    ("chatgpt", "ChatGPT and Dots", "Apps connected to ChatGPT, which Dots and other agents can use, and ChatGPT's "
+                                    "access to this Mac."),
+    ("safecontext", "Through SafeContext", "What Grok, Claude and other AI apps can reach through your SafeContext "
+                                           "link, and how often they ask."),
 ]
 GROUP_IDS = [g[0] for g in GROUPS]
 _GROUP_OF = {
-    "grok_connectors": "grok", "grok_data": "grok", "x_grok": "grok",
+    "grok_connectors": "grok", "grok_data": "grok", "x_grok": "grok", "google_connections": "grok",
     "claude_connectors": "claude", "claude_data": "claude", "claude_chrome": "claude",
-    "google_connections": "google", "sc_gmail": "google", "sc_gcal": "google",
-    "github_apps": "github",
-    "sc_link": "safecontext", "sc_link_only": "safecontext", "sc_awake": "safecontext",
-    "sc_fda": "mac", "mac_full_disk": "mac", "mac_accessibility": "mac", "mac_screen": "mac",
-    "mac_automation": "mac",
+    "chatgpt_apps": "chatgpt", "chatgpt_data": "chatgpt", "chatgpt_mac": "chatgpt", "chatgpt_app": "chatgpt",
+    "sc_link": "safecontext", "sc_link_only": "safecontext", "sc_awake": "safecontext", "sc_requests": "safecontext",
 }
 
 # Status → what the user sees. Colour is always paired with a word and an icon shape.
@@ -95,11 +96,6 @@ class Check:
 
 _PANE = "x-apple.systempreferences:com.apple.preference.security?"
 GUIDED = [
-    ("google_connections", "Apps with access to your Google account",
-     "Apps you let into Gmail, Calendar or Drive keep that access until you remove it, even after you "
-     "stop using them or disconnect them inside Claude or Grok.",
-     "Remove any app you don't recognize or no longer use: open it → See details → Remove access.",
-     "https://myaccount.google.com/connections"),
     ("grok_connectors", "Grok connectors",
      "A connector lets Grok read that account on your behalf. Gmail can include sending and changing mail "
      "if it was turned on.",
@@ -115,6 +111,11 @@ GUIDED = [
      "Settings → Privacy and safety → Grok & Third-party collaborators: untick training if you want. "
      "Then Security and account access → Apps and sessions → Connected apps: revoke what you don't use.",
      "https://x.com/settings/connected_apps"),
+    ("google_connections", "Google: AI connectors with access to Gmail and Drive",
+     "When you connect Gmail, Calendar or Drive to Grok, Claude or ChatGPT, Google lists that app here. It "
+     "keeps its access until you remove it, even after you disconnect it inside the AI app.",
+     "Remove any AI app you no longer use: open it → See details → Remove access.",
+     "https://myaccount.google.com/connections"),
     ("claude_connectors", "claude.ai connectors and tool permissions",
      "Connectors let Claude read and sometimes act in other accounts. A tool set to \"Always allow\" runs "
      "without asking, which matters most for tools that send, post or write.",
@@ -131,27 +132,22 @@ GUIDED = [
      "Click the extension icon → ⋯ → Extension settings → Your approved sites. Remove mail, banking and "
      "admin sites. Skip this if you don't use the extension.",
      ""),
-    ("github_apps", "Authorized apps and tokens",
-     "OAuth apps, GitHub Apps and personal access tokens can read or change your code.",
-     "Revoke apps you don't use (and check Installed apps too: uninstalling doesn't revoke). Delete tokens "
-     "that are old or unused. Skip this if you don't use GitHub.",
-     "https://github.com/settings/applications"),
-    ("mac_full_disk", "Full Disk Access",
-     "Apps here can read everything in your home folder, including Messages and Mail.",
-     "Turn off anything you don't need, especially Terminal or AI apps you no longer use.",
-     _PANE + "Privacy_AllFiles"),
-    ("mac_accessibility", "Accessibility",
-     "Apps here can control your Mac: click, type and read what's on screen in other apps.",
-     "Turn off AI or automation apps you don't use.",
+    ("chatgpt_apps", "ChatGPT apps and connectors",
+     "Apps you connect to ChatGPT (Gmail, Drive, Slack and others) can be used by Dots and other ChatGPT "
+     "agents while they work for you, including when you've closed the app.",
+     "In ChatGPT, open Settings → Apps (Connectors in older versions) and disconnect anything you don't use.",
+     "https://chatgpt.com/#settings/Connectors"),
+    ("chatgpt_data", "ChatGPT memory and training",
+     "Memory and \"Improve the model for everyone\" decide what ChatGPT keeps and what it's used for.",
+     "Settings → Personalization: review memory. Settings → Data controls: check the training toggle and "
+     "shared links.",
+     "https://chatgpt.com/#settings/DataControls"),
+    ("chatgpt_mac", "ChatGPT's control of this Mac",
+     "Dots reaches your Mac through the ChatGPT app. With Accessibility or Screen Recording turned on, it "
+     "can see the screen and click and type in other apps.",
+     "In System Settings → Privacy & Security, check Accessibility and Screen & System Audio Recording. Turn "
+     "ChatGPT off in both if you don't let Dots use this Mac.",
      _PANE + "Privacy_Accessibility"),
-    ("mac_screen", "Screen & System Audio Recording",
-     "Apps here can see everything on your screen.",
-     "Turn off anything you don't recognize or no longer use.",
-     _PANE + "Privacy_ScreenCapture"),
-    ("mac_automation", "Automation",
-     "Apps here can control other apps, such as Mail, Messages or Finder, through scripts.",
-     "Untick pairs you don't recognize.",
-     _PANE + "Privacy_Automation"),
 ]
 GUIDED_BY_ID = {g[0]: g for g in GUIDED}
 
@@ -172,9 +168,12 @@ def load_answers(raw: Optional[str]) -> Dict[str, Dict[str, Any]]:
             if k in GUIDED_BY_ID and isinstance(v, dict) and v.get("answer") in ANSWERS}
 
 
-def guided_checks(answers: Dict[str, Dict[str, Any]], now_ms: int) -> List[Check]:
+def guided_checks(answers: Dict[str, Dict[str, Any]], now_ms: int, hide: Iterable[str] = ()) -> List[Check]:
     out = []
+    hide = set(hide)
     for cid, title, why, fix, link in GUIDED:
+        if cid in hide:
+            continue
         a = answers.get(cid) or {}
         ts = a.get("ts")
         fresh = isinstance(ts, (int, float)) and now_ms - ts < REVIEW_EXPIRE_DAYS * DAY_MS
@@ -199,31 +198,10 @@ def _ago(ms: int, now_ms: int) -> str:
     return "today" if days <= 0 else ("yesterday" if days == 1 else f"{days} days ago")
 
 
-def safecontext_checks(sources: Iterable[Dict[str, Any]], mcp: Dict[str, Any], now_ms: int) -> List[Check]:
-    """`sources`: Sources.statuses() rows. `mcp`: GrokLink.status(). Only facts SafeContext keeps."""
+def safecontext_checks(mcp: Dict[str, Any], now_ms: int,
+                       events: Optional[List[Dict[str, Any]]] = None) -> List[Check]:
+    """`mcp`: GrokLink.status(). `events`: the permission log (permlog.py). Only facts SafeContext keeps."""
     out: List[Check] = []
-    by_id = {s["id"]: s for s in sources if s.get("available")}
-    gmail = by_id.get("gmail") or {}
-    if gmail.get("account"):
-        headers = gmail.get("mode") == "headers"
-        out.append(Check("sc_gmail", "SafeContext's Gmail access: read-only", OK,
-                         "SafeContext can only read " + ("headers (sender, subject, date)" if headers else "your mail")
-                         + ". It can't send, change or delete anything. Google lists it under your "
-                           "account's third-party connections.",
-                         "To remove it: Sources → Gmail → Disconnect, which also revokes it at Google."))
-    gcal = by_id.get("gcal") or {}
-    if gcal.get("account"):
-        out.append(Check("sc_gcal", "SafeContext's Calendar access: read-only", OK,
-                         "SafeContext can read your events. It can't create, change or delete them.",
-                         "To remove it: Sources → Google Calendar → Disconnect."))
-    imsg = by_id.get("imessage") or {}
-    if imsg.get("account"):
-        out.append(Check("sc_fda", "SafeContext's Full Disk Access (for iMessage)", INFO,
-                         "SafeContext needs Full Disk Access to read Messages. That access covers your whole "
-                         "home folder, though SafeContext only opens the Messages database.",
-                         "If you stop using iMessage here, disconnect it and turn SafeContext off in "
-                         "System Settings → Privacy & Security → Full Disk Access."))
-
     enabled = bool(mcp.get("enabled"))
     grants = int(mcp.get("grants") or 0)
     last = mcp.get("last_used_ms")
@@ -255,7 +233,63 @@ def safecontext_checks(sources: Iterable[Dict[str, Any]], mcp: Dict[str, Any], n
             out.append(Check("sc_awake", "Keep awake is on", INFO,
                              "Your Mac stays awake on power so AI apps can reach SafeContext at any time.",
                              "Turn it off on the MCP screen if you only use AI apps while you're at the Mac."))
+    if events is not None:
+        out.append(requests_check(events, now_ms))
     return out
+
+
+def requests_check(events: List[Dict[str, Any]], now_ms: int) -> Check:
+    """Connect requests in the last REQUEST_WINDOW_DAYS, by app. Many in a short time usually means an
+    app keeps losing its sign-in, or someone else has the link."""
+    since = now_ms - REQUEST_WINDOW_DAYS * DAY_MS
+    reqs = [e for e in events if e.get("kind") == "connect" and e.get("ts_ms", 0) >= since]
+    if not reqs:
+        return Check("sc_requests", f"No connect requests in {REQUEST_WINDOW_DAYS} days", OK,
+                     "No AI app asked to connect through SafeContext lately. Every request, and your answer, "
+                     "shows in History.")
+    by_app: Dict[str, Dict[str, int]] = {}
+    for e in reqs:
+        d = by_app.setdefault(e.get("client") or "An AI app", {})
+        d[e.get("outcome", "")] = d.get(e.get("outcome", ""), 0) + 1
+    words = {"approved": "approved", "denied": "denied", "expired": "not answered", "cancelled": "gave up"}
+    items = []
+    for app, d in sorted(by_app.items(), key=lambda kv: -sum(kv[1].values())):
+        n = sum(d.values())
+        parts = [f"{d[k]} {w}" for k, w in words.items() if d.get(k)]
+        items.append(f"{app}: {n} request{'s' if n != 1 else ''} ({', '.join(parts)})")
+    busy = max(sum(d.values()) for d in by_app.values()) >= REQUESTS_BUSY
+    n = len(reqs)
+    title = f"{n} connect request{'s' if n != 1 else ''} in {REQUEST_WINDOW_DAYS} days"
+    if busy:
+        return Check("sc_requests", title + ": an app keeps asking", WARN,
+                     "An app that asks again and again is usually losing its sign-in, for example because it "
+                     "was disconnected and reconnected, or the link was set up more than once. Requests you "
+                     "didn't start can mean someone else has your link.",
+                     "If you didn't start these, deny them and use Regenerate link on the MCP screen. If you did, "
+                     "remove the extra SafeContext connectors in that app and connect it once.", items=items)
+    return Check("sc_requests", title, INFO,
+                 "Each time an AI app signs in through your link, SafeContext asks you first. History has the "
+                 "full list.", items=items)
+
+
+# --- AI apps installed on this Mac ------------------------------------------------------------------
+# Only whether the app exists in /Applications or ~/Applications. Nothing inside it is opened, so
+# there's no macOS prompt.
+
+AI_APPS = {"chatgpt": "ChatGPT.app", "claude": "Claude.app", "grok": "Grok.app"}
+
+
+def installed_apps(roots: Iterable[Path]) -> Dict[str, bool]:
+    roots = [Path(r) for r in roots]
+    return {k: any((r / name).exists() for r in roots) for k, name in AI_APPS.items()}
+
+
+def app_checks(apps: Optional[Dict[str, bool]]) -> List[Check]:
+    if apps is None or apps.get("chatgpt"):
+        return []
+    return [Check("chatgpt_app", "ChatGPT isn't installed on this Mac", OK,
+                  "Dots reaches a Mac through the ChatGPT app, so it can't use this one. Its connected apps "
+                  "still work in the cloud.")]
 
 
 # --- opt-in scan of other AI tools' config ------------------------------------------------------
@@ -490,10 +524,14 @@ def summarize(checks: List[Check]) -> Dict[str, Any]:
             "colours": colours, "counts_line": counts_line(colours)}
 
 
-def build_review(sources: Iterable[Dict[str, Any]], mcp: Dict[str, Any], answers: Dict[str, Dict[str, Any]],
-                 scan: Optional[Dict[str, Any]], now_ms: Optional[int] = None) -> Dict[str, Any]:
+def build_review(mcp: Dict[str, Any], answers: Dict[str, Dict[str, Any]], scan: Optional[Dict[str, Any]],
+                 now_ms: Optional[int] = None, *, events: Optional[List[Dict[str, Any]]] = None,
+                 apps: Optional[Dict[str, bool]] = None) -> Dict[str, Any]:
+    """`apps`: installed_apps(); when ChatGPT isn't installed its Mac-control check is answered for you."""
     now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
-    checks = safecontext_checks(sources, mcp, now_ms) + local_checks(scan) + guided_checks(answers, now_ms)
+    hide = {"chatgpt_mac"} if apps is not None and not apps.get("chatgpt") else set()
+    checks = (safecontext_checks(mcp, now_ms, events) + local_checks(scan) + app_checks(apps)
+              + guided_checks(answers, now_ms, hide))
     for c in checks:
         c.group, c.colour, c.label = group_of(c.id), colour_of(c.status), label_of(c.status, c.answer)
     groups = []
@@ -571,8 +609,8 @@ def report_html(review: Dict[str, Any], app_version: str = "") -> str:
     if not review["scan_on"]:
         parts.append("<p class='sub'>AI apps on this Mac weren't scanned. Turn on the scan in SafeContext to "
                      "include Claude Desktop and Claude Code.</p>")
-    parts.append("<p class='sub'>What SafeContext can't see: grants stored by xAI or Anthropic and other apps' "
-                 "macOS privacy permissions have no API, so those are checks you do yourself. Answers older than "
+    parts.append("<p class='sub'>What SafeContext can't see: grants stored by xAI, Anthropic, OpenAI or Google "
+                 "and other apps' macOS privacy permissions have no API, so those are checks you do yourself. Answers older than "
                  f"{REVIEW_EXPIRE_DAYS} days count as not checked.</p></body></html>")
     return "".join(parts)
 

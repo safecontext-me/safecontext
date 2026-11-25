@@ -531,4 +531,12 @@ dialog::backdrop { background: var(--overlay); }
 .rv-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .rv-actions .btn.chosen { border-color: var(--primary); color: var(--primary); background: var(--primary-subtle); font-weight: var(--font-weight-semibold); }
 .rv-when { font-size: var(--text-sm); }
+.rv-tab-log { margin-left: auto; }
+.rv-log-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.rv-log-empty { font-size: var(--text-base); }
+.rv-log-day { padding: 10px 14px 4px; font-size: var(--text-sm); font-weight: var(--font-weight-semibold); color: var(--muted-foreground); }
+.rv-log-day:not(:first-child) { border-top: 1px solid var(--border); }
+.rv-log-row { display: flex; align-items: center; gap: 10px; padding: 7px 14px; font-size: var(--text-base); }
+.rv-log-text { flex: 1; min-width: 0; }
+.rv-log-time { font-size: var(--text-sm); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

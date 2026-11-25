@@ -148,7 +148,8 @@ def test_window_cannot_reach_internals(backend):
                       "open_link", "mail_folders", "mail_list", "mail_thread", "mail_reasons",
                       "mail_coverage", "update_status", "update_check", "update_set_auto",
                       "update_install", "update_open_download", "update_queue", "update_cancel_queue", "update_set_on_quit", "update_later", "update_skip", "update_unskip", "review", "review_answer",
-                      "review_set_scan", "review_open", "review_save_report", "window_focused",
+                      "review_set_scan", "review_open", "review_save_report", "permission_log",
+                      "permission_log_clear", "window_focused",
                       "pdf_selection", "pdf_add_folder", "pdf_add_file", "pdf_remove", "pdf_pick",
                       "scrubber_rules", "scrubber_add", "scrubber_set_enabled", "scrubber_delete",
                       "scrubber_preview"}
