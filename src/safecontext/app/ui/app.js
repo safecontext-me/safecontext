@@ -231,7 +231,7 @@ function show(view) {
   if (view === "mail" && !pickSource()) view = "sources";  // nothing to browse yet
   state.view = view;
   markNav();
-  for (const v of ["mail", "sources", "source", "mcp", "removed", "review", "sync", "settings"]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["mail", "sources", "source", "mcp", "removed", "review", "sync", "settings", "files"]) $(`view-${v}`).hidden = v !== view;
   if (view === "mail") mailShow();
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "source") renderSourcePage();
@@ -239,7 +239,60 @@ function show(view) {
   if (view === "sync") syncPageShow();
   if (view === "review") loadReview();
   if (view === "mcp") loadMcp();
+  if (view === "files") loadFiles();
   navRecord();
+}
+
+// ---------- files: folders and PDFs the user opts in ----------
+function fileRow(entry) {
+  const kind = entry.kind === "folder" ? "Folder" : "PDF";
+  return el("div", { class: "file-row" },
+    el("div", {}, el("span", { class: "file-kind" }, kind), el("code", {}, entry.path)),
+    el("button", { class: "btn small", onclick: () => removeFile(entry.path) }, "Remove"));
+}
+
+async function loadFiles(keepError) {
+  const r = await api().pdf_selection();
+  const err = $("files-error");
+  if (!r.ok) {
+    err.hidden = false;
+    err.textContent = r.error;
+    return;
+  }
+  if (!keepError) err.hidden = true;
+  const entries = r.entries || [];
+  $("files-entries").replaceChildren(entries.length
+    ? el("div", { class: "file-list" }, entries.map(fileRow))
+    : el("p", { class: "muted" }, "Nothing added yet. No PDF text can be read."));
+  const pdfs = r.pdfs || [];
+  $("files-pdfs").replaceChildren(pdfs.length
+    ? el("div", { class: "file-list" }, pdfs.map((p) => el("div", { class: "file-row" }, el("code", {}, p))))
+    : el("p", { class: "muted" }, "No PDFs in the folders and files you added."));
+}
+
+async function addFiles(kind) {
+  const r = await api().pdf_pick(kind);
+  const err = $("files-error");
+  if (!r.ok) {
+    err.hidden = false;
+    err.textContent = r.error;
+    loadFiles(true);  // a later file can fail after an earlier one was saved
+    return;
+  }
+  err.hidden = true;
+  if (!r.cancelled) loadFiles();
+}
+
+async function removeFile(path) {
+  const r = await api().pdf_remove(path);
+  const err = $("files-error");
+  if (!r.ok) {
+    err.hidden = false;
+    err.textContent = r.error;
+    return;
+  }
+  err.hidden = true;
+  loadFiles();
 }
 
 // ---------- header: hide the sidebar, back / forward ----------
@@ -695,6 +748,53 @@ async function loadRemoved() {
   for (const x of r.by_source || []) by[`${x.name} · kept`] = x.kept;
   for (const x of r.by_source || []) if (x.dropped) by[`${x.name} · skipped`] = x.dropped;
   bars($("by-source"), by);
+  loadScrubber();
+}
+
+function renderScrubber(r) {
+  $("scrub-builtin").replaceChildren(...r.builtin.map((rule) =>
+    el("li", {}, el("b", {}, rule.label), el("span", { class: "muted" }, " · always on. " + rule.detail))));
+  const rows = r.patterns.length
+    ? r.patterns.map((p) => {
+        const box = el("input", { type: "checkbox", onchange: (e) => scrubberSet(p.id, e.target.checked) });
+        box.checked = !!p.enabled;
+        return el("div", { class: "scrub-row" },
+          el("label", { class: "check" }, box, el("span", {}, el("b", {}, p.name), " ", el("code", {}, p.pattern))),
+          el("button", { class: "btn small", type: "button", onclick: () => scrubberDelete(p.id) }, "Remove"));
+      })
+    : [el("p", { class: "muted" }, "No extra patterns yet.")];
+  $("scrub-patterns").replaceChildren(...rows);
+}
+
+async function loadScrubber() {
+  const r = await api().scrubber_rules();
+  if (!r.ok) return toast(r.error);
+  renderScrubber(r);
+}
+
+async function scrubberSet(id, enabled) {
+  const r = await api().scrubber_set_enabled(id, enabled);
+  if (!r.ok) return toast(r.error);
+  renderScrubber(r);
+}
+
+async function scrubberDelete(id) {
+  const ok = await confirmDialog("Remove this pattern? Files read after this won't use it.", "Remove");
+  if (!ok) return;
+  const r = await api().scrubber_delete(id);
+  if (!r.ok) return toast(r.error);
+  renderScrubber(r);
+}
+
+async function scrubberPreview() {
+  const r = await api().scrubber_preview($("scrub-sample").value);
+  const box = $("scrub-preview");
+  box.hidden = false;
+  if (!r.ok) {
+    box.replaceChildren(el("p", { class: "error" }, r.error));
+    return;
+  }
+  box.replaceChildren(richText(r.text));
 }
 
 // ---------- AI access review ----------
@@ -1007,8 +1107,19 @@ function wire() {
   const focused = async () => { if (document.visibilityState === "visible") { await api().window_focused(); refreshStatus(); } };
   window.addEventListener("focus", focused);
   document.addEventListener("visibilitychange", focused);
+  $("files-add-folder").addEventListener("click", () => addFiles("folder"));
+  $("files-add-file").addEventListener("click", () => addFiles("file"));
   $("ob-connect").addEventListener("click", () => connect($("ob-connect"), $("ob-error")));
   $("reconnect").addEventListener("click", () => connect($("reconnect"), null));
+  $("scrub-add").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const r = await api().scrubber_add($("scrub-name").value, $("scrub-pattern").value);
+    if (!r.ok) return toast(r.error);
+    $("scrub-name").value = "";
+    $("scrub-pattern").value = "";
+    renderScrubber(r);
+  });
+  $("scrub-try").addEventListener("click", scrubberPreview);
   $("s-disconnect").addEventListener("click", () => disconnect(false));
   $("s-wipe").addEventListener("click", () => disconnect(true));
   $("mcp-toggle").addEventListener("change", mcpToggle);

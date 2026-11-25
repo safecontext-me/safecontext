@@ -22,8 +22,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .. import __version__, auth, env, migrate, review, updater as upd
+from ..scrub.controls import PatternError, add_pattern, builtin_rules, delete_pattern, load_patterns, preview, set_enabled
 from ..errors import NeedsPermission
 from ..grok_link import CONNECTOR_PAGES, GrokLink
+from ..pdf_selection import PdfSelection, PdfSelectionError
 from ..sources import Sources, default_sources
 from ..store import DEFAULT_DATA_DIR, GMAIL, Store
 from ..sync import SyncResult, read_heartbeat
@@ -79,6 +81,8 @@ def _safe(fn: Callable) -> Callable:
             return {"ok": False, "error": e.message, "needs_permission": True, "requirement": e.requirement}
         except auth.NotConfigured as e:
             return {"ok": False, "error": str(e)}
+        except PdfSelectionError as e:
+            return {"ok": False, "error": str(e)}
         except Exception as e:  # never leak a traceback (or mail content) into the UI
             log.exception("app call failed: %s", fn.__name__)
             return {"ok": False, "error": f"Something went wrong ({type(e).__name__})."}
@@ -101,7 +105,8 @@ class Backend:
                  imessage_options: Optional[Dict[str, Any]] = None,
                  updater: Optional[upd.Updater] = None,
                  review_home: Optional[Path] = None,
-                 auto_sync: bool = True) -> None:
+                 auto_sync: bool = True,
+                 pdf_chooser: Optional[Callable[[str], Any]] = None) -> None:
         self._demo = demo
         self._data_dir = Path(data_dir or DEFAULT_DATA_DIR)
         # Where the opt-in review scan looks for other AI tools' config. Demo mode never looks
@@ -109,6 +114,8 @@ class Backend:
         self._review_home = Path(review_home) if review_home else (
             self._data_dir / "demo-home" if demo else Path.home())
         self._store = Store(self._data_dir / "mail.db")
+        # Folders and PDFs the user opts in. Text may be read only from those PDFs.
+        self._pdfs = PdfSelection(self._store, chooser=pdf_chooser)
         self._connect_fn = connect_fn  # None: the real Google sign-in
         self._sources: Sources = default_sources(
             self._store, gmail_factory=gmail_factory,
@@ -234,6 +241,36 @@ class Backend:
         self._sources.disconnect(source_id, wipe=bool(wipe))
         self._last_result.pop(source_id, None)
         return {"wiped": bool(wipe)}
+
+    # --- files: the only PDFs whose text may be read ---------------------------
+    def _pdf_payload(self) -> Dict[str, Any]:
+        return {"entries": self._pdfs.entries(), "pdfs": self._pdfs.readable_pdfs()}
+
+    @_safe
+    def pdf_selection(self) -> Dict[str, Any]:
+        """Folders and files the user added, and the PDFs whose text may be read."""
+        return self._pdf_payload()
+
+    @_safe
+    def pdf_add_folder(self, path: str) -> Dict[str, Any]:
+        return {"entry": self._pdfs.add_folder(path), **self._pdf_payload()}
+
+    @_safe
+    def pdf_add_file(self, path: str) -> Dict[str, Any]:
+        return {"entry": self._pdfs.add_file(path), **self._pdf_payload()}
+
+    @_safe
+    def pdf_remove(self, path: str) -> Dict[str, Any]:
+        self._pdfs.remove(path)
+        return self._pdf_payload()
+
+    @_safe
+    def pdf_pick(self, kind: str = "folder") -> Dict[str, Any]:
+        """Open the folder or PDF panel and opt in what the user picks."""
+        entries = self._pdfs.pick(kind)
+        if not entries:
+            return {"cancelled": True}
+        return {"entries": entries, **self._pdf_payload()}
 
     # --- Gmail (the v1 calls the onboarding screen and Settings use) -----------
     @_safe
@@ -406,6 +443,49 @@ class Backend:
         return {"kept": st["kept"], "dropped_total": st["dropped"],
                 "dropped": dict(sorted(dropped.items(), key=lambda kv: -kv[1])), "redacted": redacted,
                 "by_source": by_source}
+
+    # --- scrubber controls (file and PDF text extracted on this Mac) -------------
+    def _scrubber_view(self) -> Dict[str, Any]:
+        return {"builtin": builtin_rules(),
+                "patterns": [row.as_dict() for row in load_patterns(self._store)]}
+
+    @_safe
+    def scrubber_rules(self) -> Dict[str, Any]:
+        """Built-in rules, which always run, and the patterns the user added for files."""
+        return self._scrubber_view()
+
+    @_safe
+    def scrubber_add(self, name: str, pattern: str) -> Dict[str, Any]:
+        try:
+            add_pattern(self._store, name or "", pattern or "")
+        except PatternError as e:
+            return {"ok": False, "error": e.message}
+        return self._scrubber_view()
+
+    @_safe
+    def scrubber_set_enabled(self, pattern_id: str, enabled: bool) -> Dict[str, Any]:
+        try:
+            set_enabled(self._store, pattern_id or "", bool(enabled))
+        except PatternError as e:
+            return {"ok": False, "error": e.message}
+        return self._scrubber_view()
+
+    @_safe
+    def scrubber_delete(self, pattern_id: str) -> Dict[str, Any]:
+        try:
+            delete_pattern(self._store, pattern_id or "")
+        except PatternError as e:
+            return {"ok": False, "error": e.message}
+        return self._scrubber_view()
+
+    @_safe
+    def scrubber_preview(self, text: str) -> Dict[str, Any]:
+        """Show what a sample would look like after scrubbing. The sample is not saved."""
+        try:
+            cleaned, counts, truncated = preview(self._store, text if isinstance(text, str) else "")
+        except PatternError as e:
+            return {"ok": False, "error": e.message}
+        return {"text": cleaned, "redacted": counts, "truncated": truncated}
 
     # --- MCP link (shown as "MCP"; the grok_* names are kept from "Use in Grok") ----
     @_safe
