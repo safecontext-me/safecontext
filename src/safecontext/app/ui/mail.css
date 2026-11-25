@@ -105,6 +105,12 @@ kbd { font: var(--text-xs) var(--font-mono); border: 1px solid var(--border); bo
 .mrow.dropped.sel { background: var(--active); }
 .mrow.dropped .mrow-from { color: var(--muted-foreground); }
 .mrow.dropped .mrow-subj > span:first-child { color: var(--muted-foreground); }
+/* Placeholder rows while a list's first page loads (only when it wasn't shown before). */
+.mrow.skel { cursor: default; gap: var(--space-1-5); }
+.mrow.skel:hover { background: none; }
+.skel-bar { height: 10px; border-radius: var(--radius-full); background: var(--secondary); animation: pulse 1.6s ease-in-out infinite; }
+.skel-bar.w30 { width: 30%; } .skel-bar.w70 { width: 70%; height: 12px; } .skel-bar.w90 { width: 90%; }
+@media (prefers-reduced-motion: reduce) { .skel-bar { animation: none; } }
 .mrow-loading { position: absolute; left: 0; right: 0; padding: var(--space-3-5); text-align: center; color: var(--muted-foreground); font-size: var(--text-sm); }
 
 /* reader */
