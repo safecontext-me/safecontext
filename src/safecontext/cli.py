@@ -3,6 +3,7 @@
     python -m safecontext connect [--headers-only] [--email you@gmail.com]   # Gmail
     python -m safecontext connect --source gcal [--email you@gmail.com]      # Google Calendar
     python -m safecontext connect --source imessage   # Messages on this Mac (needs Full Disk Access)
+    python -m safecontext connect --source dropbox   # Dropbox (read-only; needs SAFECONTEXT_DROPBOX_APP_KEY)
     python -m safecontext sync [--source gcal]       # every connected source, or one
     python -m safecontext status
     python -m safecontext sources
@@ -154,11 +155,11 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="safecontext")
     p.add_argument("--data-dir", help=f"defaults to {DEFAULT_DATA_DIR}")
     sub = p.add_subparsers(dest="cmd")
-    source_ids = ["gmail", "gcal", "imessage"]
+    source_ids = ["gmail", "gcal", "imessage", "dropbox"]
     c = sub.add_parser("connect")
     c.add_argument("--source", choices=source_ids, default="gmail")
     c.add_argument("--headers-only", action="store_true", help="Gmail: use gmail.metadata, no message bodies")
-    c.add_argument("--email", help="pre-fill the Google account chooser")
+    c.add_argument("--email", help="pre-fill the account chooser when the source supports it")
     sy = sub.add_parser("sync")
     sy.add_argument("--source", choices=source_ids, help="default: every connected source")
     sub.add_parser("status")

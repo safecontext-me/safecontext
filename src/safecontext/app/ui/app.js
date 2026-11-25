@@ -11,8 +11,8 @@ const REDACTION_NAMES = {
   HEALTH: "health detail", LEGAL: "legal detail", PERSONAL: "personal detail",
 };
 
-const SOURCE_ICONS = { gmail: "✉️", gcal: "📅", imessage: "💬", whatsapp: "🟢", recordings: "🎙️" };
-const OPEN_LABELS = { gmail: "Open in Gmail", gcal: "Open in Calendar" };
+const SOURCE_ICONS = { gmail: "✉️", gcal: "📅", imessage: "💬", whatsapp: "🟢", recordings: "🎙️", dropbox: "📦" };
+const OPEN_LABELS = { gmail: "Open in Gmail", gcal: "Open in Calendar", dropbox: "Open in Dropbox" };
 const STATE_LABELS = {
   connected: ["Connected", "ok"], syncing: ["Syncing…", "busy"], needs_reconnect: ["Needs reconnecting", "warn"],
   needs_permission: ["Needs permission", "warn"], error: ["Will retry", "warn"], not_connected: ["Not connected", ""],
@@ -44,7 +44,7 @@ function el(tag, attrs = {}, ...children) {
 // and (optionally) Gmail links made clickable. Everything else stays plain text.
 function richText(text, { links = false } = {}) {
   const frag = document.createDocumentFragment();
-  const re = /\[REDACTED:([A-Z_]+)\]|«([^»]*)»|(https:\/\/(?:mail\.google\.com\/mail\/|www\.google\.com\/calendar\/)[^\s)\]]+)/g;
+  const re = /\[REDACTED:([A-Z_]+)\]|«([^»]*)»|(https:\/\/(?:mail\.google\.com\/mail\/|www\.google\.com\/calendar\/|www\.dropbox\.com\/home\/)[^\s)\]]+)/g;
   let last = 0, m;
   while ((m = re.exec(text))) {
     frag.append(document.createTextNode(text.slice(last, m.index)));
@@ -55,7 +55,7 @@ function richText(text, { links = false } = {}) {
       frag.append(el("mark", {}, m[2]));
     } else if (links) {
       const url = m[3];
-      frag.append(el("a", { onclick: () => openLink(url) }, url.includes("/calendar/") ? "Open in Calendar" : "Open in Gmail"));
+      frag.append(el("a", { onclick: () => openLink(url) }, url.includes("dropbox.com/") ? "Open in Dropbox" : url.includes("/calendar/") ? "Open in Calendar" : "Open in Gmail"));
     } else {
       frag.append(document.createTextNode(m[3]));
     }
@@ -443,7 +443,8 @@ async function openSourceSettings(x, btn) {
 async function connectSource(x, btn) {
   state.sourcesBusy = true;
   btn.disabled = true;
-  btn.textContent = x.requirements.some((q) => q.kind === "oauth_scope") ? "Waiting for Google sign-in…"
+  btn.textContent = x.requirements.some((q) => q.kind === "oauth_scope")
+    ? (x.id === "dropbox" ? "Waiting for Dropbox sign-in…" : "Waiting for Google sign-in…")
     : x.requirements.some((q) => q.kind === "macos_permission") ? "Checking access…" : "Connecting…";
   const opts = x.id === "gmail" ? { mode: (state.status && state.status.mode) || "full" } : {};
   const r = await api().connect_source(x.id, opts);
