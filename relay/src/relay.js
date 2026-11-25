@@ -33,7 +33,12 @@ const REFRESH_TTL_S = 180 * 86_400;
 const MAX_CLIENTS = 20;
 // [capacity, refill seconds for a full bucket] per link
 const LIMITS = { mcp: [120, 60], auth: [20, 60], connect: [10, 60], denied: [60, 60] };
-export const TOOLS = new Set(["search", "read", "list_items", "list_sources"]);
+export const TOOLS = new Set([
+  "search", "read", "list_items", "list_sources",
+  // Gmail-shaped aliases. The Mac lists them only while Gmail is connected;
+  // the relay allows the names so a listed tool can actually be called.
+  "search_email", "read_email_thread",
+]);
 export const METHODS = new Set(["initialize", "ping", "tools/list", "tools/call",
   "notifications/initialized", "notifications/cancelled"]);
 export const OFFLINE_MESSAGE = "SafeContext isn't running on your Mac. Open SafeContext on your Mac " +

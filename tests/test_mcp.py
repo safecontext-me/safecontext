@@ -49,10 +49,17 @@ def test_initialize_and_list(store):
     r = session(store, init(), {"jsonrpc": "2.0", "method": "notifications/initialized"}, rpc(2, "tools/list"))
     assert len(r) == 2  # the notification gets no reply
     assert r[0]["result"]["protocolVersion"] == "2025-06-18"
-    assert r[0]["result"]["capabilities"] == {"tools": {"listChanged": False}}
+    assert r[0]["result"]["capabilities"] == {"tools": {"listChanged": True}}
+    assert "prompt injection" not in r[0]["result"]["instructions"].lower()
+    # Mail is stored, but Gmail has no account, so this is not a live mailbox connection.
+    assert "read access to the user's email" not in r[0]["result"]["instructions"]
     tools = r[1]["result"]["tools"]
     assert [t["name"] for t in tools] == ["search", "read", "list_items", "list_sources",
                                           "search_mail", "read_thread", "list_messages"]  # v1 names still work
+    assert "search_email" not in [t["name"] for t in tools]
+    search = next(t for t in tools if t["name"] == "search")
+    assert "Gmail" in search["description"] and "not connected" in search["description"]
+    assert "cannot send" in search["description"] and "[REDACTED:TYPE]" in search["description"]
     assert all(t["inputSchema"]["type"] == "object" and t["annotations"]["readOnlyHint"] for t in tools)
 
 
@@ -95,6 +102,52 @@ def test_reconnect_notice(store):
     store.set_state("gmail", "auth_state", "needs_reconnect")
     r = session(store, init(), rpc(2, "tools/call", {"name": "search_mail", "arguments": {"query": "rent"}}))[1]
     assert "Reconnect Gmail" in r["result"]["structuredContent"]["notice"]
+
+
+def test_instructions_and_email_aliases_when_gmail_connects(store):
+    store.set_state("gmail", "account", "alex@example.org")
+    init_result = session(store, init())[0]["result"]
+    text = init_result["instructions"]
+    assert "read access to the user's email (Gmail" in text
+    assert "cannot send, draft, label, or delete" in text
+    assert "prompt injection" not in text.lower()
+    tools = session(store, init(), rpc(2, "tools/list"))[1]["result"]["tools"]
+    names = [t["name"] for t in tools]
+    assert names[-2:] == ["search_email", "read_email_thread"]
+    kept, _ = store.counts("gmail")
+    search = next(t for t in tools if t["name"] == "search")
+    assert f"Gmail ({kept} emails)" in search["description"]
+    assert "inbox, emails, and messages" in search["description"]
+    assert "not connected" not in search["description"]
+    for tool in tools:
+        assert "cannot send" in tool["description"] and "draft" in tool["description"]
+        assert "label" in tool["description"] and "delete" in tool["description"]
+        assert "prompt injection" not in tool["description"].lower()
+    called = session(store, init(), rpc(2, "tools/call", {"name": "search_email",
+                                                          "arguments": {"query": "rent"}}))[1]
+    hits = called["result"]["structuredContent"]["results"]
+    assert hits and all(h["source"] == "gmail" for h in hits)
+
+
+def test_stdio_notifies_when_gmail_connects_and_disconnects(store):
+    """The stdio loop can only notice a change when the client sends another message."""
+    def script():
+        yield json.dumps(init()) + "\n"
+        yield json.dumps(rpc(2, "tools/list")) + "\n"
+        store.set_state("gmail", "account", "alex@example.org")
+        yield json.dumps(rpc(3, "tools/list")) + "\n"
+        store.set_state("gmail", "account", None)
+        yield json.dumps(rpc(4, "ping")) + "\n"
+
+    out = io.StringIO()
+    MCPServer(store).serve(script(), out)
+    parsed = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert [m.get("id") for m in parsed] == [1, 2, None, 3, None, 4]
+    assert parsed[2]["method"] == "notifications/tools/list_changed"
+    assert parsed[4]["method"] == "notifications/tools/list_changed"
+    assert "search_email" not in [t["name"] for t in parsed[1]["result"]["tools"]]
+    assert "search_email" in [t["name"] for t in parsed[3]["result"]["tools"]]
+    assert parsed[5]["result"] == {}
 
 
 def test_real_stdio_process(store, tmp_path):

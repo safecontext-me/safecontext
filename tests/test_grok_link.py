@@ -70,6 +70,39 @@ def test_tool_call_is_scrubbed_and_logged_without_content(store, tmp_path):
     assert ActivityLog(tmp_path / "grok_activity.json").entries()[0]["query"] == "“Nopa”"  # survives restart
 
 
+def test_email_aliases_are_on_the_grok_path_only_while_gmail_is_connected(store):
+    h = MCPHttpHandler(store)
+    _, _, body = h.handle("POST", {}, rpc("tools/list"))
+    assert "search_email" not in {t["name"] for t in json.loads(body)["result"]["tools"]}
+    _, _, body = h.handle("POST", {}, rpc("tools/call", {"name": "search_email", "arguments": {"query": "x"}}))
+    assert json.loads(body)["error"]["code"] == -32602
+
+    store.set_state("gmail", "account", "alex@example.org")
+    _, _, body = h.handle("POST", {}, rpc("initialize", {"protocolVersion": "2025-06-18"}))
+    instructions = json.loads(body)["result"]["instructions"]
+    assert "read access to the user's email (Gmail" in instructions
+    assert "prompt injection" not in instructions.lower()
+    _, _, body = h.handle("POST", {}, rpc("tools/list"))
+    tools = json.loads(body)["result"]["tools"]
+    assert {t["name"] for t in tools} == {"search", "read", "list_items", "list_sources",
+                                          "search_email", "read_email_thread"}
+    search = next(t for t in tools if t["name"] == "search")
+    assert "user's Gmail" in search["description"] and "inbox" in search["description"]
+    assert "cannot send" in search["description"] and "draft" in search["description"]
+    assert "label" in search["description"] and "delete" in search["description"]
+    assert "[REDACTED:TYPE]" in search["description"] and "prompt injection" not in search["description"].lower()
+    status, _, body = h.handle("POST", {"MCP-Protocol-Version": "2025-06-18"},
+                               rpc("tools/call", {"name": "search_email", "arguments": {"query": "Nopa"}}))
+    out = json.loads(body)["result"]
+    assert status == 200 and out["isError"] is False
+    assert out["structuredContent"]["results"]
+    assert all(hit["source"] == "gmail" for hit in out["structuredContent"]["results"])
+
+    store.set_state("gmail", "account", None)
+    _, _, body = h.handle("POST", {}, rpc("tools/list"))
+    assert "search_email" not in {t["name"] for t in json.loads(body)["result"]["tools"]}
+
+
 def test_aliases_and_other_methods_are_refused(store):
     h = MCPHttpHandler(store)
     _, _, body = h.handle("POST", {}, rpc("tools/call", {"name": "search_mail", "arguments": {"query": "x"}}))
@@ -110,6 +143,8 @@ def test_describe_query():
     assert describe_query("list_items", {"source": "gcal", "after": "2026-01-01"}) == \
         "Listed items · in gcal, after 2026-01-01"
     assert describe_query("read", {"thread_id": "t1"}) == "Opened a thread"
+    assert describe_query("search_email", {"query": "rent"}) == "“rent” · in gmail"
+    assert describe_query("read_email_thread", {"thread_id": "t1"}) == "Opened a thread in gmail"
     assert len(describe_query("search", {"query": "x" * 500})) <= 160
 
 

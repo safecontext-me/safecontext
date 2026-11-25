@@ -2,7 +2,8 @@ import pytest
 
 from safecontext.scrub import scrub
 from safecontext.store import Store
-from safecontext.tools import MAX_BODY_CHARS, MAX_THREAD_MESSAGES, TOOLS, run_tool
+from safecontext.tools import (MAX_BODY_CHARS, MAX_THREAD_MESSAGES, TOOLS, compact_count, count_label,
+                               connected_source_summaries, grok_tools, instructions_for, run_tool, tools_for)
 from safecontext.demo.synthetic import mailbox, msg
 
 
@@ -89,3 +90,50 @@ def test_syncing_notice(store):
     store.set_state("gmail", "history_id", None)
     store.set_state("gmail", "account", "alex@example.org")
     assert "still running" in run_tool(store, "list_messages", {})["notice"]
+
+
+def test_count_labels():
+    assert compact_count(69000) == "69k"
+    assert compact_count(1500) == "1.5k"
+    assert compact_count(6) == "6"
+    assert count_label(69000, "gmail") == "69k emails"
+    assert count_label(1, "gmail") == "1 email"
+    assert count_label(6, "gcal") == "6 events"
+
+
+def test_summaries_follow_list_sources_rules(store):
+    rows = connected_source_summaries(store)
+    listed = run_tool(store, "list_sources", {})["sources"]
+    assert [{k: row[k] for k in ("source", "name", "connected", "items", "auth_state", "last_sync",
+                                 "oldest", "newest")} for row in rows] == listed
+    assert rows and rows[0]["source"] == "gmail" and rows[0]["connected"] is False
+    assert "search_email" not in [t["name"] for t in tools_for(store)]
+    assert "search_email" not in [t["name"] for t in grok_tools(store)]
+
+
+def test_email_aliases_only_while_gmail_is_connected(store):
+    store.set_state("gmail", "account", "alex@example.org")
+    by_name = {t["name"]: t for t in tools_for(store)}
+    assert "search_email" in by_name and "read_email_thread" in by_name
+    kept, _ = store.counts("gmail")
+    assert f"Gmail ({kept} emails)" in by_name["search"]["description"]
+    assert "user's Gmail" in by_name["search_email"]["description"]
+    for tool in by_name.values():
+        lowered = tool["description"].lower()
+        assert "cannot send" in lowered and "draft" in lowered and "label" in lowered and "delete" in lowered
+        assert "[redacted:type]" in lowered
+        assert "prompt injection" not in lowered
+    assert "prompt injection" not in instructions_for(store).lower()
+    assert "read access to the user's email (Gmail" in instructions_for(store)
+    hits = run_tool(store, "search_email", {"query": "rent"})["results"]
+    assert hits and all(h["source"] == "gmail" for h in hits)
+    thread = hits[0]["thread_id"]
+    assert run_tool(store, "read_email_thread", {"thread_id": thread})["source"] == "gmail"
+    assert "unknown argument" in run_tool(store, "search_email", {"query": "rent", "source": "gcal"})["error"]
+
+    store.set_state("gmail", "account", None)
+    names = [t["name"] for t in tools_for(store)]
+    assert "search_email" not in names and "read_email_thread" not in names
+    assert "not connected" in next(t["description"] for t in tools_for(store) if t["name"] == "search")
+    # The wrapper still runs if a client calls it with a stale list. It is just not advertised.
+    assert run_tool(store, "search_email", {"query": "rent"})["count"] >= 1
