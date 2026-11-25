@@ -37,7 +37,7 @@ Source: [src/relay.js](src/relay.js) (entry point `src/index.js`). Mac side: `sr
 | Anonymous usage counts only | One Analytics Engine data point per MCP request and per sign-in, with fields from fixed lists only (see "Usage stats" below). No IP, user agent, location, headers, queries, arguments or results. A test checks every point written against the allowlist. |
 | Read-only, allowlisted | Only `initialize`, `ping`, `tools/list`, `tools/call`, `notifications/initialized` and `notifications/cancelled`; `tools/call` only for `search`, `read`, `list_items`, `list_sources`, and the Gmail aliases `search_email` and `read_email_thread` (the Mac lists those two only while Gmail is connected). Anything else is answered by the relay and never reaches the Mac. The Mac checks the same allowlist again. |
 | Per-user limits | Per link (token buckets): 120 MCP requests/min, 20 OAuth calls/min, 10 Mac connections/min, 60 refused requests/min. Requests ≤ 64 KiB, answers ≤ 1 MiB (the Mac caps itself at 900 KiB), OAuth bodies ≤ 8 KiB (MCP bodies are read in chunks and cut off at the limit), at most 20 registered clients (more are refused, never evicted). |
-| Timeouts | 25 s for the Mac to answer, 5 min for an approval or an authorization code. Access tokens last 30 days, refresh tokens 180 days (rotated on use). |
+| Timeouts | 25 s for the Mac to answer, 5 min for an approval or an authorization code. Access tokens last 30 days, refresh tokens 180 days (rotated on use; the old pair keeps working for 2 minutes so concurrent or retried refreshes don't force a new sign-in). |
 | The app's token stays at the relay | Only `content-type`, `accept` and `mcp-protocol-version` are passed to the Mac. |
 | Callbacks | `https` on the default port, or plain `http` to `localhost`, `127.0.0.1` or `[::1]` on any port for desktop apps such as the Grok Mac app (RFC 8252); no user info or fragment. Hosts come from `ALLOWED_REDIRECT_HOSTS` in `wrangler.toml` and match exactly; an entry like `*.x.ai` allows subdomains of `x.ai` only. Today: `grok.com`, `x.ai` and their subdomains (Grok's exact callback isn't documented yet), and `claude.ai` (Claude's documented callback is `https://claude.ai/api/mcp/auth_callback`). To add an app, add its exact callback host there and redeploy. At registration the relay keeps the allowed callbacks and drops the rest (Grok also sends Cursor and `localhost` ones); if none is allowed, the error names the refused ones. |
 | Revocation | **Regenerate link** in the app sends `revoke_all` (the Durable Object deletes all its storage) and switches to a new link. Turning **MCP** (**Use in Grok** in older app versions) off closes the socket, so nothing more reaches the Mac. |
@@ -185,10 +185,12 @@ JSON text frames on the WebSocket:
 
 | Direction | Message |
 | --- | --- |
-| relay → Mac | `{"t":"hello","grants":n}` on connect; `{"t":"grants","n":n}` when an app signs in |
-| relay → Mac | `{"t":"http","id","method","headers","body"}`: one MCP request |
+| relay → Mac | `{"t":"hello","grants":n,"list":[G…]}` on connect; `{"t":"grants","n":n,"list":[G…]}` when the list changes (sign-in, revoke, expiry) or after a `revoke`. `n` is the list's length, kept for older apps. G = `{"id":gid,"client":"Grok","created_ms":ms,"last_used_ms":ms\|null}`, oldest first |
+| relay → Mac | `{"t":"grant_event","kind":"created"\|"refreshed"\|"expired"\|"revoked","id":gid,"client":"Grok"}` |
+| relay → Mac | `{"t":"http","id","method","headers","body","client","grant"}`: one MCP request. `client` is the sign-in's name, `grant` its gid; `""`/`null` for link-only requests |
 | relay → Mac | `{"t":"approve","id","client","code"}`: an app is signing in; show Approve. `client` is its cleaned registered name, `"Grok"` for client `grok`, or `""` when unknown (show a neutral "An AI app") |
 | Mac → relay | `{"t":"http_result","id","status","headers","body"}` |
 | Mac → relay | `{"t":"approve_result","id","ok"}` |
 | Mac → relay | `{"t":"settings","link_only":bool}` after each connect |
+| Mac → relay | `{"t":"revoke","id":gid}`: end one sign-in; its access and refresh tokens stop working at once. Answered with `grant_event` (if known) and `grants` |
 | Mac → relay | `{"t":"revoke_all"}`: forget every client, token and the device (Regenerate link) |
