@@ -282,3 +282,41 @@ def test_backend_logs_scan_changes_and_serves_the_log(backend, tmp_path):
     assert "Checking Claude Desktop and Claude Code turned on" in texts
     assert "zzz-secret" not in (tmp_path / "data" / "permission_log.json").read_text()
     assert backend.permission_log_clear()["entries"] == []
+
+
+# --- AI apps signed in through the link ------------------------------------------------------------
+
+def _signin(gid, client, created_days, last_days=None):
+    return {"id": gid, "client": client, "created_ms": NOW - created_days * DAY,
+            "last_used_ms": None if last_days is None else NOW - last_days * DAY}
+
+
+def test_sign_ins_are_listed_and_idle_ones_are_worth_a_look():
+    signins = [_signin("gid-a", "Grok", 60, 45), _signin("gid-b", "Claude", 10, 0), _signin("gid-c", "", 2),
+               _signin("gid-d", "", 31)]
+    r = review.build_review(mcp(enabled=True, grants=4, last_used_ms=NOW, signins=signins), {}, None, NOW)
+    sc = next(g for g in r["groups"] if g["id"] == "safecontext")
+    rows = [c for c in sc["checks"] if c["grant"]]
+    assert [(c["title"], c["colour"], c["grant"]) for c in rows] == [
+        ("Grok: not used for 45 days", "yellow", "gid-a"), ("Claude is signed in", "green", "gid-b"),
+        ("Unknown app is signed in", "green", "gid-c"),           # new and not used yet: fine
+        ("Unknown app: not used for 31 days", "yellow", "gid-d")]  # never used, signed in 31 days ago
+    assert "Last used today" in rows[1]["detail"] and "Never used" in rows[2]["detail"]
+    assert all(c["group"] == "safecontext" and c["id"].startswith("sc_grant_") for c in rows)
+    assert len({c["id"] for c in rows}) == 4 and "gid" not in "".join(c["id"] for c in rows)
+    assert r["verdict"] == "2 things worth a look"
+    page = review.report_html(r, "0.1.11")
+    assert "Grok: not used for 45 days" in page and "gid-" not in page  # ids stay in the window
+
+
+def test_sign_in_row_ids_stay_put_when_another_is_revoked():
+    both = review.signin_checks([_signin("a", "Grok", 1), _signin("b", "Claude", 1)], NOW)
+    one = review.signin_checks([_signin("b", "Claude", 1)], NOW)
+    assert both[1].id == one[0].id
+
+
+def test_no_sign_in_rows_for_an_old_relay_or_when_off():
+    assert not [c for c in ids(review.build_review(mcp(enabled=True, grants=2, signins=None), {}, None, NOW)).values()
+                if c["grant"]]
+    assert not [c for c in ids(review.build_review(mcp(signins=[_signin("a", "Grok", 99)]), {}, None, NOW)).values()
+                if c["grant"]]

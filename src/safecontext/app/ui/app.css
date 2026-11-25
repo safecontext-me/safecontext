@@ -296,6 +296,14 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .mcp-panel .check { margin-bottom: var(--space-1-5); }
 .mcp-soon { margin: 0 0 var(--space-2); color: var(--muted-foreground); font-size: var(--text-sm); }
 .act-time, .act-n { color: var(--muted-foreground); }
+.mcp-signins { margin-top: var(--space-3); padding-top: var(--space-2-5); border-top: 1px solid var(--border); font-size: var(--text-base); }
+#mcp-signin-list { list-style: none; margin: 0; padding: 0; }
+#mcp-signin-list li { display: grid; grid-template-columns: minmax(90px, auto) 1fr auto; align-items: center; gap: var(--space-2-5); padding: var(--space-1) 0; }
+#mcp-signin-list li + li { border-top: 1px solid var(--border); }
+.si-name { font-weight: var(--font-weight-semibold); }
+.si-name.unknown { font-weight: normal; font-style: italic; color: var(--muted-foreground); }
+.si-when { color: var(--muted-foreground); }
+.si-when.stale { color: var(--warning-foreground, var(--muted-foreground)); }
 .act-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-2-5); margin: 0 0 var(--space-2-5); }
 .kv dt { color: var(--muted-foreground); }

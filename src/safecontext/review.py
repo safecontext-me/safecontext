@@ -3,7 +3,8 @@
 Only AI clients are covered: Grok, Claude, ChatGPT (and its Dots agent), and the SafeContext link
 they reach this Mac through. Four kinds of checks, automatic ones first:
 
-  * automatic: SafeContext's own link (on/off, link-only mode, sign-ins AI apps hold, keep awake)
+  * automatic: SafeContext's own link (on/off, link-only mode, keep awake, and each AI app signed in
+    through it, yellow when unused for SIGNIN_IDLE_DAYS, with a Revoke button)
     and how often apps asked to connect, from SafeContext's own state and its permission log
     (permlog.py). Also whether an AI app is installed in /Applications or ~/Applications (the
     bundle's existence only; nothing inside it is opened).
@@ -27,6 +28,7 @@ are pure so they can be tested alone.
 """
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import re
@@ -40,6 +42,7 @@ STATUS_ORDER = {RISK: 0, WARN: 1, TODO: 2, INFO: 3, OK: 4}
 ANSWERS = ("ok", "fixed", "issue", "skip")
 REVIEW_EXPIRE_DAYS = 90
 LINK_IDLE_DAYS = 30
+SIGNIN_IDLE_DAYS = 30
 REQUEST_WINDOW_DAYS = 30
 REQUESTS_BUSY = 5   # requests from one app in the window that count as "keeps asking"
 DAY_MS = 86_400_000
@@ -88,6 +91,7 @@ class Check:
     group: str = ""        # set by build_review from group_of()
     colour: str = ""       # set by build_review from colour_of()
     label: str = ""        # the word shown with the colour
+    grant: str = ""        # a sign-in's id when the row can revoke it (window only; never in the report)
 
 
 # --- guided checks --------------------------------------------------------------------------
@@ -233,8 +237,43 @@ def safecontext_checks(mcp: Dict[str, Any], now_ms: int,
             out.append(Check("sc_awake", "Keep awake is on", INFO,
                              "Your Mac stays awake on power so AI apps can reach SafeContext at any time.",
                              "Turn it off on the MCP screen if you only use AI apps while you're at the Mac."))
+        out.extend(signin_checks(mcp.get("signins"), now_ms))
     if events is not None:
         out.append(requests_check(events, now_ms))
+    return out
+
+
+def _date(ms: int) -> str:
+    return time.strftime("%-d %b %Y", time.localtime(ms / 1000))
+
+
+def signin_checks(signins: Optional[List[Dict[str, Any]]], now_ms: int) -> List[Check]:
+    """One row per AI app signed in through the link (GrokLink.signins()), oldest first. They stay in
+    Through SafeContext rather than under each app's tab: Revoke acts on SafeContext's link, the app
+    tabs are about the app's own settings, and an app with no name has no tab. None (a relay that only
+    sends a count) adds nothing; the link row already says how many."""
+    out: List[Check] = []
+    for g in signins or []:
+        name = g.get("client") or "Unknown app"
+        created, last = g.get("created_ms"), g.get("last_used_ms")
+        since = f"Signed in {_date(created)}." if created else "Signed in."
+        used = f"Last used {_ago(int(last), now_ms)}." if last else "Never used."
+        ref = last or created
+        idle_days = (now_ms - int(ref)) // DAY_MS if ref else 0
+        # Stable per sign-in, so an expanded row stays expanded when another one is revoked.
+        cid = "sc_grant_" + hashlib.sha256(g["id"].encode()).hexdigest()[:10]
+        who = g.get("client") or "An app that gave no name"
+        if idle_days >= SIGNIN_IDLE_DAYS:
+            fix = (f"If you don't use {name} with SafeContext any more, revoke it." if g.get("client") else
+                   "If you don't know which app this is, revoke it.")
+            out.append(Check(cid, f"{name}: not used for {idle_days} days", WARN,
+                             f"{who} can still search your scrubbed data through your link. {since} {used}",
+                             fix + " It can sign in again later, and you'll be asked to approve it.",
+                             grant=g["id"]))
+        else:
+            out.append(Check(cid, f"{name} is signed in", INFO,
+                             f"{who} can search your scrubbed data through your link. {since} {used}",
+                             "Revoke it if you don't recognize it or don't use it any more.", grant=g["id"]))
     return out
 
 
@@ -463,6 +502,8 @@ def group_of(check_id: str) -> str:
     """Which app or account a check belongs to. The opt-in scan's checks (lc_*) are all Claude's."""
     if check_id.startswith("lc_"):
         return "claude"
+    if check_id.startswith("sc_grant_"):
+        return "safecontext"
     return _GROUP_OF.get(check_id, "safecontext")
 
 

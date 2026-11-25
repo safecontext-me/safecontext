@@ -53,3 +53,22 @@ def test_scan_facts_and_changes():
         "Claude Code: skips permission prompts (added)",
         "Claude Desktop: MCP server removed: notes"]
     assert permlog.scan_facts(None) == set()
+
+
+def test_sign_in_events_and_use_read_plainly():
+    d = permlog.describe
+    assert d({"kind": "signin", "outcome": "created", "client": "Grok"}) == "Grok signed in through your link"
+    assert d({"kind": "signin", "outcome": "refreshed", "client": "Claude"}) == "Claude renewed its sign-in"
+    assert d({"kind": "signin", "outcome": "expired", "client": "Grok"}) == "Grok's sign-in expired"
+    assert d({"kind": "signin", "outcome": "revoked", "client": "Grok"}) == "You signed Grok out"
+    assert d({"kind": "signin", "outcome": "revoked"}) == "You signed an unknown app out"
+    assert d({"kind": "used", "client": "Grok"}) == "Grok used your link"
+
+
+def test_sign_in_kinds_are_kept(tmp_path):
+    log = PermissionLog(tmp_path / "p.json")
+    for o in ("created", "refreshed", "expired", "revoked"):
+        assert log.record("signin", o, "Grok")
+    assert log.record("used", client="Claude")
+    assert log.record("signin", "bogus") is None
+    assert [e["kind"] for e in PermissionLog(tmp_path / "p.json").entries()] == ["used"] + ["signin"] * 4

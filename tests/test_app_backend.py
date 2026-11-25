@@ -142,7 +142,7 @@ def test_window_cannot_reach_internals(backend):
     public = {n for n in dir(backend) if not n.startswith("_")}
     assert public == {"status", "connect", "sync_now", "disconnect", "search", "recent", "read_thread",
                       "open_in_gmail", "privacy_report", "mcp_config", "grok_status", "grok_enable",
-                      "grok_disable", "grok_regenerate", "grok_set_keep_awake", "grok_copy_link", "grok_approve",
+                      "grok_disable", "grok_regenerate", "grok_set_keep_awake", "grok_copy_link", "grok_approve", "grok_revoke",
                       "grok_set_link_only", "grok_clear_activity", "open_connectors", "sources",
                       "connect_source", "sync_source", "disconnect_source", "open_source_settings",
                       "open_link", "mail_folders", "mail_list", "mail_thread", "mail_reasons",

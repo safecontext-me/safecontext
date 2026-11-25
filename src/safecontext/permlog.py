@@ -2,11 +2,15 @@
 
 Kept only on this Mac, in a 0600 file in SafeContext's folder. Each entry is a time, a fixed kind
 and at most a short app name and a short fixed-format note. It never holds codes, tokens, the MCP
-link, what an app searched for, or values from other apps' files.
+link, sign-in ids, what an app searched for, or values from other apps' files.
 
 Kinds (the UI words live in describe()):
   connect      an app asked to connect; outcome approved | denied | expired | cancelled
-  signins      the number of sign-ins AI apps hold changed (note "2 → 3")
+  signins      the number of sign-ins AI apps hold changed (note "2 → 3"); only from a relay that
+               sends a count and no list
+  signin       one app's sign-in through the link: created | refreshed | expired | revoked (by you, here).
+               Renewals of one sign-in are logged at most every 6 hours.
+  used         an app's first request through the link that day (which app only, never what it asked)
   link         MCP link turned on | off | regenerated (every app signed out)
   link_only    "Connect with just the link" turned on | off
   keep_awake   turned on | off
@@ -28,8 +32,9 @@ log = logging.getLogger(__name__)
 KEEP = 500
 KEEP_DAYS = 365
 DAY_MS = 86_400_000
-KINDS = {"connect", "signins", "link", "link_only", "keep_awake", "scan", "scan_change"}
-OUTCOMES = {"approved", "denied", "expired", "cancelled", "on", "off", "regenerated", ""}
+KINDS = {"connect", "signins", "signin", "used", "link", "link_only", "keep_awake", "scan", "scan_change"}
+OUTCOMES = {"approved", "denied", "expired", "cancelled", "on", "off", "regenerated", "created", "refreshed",
+            "revoked", ""}
 MAX_TEXT = 120
 
 
@@ -108,6 +113,19 @@ def describe(e: Dict[str, Any]) -> str:
     k, o, who, note = e.get("kind"), e.get("outcome", ""), e.get("client") or "An AI app", e.get("note", "")
     if k == "connect":
         return f"{who} asked to connect. {_CONNECT.get(o, '')}".strip()
+    if k == "signin":
+        name = e.get("client")
+        if not name:  # the app registered no name and the relay couldn't tell from its callback
+            return {"created": "An unknown app signed in through your link",
+                    "refreshed": "An unknown app renewed its sign-in",
+                    "expired": "An unknown app's sign-in expired",
+                    "revoked": "You signed an unknown app out"}.get(o, "An unknown app's sign-in changed")
+        return {"created": f"{name} signed in through your link",
+                "refreshed": f"{name} renewed its sign-in",
+                "expired": f"{name}'s sign-in expired",
+                "revoked": f"You signed {name} out"}.get(o, f"{name}'s sign-in changed")
+    if k == "used":
+        return f"{who} used your link"
     if k == "signins":
         return f"Sign-ins held by AI apps: {note}" if note else "Sign-ins held by AI apps changed"
     if k == "link":
