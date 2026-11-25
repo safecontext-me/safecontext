@@ -11,6 +11,8 @@ const REDACTION_NAMES = {
   HEALTH: "health detail", LEGAL: "legal detail", PERSONAL: "personal detail",
 };
 
+// A source's status tone -> its Badge variant (shadcn.css)
+const BADGE_TONES = { ok: "badge-success", busy: "badge-info", warn: "badge-warning" };
 const REQ_KINDS = { oauth_scope: "Google permission", macos_permission: "Mac permission", file: "File", folder: "Folder" };
 const SOURCE_ICONS = { gmail: "✉️", gcal: "📅", imessage: "💬", whatsapp: "🟢", recordings: "🎙️", dropbox: "📦" };
 const OPEN_LABELS = { gmail: "Open in Gmail", gcal: "Open in Calendar", dropbox: "Open in Dropbox" };
@@ -26,6 +28,9 @@ let state = { status: null, view: "removed", shown: false,  // opens on the Secu
               mcp: null, mcpBusy: false };
 
 // ---------- DOM helpers ----------
+// An Alert (shadcn.css) kept in the page: put the message in its [data-alert-text] part, keeping the icon.
+function setAlert(alertEl, text) { alertEl.querySelector("[data-alert-text]").textContent = text; }
+
 function el(tag, attrs = {}, ...children) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -113,17 +118,21 @@ function ago(ms) {
 
 const n = (x) => Number(x || 0).toLocaleString();
 
-function toast(msg) {
-  const t = $("toast");
-  t.textContent = msg;
-  t.hidden = false;
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => (t.hidden = true), 2600);
+// A Sonner toast (shadcn.css): bottom right for 4 seconds. type "success" | "error" | "warning" adds shadcn's icon.
+const TOAST_ICONS = { success: "circle-check", error: "octagon-x", warning: "triangle-exclamation-point" };
+function toast(msg, type) {
+  if (!msg) return;
+  const t = el("li", { class: "toast", "data-type": type || "default", role: type === "error" ? "alert" : "status" },
+    TOAST_ICONS[type] ? icon(TOAST_ICONS[type]) : null, el("div", { class: "toast-title" }, msg));
+  $("toaster").append(t);
+  setTimeout(() => { t.classList.add("leaving"); setTimeout(() => t.remove(), 250); }, 4000);
 }
 
+// A Dialog (shadcn.css) asking to confirm a destructive action: the title is the action ("Disconnect?"), the text says what happens.
 function confirmDialog(text, okLabel) {
   return new Promise((resolve) => {
     const d = $("confirm");
+    $("confirm-title").textContent = `${okLabel}?`;
     $("confirm-text").textContent = text;
     $("confirm-ok").textContent = okLabel;
     d.addEventListener("close", () => resolve(d.returnValue === "ok"), { once: true });
@@ -133,7 +142,7 @@ function confirmDialog(text, okLabel) {
 
 async function openLink(url) {
   const r = await api().open_link(url);
-  if (!r.ok) toast(r.error);
+  if (!r.ok) toast(r.error, "error");
 }
 
 function sourceName(id) {
@@ -268,7 +277,7 @@ function fileRow(entry) {
   const kind = entry.kind === "folder" ? "Folder" : "PDF";
   return el("div", { class: "file-row" },
     el("div", {}, el("span", { class: "file-kind" }, kind), el("code", {}, entry.path)),
-    el("button", { class: "btn small", onclick: () => removeFile(entry.path) }, "Remove"));
+    el("button", { class: "btn btn-outline btn-sm", onclick: () => removeFile(entry.path) }, "Remove"));
 }
 
 async function loadFiles(keepError) {
@@ -276,7 +285,7 @@ async function loadFiles(keepError) {
   const err = $("files-error");
   if (!r.ok) {
     err.hidden = false;
-    err.textContent = r.error;
+    setAlert(err, r.error);
     return;
   }
   if (!keepError) err.hidden = true;
@@ -295,7 +304,7 @@ async function addFiles(kind) {
   const err = $("files-error");
   if (!r.ok) {
     err.hidden = false;
-    err.textContent = r.error;
+    setAlert(err, r.error);
     loadFiles(true);  // a later file can fail after an earlier one was saved
     return;
   }
@@ -308,7 +317,7 @@ async function removeFile(path) {
   const err = $("files-error");
   if (!r.ok) {
     err.hidden = false;
-    err.textContent = r.error;
+    setAlert(err, r.error);
     return;
   }
   err.hidden = true;
@@ -474,14 +483,6 @@ function eventCard(m) {
 }
 
 // ---------- sources ----------
-// A Lucide-style line icon (24×24 viewBox, stroked in the text color) from its path data.
-function icon(paths) {
-  const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("aria-hidden", "true");
-  for (const d of paths) { const p = document.createElementNS(NS, "path"); p.setAttribute("d", d); svg.append(p); }
-  return svg;
-}
 
 // ---------- sources: a grid of tiles, and a page per source ----------
 // A source's icon: an SVG from a <template id="icon-<id>"> in index.html when there is one, else its emoji.
@@ -490,7 +491,7 @@ function sourceIcon(id, cls = "src-icon") {
   return el("span", { class: cls, "aria-hidden": "true" }, t ? t.content.cloneNode(true) : (SOURCE_ICONS[id] || "•"));
 }
 
-// [label, tone, missing permission or null] for a source's status pill.
+// [label, tone, missing permission or null] for a source's status badge.
 function sourceStatus(x) {
   let [label, tone] = STATE_LABELS[x.state] || [x.state, ""];
   const perm = x.state === "needs_permission" ? x.permission : null;
@@ -505,36 +506,37 @@ function renderSources(list) {
 
 // The Sources grid shows only icon, name, description and status; everything else is on the source's page.
 function sourceTile(x) {
-  return el("button", { class: "src-tile" + (x.state === "coming_soon" ? " soon" : ""), type: "button",
+  return el("button", { class: "card card-sm src-tile" + (x.state === "coming_soon" ? " soon" : ""), type: "button",
     onclick: () => openSourcePage(x.id) },
-  sourceIcon(x.id, "src-icon lg"),
-  el("span", { class: "src-tile-main" }, el("span", { class: "src-tile-name" }, x.name),
-    el("span", { class: "src-tile-desc" }, x.description)),
-  sourceTileStatus(x));
+  el("span", { class: "card-content src-tile-body" },
+    sourceIcon(x.id, "src-icon lg"),
+    el("span", { class: "src-tile-main" }, el("span", { class: "card-title src-tile-name" }, x.name),
+      el("span", { class: "card-description src-tile-desc" }, x.description)),
+    sourceTileStatus(x)));
 }
 
 // A connected source's ⋯ menu on its page: Disconnect lives here, not as a button, so it's harder to hit by accident.
 function sourceMoreMenu(x) {
-  const menu = el("sc-menu", { icon: "ellipsis", label: `More options for ${x.name}`, align: "end", compact: "" },
-    el("button", { class: "sc-item danger", role: "menuitem", onclick: () => { menu.hide(); disconnectSource(x); } }, "Disconnect"));
+  const menu = el("sc-menu", { icon: "ellipsis", size: "icon", label: `More options for ${x.name}`, align: "end", compact: "" },
+    el("button", { class: "dropdown-menu-item", "data-variant": "destructive", role: "menuitem", onclick: () => { menu.hide(); disconnectSource(x); } }, "Disconnect"));
   return menu;
 }
 
-// The tile's status: a green check when connected, a plus when not, a text pill for anything else
+// The tile's status: a green check when connected, a plus when not, a Badge for anything else
 // (coming soon, needs permission or reconnecting, will retry). The check and plus are the app's standard
 // icon button (.icon-btn; the plus is the secondary variant) with tooltips; like the rest of the tile they open the source's page (the tile
 // itself is the button, so they're spans, not nested buttons).
 function sourceTileStatus(x) {
   if (x.state === "connected" || x.state === "syncing") {
     const tip = x.state === "syncing" ? `Connected · Syncing ${x.name}…` : `Connected · Open ${x.name}`;
-    return el("span", { class: "icon-btn src-state-btn ok", title: tip, "aria-label": tip }, icon(["M20 6 9 17l-5-5"]));
+    return el("span", { class: "btn btn-ghost btn-icon-sm src-state-btn ok", title: tip, "aria-label": tip }, icon("check"));
   }
   if (x.state === "not_connected") {
     const tip = `Not connected · Open to connect ${x.name}`;
-    return el("span", { class: "icon-btn secondary src-state-btn", title: tip, "aria-label": tip }, icon(["M5 12h14", "M12 5v14"]));
+    return el("span", { class: "btn btn-secondary btn-icon-sm src-state-btn", title: tip, "aria-label": tip }, icon("plus"));
   }
   const [label, tone] = sourceStatus(x);
-  return el("span", { class: `pill ${tone}` }, label);
+  return el("span", { class: `badge ${BADGE_TONES[tone] || "badge-secondary"}` }, label);
 }
 
 function openSourcePage(id) {
@@ -555,30 +557,31 @@ function renderSourcePage() {
 
   const actions = el("div", { class: "sp-actions" });
   if (soon) {
-    actions.append(el("button", { class: "btn lg-ish", disabled: "" }, "Coming soon"));
+    actions.append(el("button", { class: "btn btn-outline btn-lg", disabled: "" }, "Coming soon"));
   } else if (perm) {
     // The permission box carries Open System Settings; here: try again, or back out.
-    actions.append(el("button", { class: "btn", onclick: (e) => connectSource(x, e.target) }, "Check again"));
+    actions.append(el("button", { class: "btn btn-outline", onclick: (e) => connectSource(x, e.target) }, "Check again"));
     if (connected) actions.append(sourceMoreMenu(x));
-    else actions.append(el("button", { class: "btn", onclick: () => cancelSource(x) }, "Not now"));
+    else actions.append(el("button", { class: "btn btn-outline", onclick: () => cancelSource(x) }, "Not now"));
   } else if (!connected) {
-    actions.append(el("button", { class: "btn primary lg-ish", onclick: (e) => connectSource(x, e.target) }, "Connect"));
+    actions.append(el("button", { class: "btn btn-lg", onclick: (e) => connectSource(x, e.target) }, "Connect"));
   } else {
     if (x.state === "needs_reconnect")
-      actions.append(el("button", { class: "btn primary", onclick: (e) => connectSource(x, e.target) }, "Reconnect"));
+      actions.append(el("button", { class: "btn", onclick: (e) => connectSource(x, e.target) }, "Reconnect"));
     // No per-source sync button: every source checks itself (launch, focus, wake, every few minutes),
     // and the sidebar's Check now covers "right now".
     actions.append(sourceMoreMenu(x));
     // Browse sits right of the ⋯ menu, for sources that have a browse page (Gmail today).
     if (navSources().some((s) => s.id === x.id))
-      actions.append(el("button", { class: "btn primary", onclick: () => openSource(x.id) }, `Browse ${x.name}`));
+      actions.append(el("button", { class: "btn", onclick: () => openSource(x.id) }, `Browse ${x.name}`));
   }
 
   const main = el("div", { class: "sp-main" });
-  if (x.message && !perm) main.append(el("div", { class: "src-msg" }, x.message));
+  if (x.message && !perm) main.append(el("div", { class: "alert alert-warning", role: "status" },
+    icon("triangle-exclamation-point"), el("div", { class: "alert-title" }, x.message)));
   if (perm) main.append(permissionBox(x, perm));
   if (connected) {
-    const tile = (num, lbl) => el("div", { class: "sp-tile" }, el("div", { class: "sp-num" }, num), el("div", { class: "sp-lbl" }, lbl));
+    const tile = (num, lbl) => el("div", { class: "card card-sm sp-tile" }, el("div", { class: "card-content" }, el("div", { class: "sp-num" }, num), el("div", { class: "sp-lbl" }, lbl)));
     main.append(el("h3", {}, "On this Mac"),
       el("div", { class: "sp-tiles" }, tile(n(x.item_count), "kept, scrubbed"), tile(n(x.dropped_count), "skipped"),
         tile(x.syncing ? "now" : x.last_sync_ms ? ago(x.last_sync_ms) : "—", "last sync")));
@@ -586,18 +589,18 @@ function renderSourcePage() {
   // What access the source needs: each one's name is its own heading (no card, no "Access it needs" over it).
   for (const q of x.requirements || [])
     main.append(el("section", { class: "sp-need" },
-      el("h3", {}, q.label, REQ_KINDS[q.kind] ? el("span", { class: "pill" }, REQ_KINDS[q.kind]) : null),
+      el("h3", {}, q.label, REQ_KINDS[q.kind] ? el("span", { class: "badge badge-secondary" }, REQ_KINDS[q.kind]) : null),
       el("p", {}, q.why)));
 
   const meta = (k, v) => v ? el("div", { class: "sp-meta-row" }, el("div", { class: "sp-k" }, k), el("div", {}, v)) : null;
   const aside = el("aside", { class: "sp-meta" },
-    meta("Status", el("span", { class: `pill ${tone}` }, label)),
+    meta("Status", el("span", { class: `badge ${BADGE_TONES[tone] || "badge-secondary"}` }, label)),
     meta("Account", x.account || null),
     connected ? meta("Last sync", x.syncing ? "Syncing now" : x.last_sync_ms ? ago(x.last_sync_ms) : "Never") : null,
     meta("Stored", soon ? null : "On this Mac, scrubbed before it's saved"));
 
   page.replaceChildren(el("div", { class: "sp" },
-    el("button", { class: "btn ghost small sp-back", onclick: () => show("sources") }, icon(["m12 19-7-7 7-7", "M19 12H5"]), "Sources"),
+    el("button", { class: "btn btn-ghost btn-sm sp-back", onclick: () => show("sources") }, icon("arrow-left"), "Sources"),
     el("div", { class: "sp-head" }, sourceIcon(x.id, "src-icon xl"),
       el("div", { class: "sp-title" }, el("h1", {}, x.name), el("p", {}, x.description)), actions),
     el("div", { class: "sp-body" }, main, aside)));
@@ -606,18 +609,20 @@ function renderSourcePage() {
 // A missing macOS permission (Full Disk Access): what it is, why, the steps, and a button
 // that opens the right System Settings pane. Nothing is requested until the user clicks.
 function permissionBox(x, perm) {
-  return el("div", { class: "perm" },
-    el("div", { class: "perm-title" }, x.message || `SafeContext needs ${perm.title}.`),
-    el("p", {}, perm.explain),
-    el("ol", {}, perm.steps.map((step) => el("li", {}, step))),
-    el("button", { class: "btn primary", onclick: (e) => openSourceSettings(x, e.target) }, perm.button));
+  return el("div", { class: "alert alert-warning perm", role: "status" },
+    icon("triangle-exclamation-point"),
+    el("div", { class: "alert-title" }, x.message || `SafeContext needs ${perm.title}.`),
+    el("div", { class: "alert-description" },
+      el("p", {}, perm.explain),
+      el("ol", {}, perm.steps.map((step) => el("li", {}, step))),
+      el("button", { class: "btn", onclick: (e) => openSourceSettings(x, e.target) }, perm.button)));
 }
 
 async function openSourceSettings(x, btn) {
   btn.disabled = true;
   const r = await api().open_source_settings(x.id);
   btn.disabled = false;
-  if (!r.ok) toast(r.error);
+  if (!r.ok) toast(r.error, "error");
 }
 
 async function connectSource(x, btn) {
@@ -632,13 +637,13 @@ async function connectSource(x, btn) {
   // A missing permission isn't an error to dismiss: the card now shows what to do.
   if (r.ok) toast(`Connected ${x.name}`);
   else if (r.needs_permission) toast(`${x.name} needs ${x.requirements.find((q) => q.value === r.requirement)?.label || "a Mac permission"}. See its page for the steps.`);
-  else toast(r.error);
+  else toast(r.error, "error");
   refreshStatus();
 }
 
 async function cancelSource(x) {
   const r = await api().disconnect_source(x.id, true);  // nothing was synced yet; this only forgets the attempt
-  if (!r.ok) toast(r.error);
+  if (!r.ok) toast(r.error, "error");
   refreshStatus();
 }
 
@@ -733,7 +738,7 @@ async function mcpToggle() {
   if (want) {
     const r = await api().grok_enable();
     state.mcpBusy = false;
-    if (!r.ok) { $("mcp-toggle").checked = false; toast(r.error); return; }
+    if (!r.ok) { $("mcp-toggle").checked = false; toast(r.error, "error"); return; }
     const copied = await copyText(r.url, r.copied);
     toast(copied ? "Link copied. Paste it into your AI app." : "Copy the link below and paste it into your AI app.");
     renderMcp(r);
@@ -746,7 +751,7 @@ async function mcpToggle() {
 
 async function mcpCopy() {
   const r = await api().grok_copy_link();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   toast((await copyText(r.url, r.copied)) ? "Link copied." : "Select the link and copy it with ⌘C.");
 }
 
@@ -754,7 +759,7 @@ async function mcpRegenerate() {
   const ok = await confirmDialog("Make a new link? Every connected AI app loses access right away. Then add the new link in each app (it's copied for you).", "Regenerate");
   if (!ok) return;
   const r = await api().grok_regenerate();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   const copied = await copyText(r.url, r.copied);
   toast(copied ? "New link copied. The old one no longer works." : "New link made. The old one no longer works.");
   renderMcp(r);
@@ -770,7 +775,7 @@ async function mcpAnswer(ok) {
   const who = $("ga-client").textContent || "The app";
   $("mcp-approve").close();
   const r = await api().grok_approve(id, ok);
-  if (!r.ok) toast(r.error);
+  if (!r.ok) toast(r.error, "error");
   else toast(ok ? `Approved. ${who} can now search your scrubbed data.` : "Denied.");
   refreshMcp();
 }
@@ -791,7 +796,7 @@ function bars(container, data) {
 
 async function loadRemoved() {
   const r = await api().privacy_report();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   $("t-kept").textContent = n(r.kept);
   $("t-dropped").textContent = n(r.dropped_total);
   $("t-redacted").textContent = n(Object.values(r.redacted).reduce((a, b) => a + b, 0));
@@ -809,11 +814,12 @@ function renderScrubber(r) {
     el("li", {}, el("b", {}, rule.label), el("span", { class: "muted" }, " · always on. " + rule.detail))));
   const rows = r.patterns.length
     ? r.patterns.map((p) => {
-        const box = el("input", { type: "checkbox", onchange: (e) => scrubberSet(p.id, e.target.checked) });
+        const box = el("input", { type: "checkbox", class: "checkbox", onchange: (e) => scrubberSet(p.id, e.target.checked) });
         box.checked = !!p.enabled;
         return el("div", { class: "scrub-row" },
-          el("label", { class: "check" }, box, el("span", {}, el("b", {}, p.name), " ", el("code", {}, p.pattern))),
-          el("button", { class: "btn small", type: "button", onclick: () => scrubberDelete(p.id) }, "Remove"));
+          el("label", { class: "field", "data-orientation": "horizontal" }, box,
+            el("span", { class: "field-label" }, p.name, el("code", {}, p.pattern))),
+          el("button", { class: "btn btn-outline btn-sm", type: "button", onclick: () => scrubberDelete(p.id) }, "Remove"));
       })
     : [el("p", { class: "muted" }, "No extra patterns yet.")];
   $("scrub-patterns").replaceChildren(...rows);
@@ -821,13 +827,13 @@ function renderScrubber(r) {
 
 async function loadScrubber() {
   const r = await api().scrubber_rules();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   renderScrubber(r);
 }
 
 async function scrubberSet(id, enabled) {
   const r = await api().scrubber_set_enabled(id, enabled);
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   renderScrubber(r);
 }
 
@@ -835,7 +841,7 @@ async function scrubberDelete(id) {
   const ok = await confirmDialog("Remove this pattern? Files read after this won't use it.", "Remove");
   if (!ok) return;
   const r = await api().scrubber_delete(id);
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   renderScrubber(r);
 }
 
@@ -844,7 +850,8 @@ async function scrubberPreview() {
   const box = $("scrub-preview");
   box.hidden = false;
   if (!r.ok) {
-    box.replaceChildren(el("p", { class: "error" }, r.error));
+    box.replaceChildren(el("div", { class: "alert alert-destructive", role: "alert" },
+      icon("circle-exclamation-point"), el("div", { class: "alert-title" }, r.error)));
     return;
   }
   box.replaceChildren(richText(r.text));
@@ -853,7 +860,7 @@ async function scrubberPreview() {
 // ---------- AI access review ----------
 // review.py does the grouping and colours; this draws one tab per app or account. Every colour
 // comes with an icon shape and a word, so nothing depends on telling red from green.
-const RV_ICON = { red: "circle-x", yellow: "triangle-alert", green: "circle-check", grey: "circle-help" };
+const RV_ICON = { red: "circle-x", yellow: "triangle-exclamation-point", green: "circle-check", grey: "circle-question-mark" };
 const RV_TALLY = [["red", "to fix"], ["yellow", "worth a look"], ["green", "OK"], ["grey", "not checked"]];
 const RV_ANSWERS = [["ok", "Looks fine"], ["fixed", "I fixed it"], ["issue", "Found a problem"], ["skip", "Don't use this"]];
 const RV_RANK = ["red", "yellow", "grey", "green"];
@@ -862,13 +869,13 @@ const rvOpenRows = new Set();   // checks the user expanded (kept across redraws
 let rvLast = null;
 
 function rvIcon(colour) {
-  const i = scIcon(RV_ICON[colour] || RV_ICON.grey, `rv-ic ${colour}`);
+  const i = icon(RV_ICON[colour] || RV_ICON.grey, `sc-svg rv-ic ${colour}`);
   return i;
 }
 
 async function loadReview(r) {
   r = r || await api().review();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   rvLast = r;
   const groups = r.groups.filter((g) => g.checks.length || g.id === "claude");
   if (rvTab !== RV_LOG && !groups.some((g) => g.id === rvTab)) {
@@ -886,25 +893,25 @@ async function loadReview(r) {
 
 // History: SafeContext's own permission log (permlog.py), newest first. Kept only on this Mac.
 const RV_LOG = "log";
-const RV_LOG_ICON = { approved: ["circle-check", "green"], denied: ["ban", "red"], expired: ["circle-help", "grey"],
-  cancelled: ["circle-help", "grey"] };
+const RV_LOG_ICON = { approved: ["circle-check", "green"], denied: ["ban", "red"], expired: ["circle-question-mark", "grey"],
+  cancelled: ["circle-question-mark", "grey"] };
 
 function historyTab() {
   const sel = rvTab === RV_LOG;
-  return el("button", { class: `rv-tab rv-tab-log${sel ? " on" : ""}`, role: "tab", id: `rv-tab-${RV_LOG}`,
+  return el("button", { class: "tabs-trigger rv-tab rv-tab-log", role: "tab", id: `rv-tab-${RV_LOG}`,
       "aria-selected": String(sel), "aria-controls": "rv-panel", tabindex: sel ? "0" : "-1",
       onclick: () => rvSelect(RV_LOG), onkeydown: rvTabKey },
-    scIcon("history", "rv-ic grey"), "History");
+    icon("rotate-ccw-clock", "rv-ic grey"), "History");
 }
 
 async function loadHistory() {
   const r = await api().permission_log();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   if (rvTab !== RV_LOG) return;
   const intro = el("div", { class: "rv-log-top" },
     el("p", { class: "rv-blurb" }, "Every time an AI app asked to connect through SafeContext, what you answered, " +
       "and changes to your link and settings. Kept only on this Mac, for up to a year."),
-    r.entries.length ? el("button", { class: "btn small", onclick: clearHistory }, "Clear") : null);
+    r.entries.length ? el("button", { class: "btn btn-outline btn-sm", onclick: clearHistory }, "Clear") : null);
   if (!r.entries.length) {
     return $("rv-panel").replaceChildren(intro, el("p", { class: "muted rv-log-empty" }, "Nothing yet."));
   }
@@ -914,27 +921,27 @@ async function loadHistory() {
     const d = new Date(e.ts_ms);
     const label = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
     if (label !== day) { day = label; rows.push(el("div", { class: "rv-log-day" }, label)); }
-    const [icon, colour] = e.kind === "connect" ? (RV_LOG_ICON[e.outcome] || RV_LOG_ICON.expired)
-      : e.kind === "scan_change" ? ["triangle-alert", "yellow"] : ["sliders-horizontal", "grey"];
-    rows.push(el("div", { class: "rv-log-row" }, scIcon(icon, `rv-ic ${colour}`),
+    const [name, colour] = e.kind === "connect" ? (RV_LOG_ICON[e.outcome] || RV_LOG_ICON.expired)
+      : e.kind === "scan_change" ? ["triangle-exclamation-point", "yellow"] : ["settings-2", "grey"];
+    rows.push(el("div", { class: "rv-log-row" }, icon(name, `rv-ic ${colour}`),
       el("span", { class: "rv-log-text" }, e.text),
       el("time", { class: "muted rv-log-time", datetime: d.toISOString() },
         d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }))));
   }
-  $("rv-panel").replaceChildren(intro, el("div", { class: "rv-list rv-log" }, ...rows));
+  $("rv-panel").replaceChildren(intro, el("div", { class: "card rv-list rv-log" }, ...rows));
 }
 
 async function clearHistory() {
   if (!await confirmDialog("Clear the history? This can't be undone.", "Clear")) return;
   const r = await api().permission_log_clear();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   loadHistory();
 }
 
 function reviewTab(g) {
   const open = g.counts.red + g.counts.yellow + g.counts.grey;
   const sel = g.id === rvTab;
-  return el("button", { class: `rv-tab${sel ? " on" : ""}${g.skipped ? " skipped" : ""}`, role: "tab", id: `rv-tab-${g.id}`,
+  return el("button", { class: `tabs-trigger rv-tab${g.skipped ? " skipped" : ""}`, role: "tab", id: `rv-tab-${g.id}`,
       "aria-selected": String(sel), "aria-controls": "rv-panel", tabindex: sel ? "0" : "-1",
       title: `${g.title}: ${g.label}`, onclick: () => rvSelect(g.id), onkeydown: rvTabKey },
     rvIcon(g.colour), g.title,
@@ -965,12 +972,13 @@ function reviewPanel(g, r) {
 }
 
 function reviewScanRow(on) {
-  const box = el("input", { type: "checkbox", id: "rv-scan" });
+  const box = el("input", { type: "checkbox", class: "checkbox", id: "rv-scan" });
   box.checked = on;
   box.addEventListener("change", reviewScan);
-  return el("label", { class: "rv-scan-row" }, box,
-    el("span", {}, "Also check Claude Desktop and Claude Code on this Mac ",
-      el("small", { class: "muted" }, "(names and rules only, never keys or values; nothing leaves this Mac)")));
+  return el("label", { class: "field rv-scan-row", "data-orientation": "horizontal" }, box,
+    el("span", { class: "field-content" },
+      el("span", { class: "field-label" }, "Also check Claude Desktop and Claude Code on this Mac"),
+      el("span", { class: "field-description" }, "Names and rules only, never keys or values. Nothing leaves this Mac.")));
 }
 
 function reviewRow(c) {
@@ -979,11 +987,11 @@ function reviewRow(c) {
   const toggle = el("button", { class: "rv-line", "aria-expanded": String(open), "aria-controls": bodyId,
       onclick: () => { open ? rvOpenRows.delete(c.id) : rvOpenRows.add(c.id); loadReview(rvLast); } },
     rvIcon(c.colour), el("span", { class: "rv-title" }, c.title),
-    el("span", { class: `rv-word ${c.colour}` }, c.label), scIcon("chevron-right", "rv-chev"));
+    el("span", { class: `rv-word ${c.colour}` }, c.label), icon("chevron-right", "sc-svg rv-chev"));
   const row = el("div", { class: `rv-row ${c.colour}${open ? " open" : ""}`, "data-id": c.id },
     el("div", { class: "rv-head" }, toggle,
-      c.link ? el("button", { class: "btn small rv-open", title: c.link.startsWith("x-apple") ? "Open System Settings" : "Open page",
-        onclick: () => reviewOpen(c.id) }, c.link.startsWith("x-apple") ? "Settings" : "Open", scIcon("external-link"))
+      c.link ? el("button", { class: "btn btn-outline btn-sm rv-open", title: c.link.startsWith("x-apple") ? "Open System Settings" : "Open page",
+        onclick: () => reviewOpen(c.id) }, c.link.startsWith("x-apple") ? "Settings" : "Open", icon("external-link", "sc-svg"))
         : el("span", { class: "rv-open-gap" })));  // keeps the status words lined up
   if (!open) return row;
   const body = el("div", { class: "rv-body", id: bodyId },
@@ -1005,7 +1013,7 @@ function reviewRow(c) {
 
 async function reviewOpen(id) {
   const r = await api().review_open(id);
-  if (!r.ok) toast(r.error);
+  if (!r.ok) toast(r.error, "error");
   else if (!r.opened) toast(state.status && state.status.demo ? "Demo mode doesn't open pages." : "Couldn't open it.");
 }
 
@@ -1023,7 +1031,7 @@ async function reviewScan(e) {
 
 async function reviewSave() {
   const r = await api().review_save_report();
-  if (!r.ok) return toast(r.error);
+  if (!r.ok) return toast(r.error, "error");
   toast(r.opened ? "Report saved and opened. Use File → Print to save it as a PDF." : `Report saved to ${r.path}`);
 }
 
@@ -1064,7 +1072,7 @@ async function connect(btn, errEl) {
   btn.disabled = false;
   btn.textContent = label;
   if (!r.ok) {
-    if (errEl) { errEl.textContent = r.error; errEl.hidden = false; } else toast(r.error);
+    if (errEl) { setAlert(errEl, r.error); errEl.hidden = false; } else toast(r.error, "error");
     return;
   }
   toast(`Connected ${r.account}`);
@@ -1150,7 +1158,7 @@ function renderUpdate(u) {
 
 async function updateCall(name, ...args) {
   const r = await api()[name](...args);
-  if (r && r.ok === false) toast(r.error);
+  if (r && r.ok === false) toast(r.error, "error");
   refreshUpdate();
 }
 
@@ -1250,7 +1258,7 @@ function wire() {
   $("scrub-add").addEventListener("submit", async (e) => {
     e.preventDefault();
     const r = await api().scrubber_add($("scrub-name").value, $("scrub-pattern").value);
-    if (!r.ok) return toast(r.error);
+    if (!r.ok) return toast(r.error, "error");
     $("scrub-name").value = "";
     $("scrub-pattern").value = "";
     renderScrubber(r);

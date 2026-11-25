@@ -19,41 +19,11 @@ code { font: var(--text-sm) var(--font-mono); word-break: break-all; }
 .loading { display: grid; place-items: center; height: 100%; color: var(--muted-foreground); }
 
 /* ---------- buttons & inputs ---------- */
-.btn {
-  font: inherit; border: 1px solid var(--border); background: var(--card); color: var(--foreground);
-  padding: var(--space-2) var(--space-3-5); border-radius: var(--radius-md); cursor: pointer; white-space: nowrap;
-}
-.btn:hover { border-color: var(--muted-foreground); }
-.btn:disabled { opacity: .55; cursor: default; }
-.btn.primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); font-weight: var(--font-weight-semibold); }
-.btn.danger { color: var(--destructive); }
-/* Button variants (same idea as shadcn's):
-     .btn.primary    default: brand-color fill, for the main action
-     .btn            outline: card background with a border
-     .btn.secondary  secondary: light gray fill, no border
-     .btn.ghost      ghost: no fill or border until hovered
-     .btn.danger     destructive text
-   Icon-only buttons (.icon-btn) are ghost by default; add .secondary for the gray fill. */
-.btn.secondary { background: var(--secondary); color: var(--secondary-foreground); border-color: transparent; }
-.btn.secondary:hover { background: var(--secondary-hover); border-color: transparent; }
-.btn.ghost { background: transparent; border-color: transparent; }
-.btn.ghost:hover { background: var(--hover); border-color: transparent; }
-.btn.small { padding: var(--space-1) var(--space-2-5); font-size: var(--text-sm); }
-.btn.lg { padding: var(--space-3) var(--space-5); font-size: var(--text-base); width: 100%; }
-input, textarea {
-  font: inherit; color: var(--foreground); background: var(--card);
-  border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-2-5); min-width: 0;
-}
-input:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
-.tag {
-  font-size: var(--text-xs); font-weight: var(--font-weight-semibold); padding: 1px var(--space-2); border-radius: var(--radius-full);
-  background: var(--primary-subtle); color: var(--primary); vertical-align: middle;
-}
-.error { color: var(--destructive); margin: var(--space-2-5) 0 0; }
+/* Buttons, inputs, switches and tabs are shadcn components: see shadcn.css (.btn, .input, .textarea, .switch, .tabs-list…). */
 .hint { color: var(--muted-foreground); font-size: var(--text-sm); margin: var(--space-3) 0 0; }
 
 /* Cards have no border for now: the card fill on the page is the edge. */
-.card { background: var(--card); border: 0; border-radius: var(--radius-lg); padding: var(--space-5); }
+/* Cards are shadcn's Card: see shadcn.css (.card, .card-header, .card-title, .card-content…). */
 
 /* The SafeContext shield (same mark as the website and the app icon) */
 .logo { display: inline-block; width: 18px; height: 18px; vertical-align: -3px; }
@@ -69,8 +39,8 @@ input:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--prima
 .ob-connect-side { background: var(--chrome); }
 .ob-pitch-side { background: var(--background); border-left: 1px solid var(--page-border); }
 .ob-col { width: 100%; max-width: 420px; }
-.onboard-card { width: 100%; padding: var(--space-6); background: var(--background); border-color: var(--page-border);
-                border-radius: var(--radius-xl); }
+.onboard-card { width: 100%; }
+.onboard-card .btn { width: 100%; }  /* Connect Gmail spans the card */
 .ob-foot { text-align: center; margin: var(--space-4) var(--space-2) 0; }
 .ob-pitch { max-width: 460px; }
 .ob-pitch h1 { margin: 0 0 var(--space-6); }
@@ -84,8 +54,6 @@ input:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--prima
   .onboarding { grid-template-columns: 1fr; }
   .ob-pitch-side { display: none; }
 }
-.field { display: grid; gap: var(--space-1-5); margin-bottom: var(--space-4); }
-.field input { width: 100%; }
 
 /* ---------- shell ---------- */
 /* The window frame (--chrome) holds a header row across the top and the sidebar down the left. The page
@@ -96,14 +64,6 @@ input:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--prima
               padding: 0 var(--space-4); min-width: 0; }
 /* Sidebar / back / forward, at the left of the header. Absolutely placed so the search stays centered. */
 .header-nav { position: absolute; left: var(--space-3); top: 0; bottom: 0; display: flex; align-items: center; gap: var(--space-0-5); }
-.icon-btn { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-md);
-            background: transparent; color: var(--muted-foreground); cursor: pointer; }
-.icon-btn:hover:not(:disabled) { background: var(--hover); color: var(--foreground); }
-.icon-btn:active:not(:disabled) { background: var(--active); }
-.icon-btn:disabled { opacity: .35; cursor: default; }
-.icon-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
-.icon-btn.secondary { background: var(--secondary); color: var(--secondary-foreground); }
-.icon-btn.secondary:hover:not(:disabled) { background: var(--secondary-hover); }
 .header-search { position: relative; width: 100%; max-width: 400px; }
 .header-search .mail-search { width: 100%; }
 
@@ -130,11 +90,9 @@ input:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--prima
    panel's border, then half the difference between the bar and a nav row. */
 .sidebar { padding: calc(1px + (var(--bar-height) - var(--nav-item-height)) / 2) var(--space-3) var(--space-3);
            display: flex; flex-direction: column; gap: var(--space-3-5); overflow: auto; min-height: 0; }
-/* Lucide icons: 24px grid, 2px stroke, drawn with currentColor */
-.nav-svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
-           stroke-linecap: round; stroke-linejoin: round; }
+/* Sidebar and header icons: Lucide, drawn by icons.js (stroke and fill come from there) */
+.nav-svg { width: 16px; height: 16px; flex: none; }
 .nav > button { display: flex; align-items: center; gap: var(--space-2); }
-.nav-svg.filled { fill: currentColor; stroke: none; }  /* filled icons (MCP), not outlines */
 
 /* Account button + menu at the very bottom of the sidebar */
 .acct { position: relative; }
@@ -149,20 +107,11 @@ input:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--prima
                background: var(--primary); color: var(--primary-foreground); font-size: var(--text-xs); font-weight: var(--font-weight-semibold); }
 .acct-email { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct-chev { color: var(--muted-foreground); width: 14px; height: 14px; }
-.acct-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 20; background: var(--card);
-             border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-1-5);
-             box-shadow: var(--shadow-popover); }
-.acct-menu[hidden] { display: none; }
-.acct-menu-email { color: var(--muted-foreground); font-size: var(--text-sm); padding: var(--space-1-5) var(--space-2) var(--space-1); overflow: hidden; text-overflow: ellipsis; }
-.acct-menu-sep { height: 1px; background: var(--border); margin: var(--space-1-5) var(--space-0-5); }
-.acct-menu button { display: flex; align-items: center; gap: var(--space-2); width: 100%; font: inherit; font-size: var(--text-base);
-                    color: var(--foreground); background: transparent; border: 0; border-radius: var(--radius-sm); padding: var(--space-2) var(--space-2);
-                    cursor: pointer; text-align: left; }
-.acct-menu button:hover { background: var(--hover); }
-.acct-menu button:focus-visible { background: var(--active); outline: none; }
-.acct-menu button.active { font-weight: var(--font-weight-semibold); }
-.sync { background: var(--card); border: 0; border-radius: var(--radius-lg); padding: var(--space-2-5) var(--space-3);
-        margin-top: auto; cursor: pointer; }  /* margin-top: auto pins it to the bottom of the sidebar */
+/* the account menu: a Dropdown Menu (shadcn.css) opening above the account button */
+.acct-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); }
+.acct-menu-email { overflow: hidden; text-overflow: ellipsis; }
+.acct-menu .dropdown-menu-item.active { font-weight: var(--font-weight-semibold); }
+.sync { flex: none; margin-top: auto; cursor: pointer; }  /* a small Card (shadcn.css); margin-top: auto pins it to the bottom of the sidebar */
 .sync:hover { background-image: linear-gradient(var(--hover), var(--hover)); }  /* the hover wash over the card */
 .sync-line { display: flex; align-items: center; gap: var(--space-2); font-weight: var(--font-weight-semibold); font-size: var(--text-base); }
 .sync-more { margin-left: auto; color: var(--muted-foreground); font-weight: var(--font-weight-regular); font-size: var(--text-base); line-height: var(--leading-none); }
@@ -221,26 +170,24 @@ input:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--prima
 .view.page > h2 + p.muted, .view.page > .page-head + p.muted {
   margin-top: var(--space-2); margin-bottom: var(--space-8); line-height: var(--leading-normal); }
 .view.page > h2:not(:has(+ p.muted)) { margin-bottom: var(--space-8); }  /* a title with no description */
-.banner { display: flex; gap: var(--space-3); align-items: center; justify-content: space-between;
-          background: var(--warning-subtle); border-bottom: 1px solid var(--warning-border); padding: var(--space-2-5) var(--space-6); }
-.banner.info { background: var(--card); border-bottom-color: var(--border); }
-.banner .actions { display: flex; gap: var(--space-2); margin: 0; }
-/* Update banner: text and actions on one row; "What's new" opens the notes under them. */
-.u-banner { flex-wrap: wrap; }
-.u-banner-text { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
-.u-banner-notes { flex-basis: 100%; display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+/* Window-wide Alerts at the top of the page (reconnect, update available): inset from the page edge */
+.page-alert { width: auto; margin: var(--space-3) var(--space-3) 0; flex: none; }
+.page-alert-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1-5); }
+/* Update banner: "What's new" opens the notes under the buttons. */
+.u-banner-notes { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-2); }
 .u-banner-notes[hidden] { display: none; }
-.u-banner-notes p { margin: 0; white-space: pre-wrap; color: var(--muted-foreground); font-size: var(--text-sm); }
-.u-switch { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
-            padding-top: var(--space-3); margin-top: var(--space-3); border-top: 1px solid var(--border); }
-.u-switch .hint { margin-top: var(--space-0-5, 2px); }
+.u-banner-notes p { margin: 0; white-space: pre-wrap; }
+/* Settings › Updates: each switch row (a horizontal Field) under a divider */
+.u-switch { padding-top: var(--space-3); margin-top: var(--space-3); border-top: 1px solid var(--border); }
 #u-notes { white-space: pre-line; }
-.u-switch-title { font-weight: var(--font-weight-medium, 500); }
 
 /* ---------- reader cards ---------- */
 mark { background: var(--highlight); color: inherit; border-radius: var(--radius-xs); padding: 0 1px; }
 .empty { color: var(--muted-foreground); padding: var(--space-7); text-align: center; }
-.msg { background: var(--card); border: 0; border-radius: var(--radius-lg); padding: var(--space-3-5) var(--space-4); margin-bottom: var(--space-3); }
+/* Messages in a thread: plain blocks with a hairline between them, no card. */
+.msg { padding: var(--space-4) 0; }
+.msg:first-child { padding-top: 0; }
+.msg + .msg { border-top: 1px solid var(--border); }
 .msg-head { display: flex; justify-content: space-between; gap: var(--space-3); align-items: flex-start; margin-bottom: var(--space-2-5); }
 .msg-from { font-weight: var(--font-weight-semibold); }
 .msg-meta { font-size: var(--text-sm); color: var(--muted-foreground); }
@@ -251,23 +198,12 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .att { font-size: var(--text-sm); border: 1px dashed var(--border); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2); color: var(--muted-foreground); }
 
 /* ---------- MCP (relay link for AI apps) ---------- */
-.mcp-card { padding: var(--space-3-5) var(--space-4); margin: var(--space-3-5) 0; }
+.mcp-card { margin: var(--space-3-5) 0; }
 .mcp-row { display: flex; align-items: center; gap: var(--space-3); }
 .mcp-main { flex: 1; min-width: 0; }
-.mcp-title { font-weight: var(--font-weight-semibold); font-size: var(--text-base); }
 .mcp-status { display: flex; align-items: center; gap: var(--space-2); color: var(--muted-foreground); font-size: var(--text-base); }
 .dot.off { background: var(--control-border); }  /* gray, but still visible on a card */
 .dot.on { background: var(--success); }
-/* Switch: shadcn/ui's size (32×18 track, 16px thumb). On, the track is the primary button's color; the thumb stays
-   white in both states and both modes. */
-.switch { position: relative; width: 32px; height: 18px; flex: none; cursor: pointer; }
-.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
-.slider { position: absolute; inset: 0; border-radius: var(--radius-full); background: var(--secondary-hover); transition: background var(--duration-fast); }
-.slider::after { content: ""; position: absolute; top: 1px; left: 1px; width: 16px; height: 16px; border-radius: 50%;
-  background: var(--switch-thumb); box-shadow: var(--shadow-sm); transition: transform var(--duration-fast); }
-.switch input:checked + .slider { background: var(--primary); }
-.switch input:checked + .slider::after { transform: translateX(14px); }
-.switch input:focus-visible + .slider { outline: 2px solid var(--primary); outline-offset: 2px; }
 .mcp-on { margin-top: 0; }  /* its own card, right under the switch card */
 .mcp-link-label { font-size: var(--text-sm); font-weight: var(--font-weight-semibold); color: var(--muted-foreground); text-transform: uppercase; letter-spacing: .04em; margin-bottom: var(--space-1); }
 .mcp-link-row { display: flex; gap: var(--space-2); align-items: stretch; }
@@ -275,57 +211,46 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
   border: 1px solid var(--primary); color: var(--foreground); font-size: var(--text-base); overflow-wrap: anywhere;
   user-select: all; -webkit-user-select: all; }
 .mcp-opts { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; margin-top: var(--space-2-5); font-size: var(--text-base); }
-.check { display: inline-flex; gap: var(--space-1-5); align-items: flex-start; }
-.check input { margin-top: var(--space-1); }
-.linkish { font: inherit; border: 0; background: none; color: var(--primary); padding: 0; cursor: pointer; }
-.linkish:hover { text-decoration: underline; }
+.mcp-opts > .field { width: auto; }  /* the keep-awake checkbox sits in a row with links */
 .mcp-activity, .mcp-help { margin-top: var(--space-3); padding-top: var(--space-2-5); border-top: 1px solid var(--border); font-size: var(--text-base); }
 .mcp-help p { margin: 0 0 var(--space-2); }
 .mcp-sub-head { display: flex; justify-content: space-between; font-weight: var(--font-weight-semibold); margin-bottom: var(--space-1-5); }
 #mcp-activity-list { list-style: none; margin: 0; padding: 0; max-height: 160px; overflow: auto; }
 #mcp-activity-list li { display: grid; grid-template-columns: 90px 1fr auto; gap: var(--space-2-5); padding: var(--space-1) 0; }
 .mcp-howto { margin-top: var(--space-3); border-top: 1px solid var(--border); padding-top: var(--space-2-5); font-size: var(--text-base); }
-.mcp-tabs { display: flex; gap: var(--space-1); margin-bottom: var(--space-2); }
-.mcp-tabs [role=tab] { font: inherit; font-size: var(--text-base); border: 1px solid transparent; background: none; color: var(--muted-foreground);
-  padding: var(--space-1) var(--space-3); border-radius: var(--radius-full); cursor: pointer; }
-.mcp-tabs [role=tab]:hover { background: var(--hover); color: var(--foreground); }
-.mcp-tabs [role=tab][aria-selected=true] { background: var(--active); color: var(--foreground); font-weight: var(--font-weight-semibold); }
-.mcp-tabs [role=tab]:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.mcp-tabs { margin-bottom: var(--space-2); }  /* Tabs (shadcn.css) */
 .mcp-panel ol { margin: 0 0 var(--space-2); padding-left: var(--space-5); }
 .mcp-panel li { margin: var(--space-0-5) 0; }
-.mcp-panel .check { margin-bottom: var(--space-1-5); }
+.mcp-panel > .field { margin-bottom: var(--space-1-5); }
 .mcp-soon { margin: 0 0 var(--space-2); color: var(--muted-foreground); font-size: var(--text-sm); }
 .act-time, .act-n { color: var(--muted-foreground); }
 .act-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-2-5); margin: 0 0 var(--space-2-5); }
 .kv dt { color: var(--muted-foreground); }
 .kv dd { margin: 0; }
-.approve { width: min(420px, 92vw); padding: 0; }
-.approve-body { padding: var(--space-6) var(--space-6); text-align: center; }
-.approve-code { font: var(--font-weight-semibold) var(--text-display)/var(--leading-none) var(--font-mono); letter-spacing: .2em; margin: var(--space-5) 0 var(--space-1-5); }
-.approve .actions { justify-content: center; margin-top: var(--space-5); }
+/* the Approve dialog: a Dialog (shadcn.css) with the 4-digit code in the middle */
+.approve-check { text-align: center; }
+.approve-code { font: var(--font-weight-semibold) var(--text-display)/var(--leading-none) var(--font-mono); letter-spacing: .2em; margin: var(--space-2) 0 var(--space-2-5); }
 
 /* ---------- sources ---------- */
 .source-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--space-2-5); margin-top: var(--space-4); }
 
 /* a source on the Sources grid: icon, name, description, status */
-.src-tile { display: flex; align-items: flex-start; gap: var(--space-3-5); text-align: left; font: inherit; color: var(--foreground);
-            background: var(--card); border: 0; border-radius: var(--radius-xl); padding: var(--space-3-5) var(--space-4); cursor: pointer; }
+/* a small Card (shadcn.css) that is also a button */
+.src-tile { width: 100%; text-align: left; cursor: pointer; }
+.src-tile-body { display: flex; align-items: flex-start; gap: var(--space-3-5); }
 .src-tile:hover { background-image: linear-gradient(var(--hover), var(--hover)); }  /* the hover wash over the card */
 .src-tile:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .src-tile.soon { opacity: .62; }
 .src-tile-main { flex: 1; min-width: 0; display: grid; gap: var(--space-1); }
-.src-tile-name { font-weight: var(--font-weight-semibold); font-size: var(--text-base); }
-.src-tile-desc { color: var(--muted-foreground); font-size: var(--text-base); line-height: var(--leading-snug);
+.src-tile-desc { line-height: var(--leading-snug);
                  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.src-tile .pill { margin-top: var(--space-0-5); }
-/* Check (connected) and plus (not connected) on a source tile: the standard .icon-btn (28px, rounded corners,
-   no border). The plus is the secondary variant; hovering the tile hovers it too. The connected one keeps
-   the green tint of the old pill. */
+.src-tile .badge { margin-top: var(--space-0-5); }
+/* Check (connected) and plus (not connected) on a source tile: a 28px icon Button (.btn-icon-sm,
+   shadcn.css). The plus is the secondary variant; hovering the tile hovers it too. The connected one keeps
+   the green tint of the success Badge. */
 .src-state-btn { flex: none; }
-.src-state-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2;
-                     stroke-linecap: round; stroke-linejoin: round; }
-.src-tile:hover .src-state-btn.secondary { background: var(--secondary-hover); }
+.src-tile:hover .src-state-btn.btn-secondary { background: color-mix(in oklch, var(--secondary), var(--foreground) 5%); }
 .src-state-btn.ok, .src-tile:hover .src-state-btn.ok { color: var(--success);
                                                        background: color-mix(in srgb, var(--success) 16%, transparent); }
 
@@ -339,25 +264,14 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .src-icon.xl { width: 72px; height: 72px; border-radius: var(--radius-2xl); font-size: var(--icon-xl);
                background: transparent; border: 1px solid var(--border-strong); color: var(--foreground); }
 
-.pill { font-size: var(--text-xs); font-weight: var(--font-weight-semibold); padding: var(--space-0-5) var(--space-2); border-radius: var(--radius-full); white-space: nowrap;
-        background: var(--border); color: var(--muted-foreground); }
-.pill.ok { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
-.pill.busy { background: var(--primary-subtle); color: var(--primary); }
-.pill.warn { background: var(--warning-subtle); color: var(--warning-foreground); border: 1px solid var(--warning-border); }
-.src-msg { font-size: var(--text-sm); background: var(--warning-subtle); border: 1px solid var(--warning-border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-2-5); }
-.perm { font-size: var(--text-sm); background: var(--warning-subtle); border: 1px solid var(--warning-border); border-radius: var(--radius-md);
-        padding: var(--space-2-5) var(--space-3); display: grid; gap: var(--space-1-5); justify-items: start; }
-.perm-title { font-weight: var(--font-weight-semibold); }
-.perm p { margin: 0; }
-.perm ol { margin: 0; padding-left: var(--space-5); display: grid; gap: var(--space-1); }
+.perm ol { margin: var(--space-2) 0 var(--space-3); padding-left: var(--space-5); display: grid; gap: var(--space-1); }
+.perm .alert-description p { margin: 0; }
 
 /* a source's page */
 .sp { padding: 0; }  /* width, centering and top space come from .view.page */
 /* Back to Sources: a small ghost button. The negative margin lines its arrow up with the page's left edge. */
-.sp-back { display: inline-flex; align-items: center; gap: var(--space-1-5); margin: 0 0 var(--space-5) calc(-1 * var(--space-2-5));
-           color: var(--muted-foreground); }
-.sp-back:hover { color: var(--foreground); }
-.sp-back svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* Back to Sources: a small ghost Button, nudged left so its arrow lines up with the page's left edge. */
+.sp-back { align-self: flex-start; margin: 0 0 var(--space-5) calc(-1 * var(--space-1-5)); color: var(--muted-foreground); }
 .sp-head { display: flex; align-items: center; gap: var(--space-5); padding-bottom: var(--space-6); border-bottom: 1px solid var(--border); }
 .sp-title { flex: 1; min-width: 0; }
 .sp-title h1 { margin: 0; font-size: var(--text-title); font-weight: var(--font-weight-semibold); line-height: var(--leading-tight); }
@@ -366,18 +280,11 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .sp-main > .sp-need:not(:first-child) { margin-top: var(--space-2); }  /* same space above as the other section titles */
 .sp-need p { margin: var(--space-1-5) 0 0; color: var(--muted-foreground); line-height: var(--leading-normal); }
 .sp-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
-/* the ⋯ menu next to a .btn: a square exactly as tall as a .btn (one line of text + its padding + its 1px border).
-   Sized explicitly, not stretched, so WebKit (the Mac app) and Chrome agree. */
-.sp-actions sc-menu { display: block; }
-.sp-actions .sc-menu-btn { width: calc(var(--text-base) * var(--leading-normal) + 2 * var(--space-2) + 2px);
-                           height: calc(var(--text-base) * var(--leading-normal) + 2 * var(--space-2) + 2px); }
-.btn.lg-ish { padding: var(--space-2) var(--space-5); font-size: var(--text-base); }
 .sp-body { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-10); padding-top: var(--space-6); }
 .sp-main { display: grid; gap: var(--space-3-5); align-content: start; }
 .sp-main h3 { margin: var(--space-2) 0 0; font-size: var(--text-base); font-weight: var(--font-weight-semibold); }
 .sp-main h3:first-child { margin-top: 0; }
 .sp-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2-5); }
-.sp-tile { background: var(--card); border: 0; border-radius: var(--radius-lg); padding: var(--space-3) var(--space-3-5); }
 .sp-num { font-size: var(--text-title); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
 .sp-lbl { color: var(--muted-foreground); font-size: var(--text-sm); }
 .sp-meta { display: grid; gap: var(--space-5); align-content: start; font-size: var(--text-base); }
@@ -387,8 +294,6 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
   .sp-body { grid-template-columns: 1fr; gap: var(--space-6); }
   .sp-head { flex-wrap: wrap; }
 }
-.toolbar select { font: inherit; color: var(--foreground); background: var(--card); border: 1px solid var(--border);
-                  border-radius: var(--radius-md); padding: var(--space-2) var(--space-2); }
 .details { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); font-size: var(--text-base); margin: 0 0 var(--space-2-5); }
 .details dt { color: var(--muted-foreground); }
 .details dd { margin: 0; word-break: break-word; }
@@ -402,7 +307,6 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .home-hero p { margin: var(--space-2) 0 0; max-width: 480px; line-height: var(--leading-normal); }
 .onboard-hero { padding: 0 0 var(--space-6); }  /* sign-in: logo, wordmark and tagline above the card */
 .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); margin: var(--space-4) 0; }
-.tile { background: var(--card); border: 0; border-radius: var(--radius-lg); padding: var(--space-4); }
 .num { font-size: var(--text-title); font-weight: var(--font-weight-bold); font-variant-numeric: tabular-nums; }
 .lbl { color: var(--muted-foreground); font-size: var(--text-sm); }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
@@ -416,12 +320,13 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .scrub-builtin li { margin: 4px 0; }
 .scrub-row { display: flex; gap: 10px; align-items: center; justify-content: space-between;
   padding: 8px 0; border-top: 1px solid var(--border); }
-.scrub-row code { margin-left: 8px; }
-.scrub-add { margin-top: 12px; }
+.scrub-add { margin-top: var(--space-3); }
+.scrub-try-group { margin-top: var(--space-5); }
 .scrub-preview { margin-top: 12px; white-space: pre-wrap; }
 
 /* ---------- files (opted-in folders and PDFs) ---------- */
 .file-sub { margin-top: 18px; }
+#view-files > .alert { margin-top: var(--space-3); }  /* the error under Add folder / Add PDF */
 .file-list { display: grid; }
 .file-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3);
             padding: var(--space-2) 0; border-top: 1px solid var(--border); }
@@ -439,12 +344,8 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .code { background: var(--background); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3);
         overflow: auto; font: var(--text-sm) var(--font-mono); margin: var(--space-2-5) 0; }
 
-dialog { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); color: var(--foreground);
-         padding: var(--space-5); max-width: 420px; }
-dialog::backdrop { background: var(--overlay); }
+/* Dialogs are shadcn's Dialog: see shadcn.css (.dialog, .dialog-header, .dialog-footer…). */
 
-.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--foreground);
-         color: var(--background); padding: var(--space-2) var(--space-3-5); border-radius: var(--radius-md); font-size: var(--text-base); }
 
 /* Smaller windows: the sidebar collapses and the page takes the full width. The header's sidebar button
    opens it as a floating panel over the page (app.js toggles .sidebar-open; picking an item, clicking
@@ -491,19 +392,15 @@ dialog::backdrop { background: var(--overlay); }
 .rv-ic.green { color: var(--success); }
 .rv-ic.grey { color: var(--muted-foreground); }
 
-.rv-tabs { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--border); scrollbar-width: none; }
-.rv-tab { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 0; border-bottom: 2px solid transparent;
-          margin-bottom: -1px; background: none; color: var(--muted-foreground); font: inherit; font-weight: var(--font-weight-medium); cursor: pointer; white-space: nowrap; }
-.rv-tab:hover { color: var(--foreground); }
-.rv-tab.on { color: var(--foreground); border-bottom-color: var(--primary); }
+.rv-tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }  /* line Tabs (shadcn.css); scrolls when there are many */
+.rv-tab { flex: none; }
 .rv-tab.skipped { opacity: .6; }
-.rv-tab:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: var(--radius-sm); }
 .rv-n { min-width: 18px; padding: 0 5px; border-radius: var(--radius-full); background: var(--border); color: var(--foreground);
         font-size: var(--text-xs); font-weight: var(--font-weight-bold); line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 
 .rv-panel { padding-top: 12px; }
 .rv-blurb { margin: 0 0 10px; color: var(--muted-foreground); font-size: var(--text-base); }
-.rv-scan-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; font-size: var(--text-base); cursor: pointer; }
+.rv-scan-row { margin-bottom: var(--space-2-5); }
 .rv-list { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); }
 
 .rv-row + .rv-row { border-top: 1px solid var(--border); }
@@ -520,7 +417,7 @@ dialog::backdrop { background: var(--overlay); }
 .rv-word.grey { color: var(--muted-foreground); }
 .rv-chev { width: 14px; height: 14px; color: var(--muted-foreground); transition: transform .12s; }
 .rv-row.open .rv-chev { transform: rotate(90deg); }
-.rv-open { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 84px; }
+.rv-open { min-width: 84px; }
 .rv-open-gap { width: 84px; flex: none; }
 .rv-open .sc-svg { width: 12px; height: 12px; }
 
