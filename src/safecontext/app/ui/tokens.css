@@ -19,12 +19,18 @@
   --muted-foreground: #6b6a66;     /* secondary text, captions, icons */
   --border: #eae9e4;               /* hairlines and outlines: kept quiet, low contrast */
   --page-border: color-mix(in srgb, var(--border) 80%, var(--background));
+  /* outlines that must read (icon holders): halfway between --border and the muted gray at 35% */
+  --border-strong: color-mix(in srgb, var(--border), color-mix(in srgb, var(--muted-foreground) 35%, transparent));
   --control-border: color-mix(in srgb, var(--muted-foreground) 60%, transparent);  /* checkboxes and other controls: must stay visible */  /* the page panel's edge: 20% quieter still */
   /* Interaction backgrounds: a translucent wash, so they look the same on the frame, the page, cards and
      menus. --hover while the pointer is over something; --active for the current, selected, open or
      keyboard-highlighted item. Use these two everywhere; nothing else. */
   --hover: rgba(0, 0, 0, .035);
   --active: rgba(0, 0, 0, .06);
+  /* Secondary buttons: a light gray fill (translucent, so it reads the same on cards, the page and the frame). */
+  --secondary: rgba(0, 0, 0, .05);
+  --secondary-hover: rgba(0, 0, 0, .09);
+  --secondary-foreground: var(--foreground);
 
   /* ---------- color: brand and status ---------- */
   --primary: #2f5bd3;              /* brand blue: primary buttons, links, active states */
@@ -130,6 +136,8 @@
     --border: #2b2b2e;
     --hover: rgba(255, 255, 255, .04);
     --active: rgba(255, 255, 255, .07);
+    --secondary: rgba(255, 255, 255, .08);
+    --secondary-hover: rgba(255, 255, 255, .12);
     --primary: #7c9cff;
     --primary-foreground: #0f1530;
     --primary-subtle: #2a3150;

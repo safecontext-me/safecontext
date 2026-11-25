@@ -16,6 +16,7 @@ const SC_ICONS = {
   check: [["path", { d: "M20 6 9 17l-5-5" }]],
   ban: [["circle", { cx: "12", cy: "12", r: "10" }], ["path", { d: "M4.929 4.929 19.07 19.071" }]],
   x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
+  ellipsis: [["circle", { cx: "12", cy: "12", r: "1" }], ["circle", { cx: "19", cy: "12", r: "1" }], ["circle", { cx: "5", cy: "12", r: "1" }]],
 };
 
 function scIcon(name, cls = "") {
@@ -49,6 +50,7 @@ class ScIcon extends HTMLElement {
 }
 
 // ---------- <sc-menu icon="…" label="…" hotkey="F"> ----------
+// align="end" opens the panel from the right edge; compact makes it fit a short list of .sc-item actions.
 // An icon button that toggles a popover holding the element's original children.
 // Closes on outside click, Esc, or another menu opening. Fires "sc-open" / "sc-close".
 // `.count = n` shows a small badge on the button (e.g. how many filters are on).
