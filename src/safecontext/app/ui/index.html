@@ -36,7 +36,7 @@
     <label class="field"><span>Gmail address <small>(optional, pre-fills Google's account picker)</small></span>
       <input id="ob-email" type="email" placeholder="you@gmail.com" autocomplete="off"></label>
     <button id="ob-connect" class="btn primary lg">Connect Gmail</button>
-    <p class="hint">You can add Google Calendar and iMessage on the Sources screen afterwards. WhatsApp and call recordings are coming.</p>
+    <p class="hint">You can add Google Calendar and iMessage on the Sources screen afterwards, and choose folders and PDFs on the Files screen. WhatsApp and call recordings are coming.</p>
     <p class="hint" id="ob-hint">Google will warn that this app isn't verified. That's expected for a small app like this: click <b>Advanced</b>, then <b>Go to SafeContext</b>.</p>
     <p class="error" id="ob-error" hidden></p>
   </div>
@@ -58,6 +58,10 @@
         Sources
       </button>
       <div class="nav-children" id="nav-sources" role="group" aria-label="Your sources"></div>
+      <button data-view="files">
+        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+        Files
+      </button>
       <button data-view="mcp">
         <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z"/><path d="M9 8V2"/></svg>
         MCP
@@ -117,6 +121,23 @@
       <h2>Sources</h2>
       <p class="muted">Each source is copied to this Mac and scrubbed before it's saved. Nothing leaves your Mac unless you turn on MCP or connect an AI app on this Mac.</p>
       <div class="source-grid" id="source-grid"></div>
+    </section>
+
+    <!-- Files: folders and PDFs the user opts in. Text may be read only from those PDFs. -->
+    <section id="view-files" class="view" hidden>
+      <h2>Files</h2>
+      <p class="muted">Add the folders and PDFs SafeContext may read. Text is read only from PDFs in those folders, and from PDFs you add on their own. Shortcuts that point somewhere else are skipped.</p>
+      <div class="actions">
+        <button class="btn primary" id="files-add-folder">Add folder</button>
+        <button class="btn" id="files-add-file">Add PDF</button>
+      </div>
+      <p class="error" id="files-error" hidden></p>
+      <div class="card setting">
+        <h3>Added</h3>
+        <div id="files-entries"></div>
+        <h3 class="file-sub">PDFs whose text may be read</h3>
+        <div id="files-pdfs"></div>
+      </div>
     </section>
 
     <!-- One source's page, opened from a tile on Sources (app.js renderSourcePage) -->

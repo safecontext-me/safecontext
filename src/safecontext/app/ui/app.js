@@ -228,13 +228,66 @@ function show(view) {
   if (view === "mail" && !pickSource()) view = "sources";  // nothing to browse yet
   state.view = view;
   markNav();
-  for (const v of ["mail", "sources", "source", "mcp", "removed", "review", "settings"]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["mail", "sources", "source", "mcp", "removed", "review", "settings", "files"]) $(`view-${v}`).hidden = v !== view;
   if (view === "mail") mailShow();
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "source") renderSourcePage();
   if (view === "removed") loadRemoved();
   if (view === "review") loadReview();
   if (view === "mcp") loadMcp();
+  if (view === "files") loadFiles();
+}
+
+// ---------- files: folders and PDFs the user opts in ----------
+function fileRow(entry) {
+  const kind = entry.kind === "folder" ? "Folder" : "PDF";
+  return el("div", { class: "file-row" },
+    el("div", {}, el("span", { class: "file-kind" }, kind), el("code", {}, entry.path)),
+    el("button", { class: "btn small", onclick: () => removeFile(entry.path) }, "Remove"));
+}
+
+async function loadFiles(keepError) {
+  const r = await api().pdf_selection();
+  const err = $("files-error");
+  if (!r.ok) {
+    err.hidden = false;
+    err.textContent = r.error;
+    return;
+  }
+  if (!keepError) err.hidden = true;
+  const entries = r.entries || [];
+  $("files-entries").replaceChildren(entries.length
+    ? el("div", { class: "file-list" }, entries.map(fileRow))
+    : el("p", { class: "muted" }, "Nothing added yet. No PDF text can be read."));
+  const pdfs = r.pdfs || [];
+  $("files-pdfs").replaceChildren(pdfs.length
+    ? el("div", { class: "file-list" }, pdfs.map((p) => el("div", { class: "file-row" }, el("code", {}, p))))
+    : el("p", { class: "muted" }, "No PDFs in the folders and files you added."));
+}
+
+async function addFiles(kind) {
+  const r = await api().pdf_pick(kind);
+  const err = $("files-error");
+  if (!r.ok) {
+    err.hidden = false;
+    err.textContent = r.error;
+    loadFiles(true);  // a later file can fail after an earlier one was saved
+    return;
+  }
+  err.hidden = true;
+  if (!r.cancelled) loadFiles();
+}
+
+async function removeFile(path) {
+  const r = await api().pdf_remove(path);
+  const err = $("files-error");
+  if (!r.ok) {
+    err.hidden = false;
+    err.textContent = r.error;
+    return;
+  }
+  err.hidden = true;
+  loadFiles();
 }
 
 // ---------- sources in the sidebar ----------
@@ -824,6 +877,8 @@ function wire() {
   const focused = async () => { if (document.visibilityState === "visible") { await api().window_focused(); refreshStatus(); } };
   window.addEventListener("focus", focused);
   document.addEventListener("visibilitychange", focused);
+  $("files-add-folder").addEventListener("click", () => addFiles("folder"));
+  $("files-add-file").addEventListener("click", () => addFiles("file"));
   $("ob-connect").addEventListener("click", () => connect($("ob-connect"), $("ob-error")));
   $("reconnect").addEventListener("click", () => connect($("reconnect"), null));
   $("s-disconnect").addEventListener("click", () => disconnect(false));

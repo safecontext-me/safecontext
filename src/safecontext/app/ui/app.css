@@ -328,6 +328,13 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .bar-fill { height: 100%; background: var(--accent); border-radius: 99px; }
 .bar-n { font-variant-numeric: tabular-nums; color: var(--muted); }
 
+/* ---------- files (opted-in folders and PDFs) ---------- */
+.file-sub { margin-top: 18px; }
+.file-list { display: grid; }
+.file-row { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+            padding: 8px 0; border-top: 1px solid var(--line); }
+.file-kind { color: var(--muted); font-size: 12px; margin-right: 8px; }
+
 /* ---------- settings ---------- */
 .setting { margin: 14px 0; max-width: 760px; }
 .row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 4px 0; }

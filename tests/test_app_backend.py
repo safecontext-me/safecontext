@@ -148,7 +148,8 @@ def test_window_cannot_reach_internals(backend):
                       "open_link", "mail_folders", "mail_list", "mail_thread", "mail_reasons",
                       "mail_coverage", "update_status", "update_check", "update_set_auto",
                       "update_install", "update_open_download", "review", "review_answer",
-                      "review_set_scan", "review_open", "review_save_report", "window_focused"}
+                      "review_set_scan", "review_open", "review_save_report", "window_focused",
+                      "pdf_selection", "pdf_add_folder", "pdf_add_file", "pdf_remove", "pdf_pick"}
 
 
 def test_mcp_config_points_at_this_data(backend):
