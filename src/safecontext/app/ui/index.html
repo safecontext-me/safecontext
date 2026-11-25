@@ -145,12 +145,21 @@
       <span id="banner-text"></span>
       <button class="btn small primary" id="reconnect">Reconnect Gmail</button>
     </div>
-    <div id="update-banner" class="banner info" hidden>
-      <span id="update-banner-text"></span>
+    <div id="update-banner" class="banner info u-banner" hidden>
+      <span class="u-banner-text">
+        <span id="update-banner-text"></span>
+        <button class="btn small ghost" id="update-whatsnew" aria-expanded="false" aria-controls="update-notes">What's new</button>
+      </span>
       <span class="actions">
-        <button class="btn small" id="update-later">Later</button>
+        <button class="btn small ghost" id="update-later">Later</button>
+        <button class="btn small ghost" id="update-cancel" hidden>Don't install</button>
+        <button class="btn small" id="update-on-quit">Install when I quit</button>
         <button class="btn small primary" id="update-now">Update and restart</button>
       </span>
+      <div class="u-banner-notes" id="update-notes" hidden>
+        <p id="update-notes-text"></p>
+        <button class="btn small ghost" id="update-skip">Skip this version</button>
+      </div>
     </div>
 
     <!-- Sources -->
@@ -350,11 +359,24 @@
         <div class="row"><span class="muted">Version</span><span id="u-current">—</span></div>
         <div class="row"><span class="muted">Status</span><span id="u-state">—</span></div>
         <p class="hint" id="u-notes" hidden></p>
-        <label class="u-auto"><input type="checkbox" id="u-auto"> Check for updates automatically (once a day)</label>
+        <p class="hint" id="u-skipped" hidden>You skipped <span id="u-skipped-v"></span>. <a href="#" id="u-unskip">Undo</a></p>
         <div class="actions">
           <button class="btn" id="u-check">Check for updates</button>
           <button class="btn primary" id="u-install" hidden>Update and restart</button>
+          <button class="btn" id="u-queue" hidden>Install when I quit</button>
+          <button class="btn ghost" id="u-cancel" hidden>Don't install</button>
+          <button class="btn ghost" id="u-skip" hidden>Skip this version</button>
           <button class="btn" id="u-download" hidden>Open download page</button>
+        </div>
+        <div class="u-switch">
+          <div><div class="u-switch-title">Check for updates automatically</div>
+            <div class="hint">When SafeContext opens, when you come back to it, and every two hours.</div></div>
+          <label class="switch"><input type="checkbox" id="u-auto" role="switch" aria-label="Check for updates automatically"><span class="slider" aria-hidden="true"></span></label>
+        </div>
+        <div class="u-switch">
+          <div><div class="u-switch-title">Install updates when I quit</div>
+            <div class="hint">Downloads and checks a new version in the background, then installs it after you quit SafeContext. It never restarts the app on its own.</div></div>
+          <label class="switch"><input type="checkbox" id="u-on-quit" role="switch" aria-label="Install updates when I quit"><span class="slider" aria-hidden="true"></span></label>
         </div>
         <p class="hint">Checking downloads a small file from safecontext.me. It sends no account, device ID or usage data.
           Updates must be signed by SafeContext's developer before they replace the app. Your data and settings stay as they are.</p>

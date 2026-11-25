@@ -1017,55 +1017,89 @@ function renderUpdate(u) {
   $("u-current").textContent = u.current || "—";
   if (u.disabled) {
     $("u-state").textContent = "Updates are off in demo mode.";
-    for (const id of ["u-check", "u-install", "u-download", "u-auto"]) $(id).disabled = true;
+    for (const id of ["u-check", "u-install", "u-download", "u-auto", "u-on-quit"]) $(id).disabled = true;
     $("update-banner").hidden = true;
     return;
   }
-  const busy = ["checking", "downloading", "verifying", "installing"].includes(u.phase);
-  const working = busy && u.phase !== "checking";  // downloading or installing: keep the banner up
+  const v = u.version;
+  const pct = u.phase === "downloading" && u.progress != null ? ` ${Math.round(u.progress * 100)}%` : "";
+  const onQuit = !!u.on_quit;  // downloading or staged, to install when the app quits
+  // Installing now (Update and restart): keep the banner up with the progress and nothing else to click.
+  const working = ["downloading", "verifying", "installing"].includes(u.phase) && !onQuit;
+  const checking = u.phase === "checking";
   let text;
-  if (busy) {
-    text = UPDATE_PHASES[u.phase] + (u.phase === "downloading" && u.progress != null ? ` ${Math.round(u.progress * 100)}%` : "");
+  if (onQuit) {
+    text = u.phase === "ready" ? `SafeContext ${v} is ready and will be installed when you quit.`
+      : u.phase === "verifying" ? `Getting SafeContext ${v} ready: ${UPDATE_PHASES.verifying}`
+      : `Getting SafeContext ${v} ready to install when you quit…${pct}`;
+  } else if (working || checking) {
+    text = UPDATE_PHASES[u.phase] + pct;
   } else if (u.phase === "error") {
     text = u.error;
   } else if (u.available) {
-    text = `SafeContext ${u.version} is available.` + (u.can_install ? "" : ` ${u.cant_install_reason || ""}`);
+    text = `SafeContext ${v} is available.` + (u.can_install ? "" : ` ${u.cant_install_reason || ""}`);
   } else if (u.checked_ms) {
     text = `You're up to date (checked ${ago(u.checked_ms)}).`;
   } else {
     text = "Not checked yet.";
   }
-  if (u.rolled_back && !busy) text = `The update to ${u.rolled_back} didn't start, so SafeContext went back to ${u.current}. ${text}`;
+  if (u.rolled_back && !working) text = `The update to ${u.rolled_back} didn't start, so SafeContext went back to ${u.current}. ${text}`;
+
+  // Settings → Updates
   $("u-state").textContent = text;
   $("u-notes").hidden = !(u.available && u.notes);
   $("u-notes").textContent = u.notes || "";
   $("u-auto").checked = !!u.auto_check;
-  $("u-check").disabled = busy;
+  $("u-on-quit").checked = !!u.install_on_quit;
+  $("u-on-quit").disabled = !u.can_install;
+  $("u-check").disabled = working || checking;
   $("u-install").hidden = !(u.available && u.can_install);
-  $("u-install").disabled = busy;
+  $("u-install").disabled = working || checking;
+  $("u-queue").hidden = !(u.available && u.can_install && !onQuit && !working);
+  $("u-cancel").hidden = !onQuit;
+  $("u-skip").hidden = !(u.available && !u.skipped && !working);
   $("u-download").hidden = !(u.available && !u.can_install);
+  $("u-skipped").hidden = !u.skipped_version;
+  $("u-skipped-v").textContent = u.skipped_version || "";
 
-  $("update-banner").hidden = !(working || (u.available && !u.skipped && !state.updateDismissed));
-  $("update-banner-text").textContent = working ? text : `SafeContext ${u.version} is available.`;
-  $("update-now").textContent = u.can_install ? "Update and restart" : "Download";
-  $("update-now").disabled = busy;
+  // The banner
+  const show = working || (u.available && !u.skipped && !u.later);
+  $("update-banner").hidden = !show;
+  if (!show) return;
+  $("update-banner-text").textContent = working ? text
+    : onQuit ? text
+    : u.can_install ? `SafeContext ${v} is ready to install.` : `SafeContext ${v} is available.`;
+  $("update-whatsnew").hidden = working || !u.notes;
+  $("update-notes-text").textContent = u.notes || "";
+  if (working || !u.notes) { $("update-notes").hidden = true; $("update-whatsnew").setAttribute("aria-expanded", "false"); }
   $("update-later").hidden = working;
+  $("update-cancel").hidden = !onQuit;
+  $("update-on-quit").hidden = working || onQuit || !u.can_install;
+  $("update-now").textContent = u.can_install ? "Update and restart" : "Download";
+  $("update-now").disabled = working || checking;
+}
+
+async function updateCall(name, ...args) {
+  const r = await api()[name](...args);
+  if (r && r.ok === false) toast(r.error);
+  refreshUpdate();
 }
 
 async function updateInstall() {
   const u = state.update || {};
   if (!u.can_install) { await api().update_open_download(); return; }
-  const r = await api().update_install();
-  if (!r.ok) toast(r.error);
-  refreshUpdate();
+  await updateCall("update_install");
 }
 
 async function updateCheck() {
   $("u-state").textContent = UPDATE_PHASES.checking;
-  const r = await api().update_check();
-  if (!r.ok) toast(r.error);
-  state.updateDismissed = false;
-  refreshUpdate();
+  await updateCall("update_check");
+}
+
+function toggleWhatsNew() {
+  const open = $("update-notes").hidden;
+  $("update-notes").hidden = !open;
+  $("update-whatsnew").setAttribute("aria-expanded", String(open));
 }
 
 // ---------- wiring ----------
@@ -1176,8 +1210,17 @@ function wire() {
   $("u-install").addEventListener("click", updateInstall);
   $("update-now").addEventListener("click", updateInstall);
   $("u-download").addEventListener("click", () => api().update_open_download());
-  $("update-later").addEventListener("click", () => { state.updateDismissed = true; $("update-banner").hidden = true; });
-  $("u-auto").addEventListener("change", async (e) => { await api().update_set_auto(e.target.checked); refreshUpdate(); });
+  $("update-later").addEventListener("click", () => { $("update-banner").hidden = true; updateCall("update_later"); });
+  $("update-whatsnew").addEventListener("click", toggleWhatsNew);
+  $("update-on-quit").addEventListener("click", () => updateCall("update_queue"));
+  $("u-queue").addEventListener("click", () => updateCall("update_queue"));
+  $("update-cancel").addEventListener("click", () => updateCall("update_cancel_queue"));
+  $("u-cancel").addEventListener("click", () => updateCall("update_cancel_queue"));
+  $("update-skip").addEventListener("click", () => updateCall("update_skip"));
+  $("u-skip").addEventListener("click", () => updateCall("update_skip"));
+  $("u-unskip").addEventListener("click", (e) => { e.preventDefault(); updateCall("update_unskip"); });
+  $("u-auto").addEventListener("change", (e) => updateCall("update_set_auto", e.target.checked));
+  $("u-on-quit").addEventListener("change", (e) => updateCall("update_set_on_quit", e.target.checked));
   showMcpApp(savedMcpApp(), false);
   $("mcp-copy").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText($("mcp-json").textContent); toast("Copied."); }

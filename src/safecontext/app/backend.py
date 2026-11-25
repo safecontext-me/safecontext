@@ -290,6 +290,8 @@ class Backend:
     @_safe
     def window_focused(self) -> Dict[str, Any]:
         """The window came forward: check any source not checked in the last couple of minutes."""
+        if self._updater is not None:
+            self._updater.on_focus()  # and for a new version, if the last check is 15+ min old
         return {"started": self._auto_sync(MIN_SYNC_GAP_SECONDS) if self._auto_sync_on else []}
 
     def _start_sync(self, source_id: str) -> bool:
@@ -649,7 +651,7 @@ class Backend:
 
     @_safe
     def update_check(self) -> Dict[str, Any]:
-        return self._need_updater().check()
+        return self._need_updater().check(manual=True)
 
     @_safe
     def update_set_auto(self, on: bool) -> Dict[str, Any]:
@@ -666,10 +668,50 @@ class Backend:
         except upd.UpdateError as e:
             return {"ok": False, "error": str(e)}
 
+    @_safe
+    def update_queue(self) -> Dict[str, Any]:
+        """Install when I quit: download and verify now, swap after the user quits (no reopen)."""
+        try:
+            return self._need_updater().queue_for_quit()
+        except upd.UpdateError as e:
+            return {"ok": False, "error": str(e)}
+
+    @_safe
+    def update_cancel_queue(self) -> Dict[str, Any]:
+        return self._need_updater().cancel_quit_install()
+
+    @_safe
+    def update_set_on_quit(self, on: bool) -> Dict[str, Any]:
+        return self._need_updater().set_install_on_quit(bool(on))
+
+    @_safe
+    def update_later(self) -> Dict[str, Any]:
+        return self._need_updater().later()
+
+    @_safe
+    def update_skip(self) -> Dict[str, Any]:
+        try:
+            return self._need_updater().skip()
+        except upd.UpdateError as e:
+            return {"ok": False, "error": str(e)}
+
+    @_safe
+    def update_unskip(self) -> Dict[str, Any]:
+        return self._need_updater().unskip()
+
+    def _on_window_closing(self) -> None:
+        """The window is closing (red button or ⌘Q): start an "install when I quit" swap, if one is staged.
+        Not exposed to the page (leading underscore)."""
+        if self._updater is not None:
+            try:
+                self._updater.on_quit()
+            except Exception:
+                logging.getLogger("safecontext.app").exception("install on quit failed")
+
     def _restart_into(self, plan: upd.SwapPlan) -> None:
         assert self._updater is not None
         self._updater.launch_helper(plan)
-        if self._quit_fn is not None:
+        if self._quit_fn is not None and not self._updater.is_demo:  # the demo stays open
             self._quit_fn()
 
     @_safe
