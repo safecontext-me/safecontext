@@ -14,8 +14,29 @@ from ..demo.fake_gmail import FakeGmail
 from ..demo.fake_messages import demo_imessage_options
 from ..demo.synthetic import demo_mailbox, mailbox, msg
 from ..grok_link import demo_link
+from ..permlog import PermissionLog
 
 DEMO_ACCOUNT = "alex@example.org"
+
+# A made-up permission history: Grok asking again and again over the past week, as it does when it
+# keeps losing its sign-in, plus a few setting changes.
+_DEMO_HISTORY = [  # (days ago, kind, outcome, client, note)
+    (9.0, "link", "on", "", ""), (9.0, "connect", "approved", "Grok", ""), (9.0, "signins", "", "", "0 → 1"),
+    (6.2, "connect", "approved", "Claude", ""), (6.2, "signins", "", "", "1 → 2"),
+    (5.1, "connect", "denied", "Grok", ""), (4.0, "connect", "expired", "Grok", ""),
+    (3.3, "link_only", "on", "", ""), (3.2, "link_only", "off", "", ""),
+    (2.5, "connect", "approved", "Grok", ""), (1.4, "connect", "denied", "Grok", ""),
+    (0.8, "connect", "cancelled", "Grok", ""),
+]
+
+
+def _demo_link_with_history(store, data_dir):
+    path = Path(data_dir) / "permission_log.json"
+    if not path.exists():
+        now = int(time.time() * 1000)
+        for days, kind, outcome, client, note in _DEMO_HISTORY:
+            PermissionLog(path, now=lambda d=days: now - int(d * 86_400_000)).record(kind, outcome, client, note)
+    return demo_link(store, data_dir)
 
 
 def _extra_mail():
@@ -57,7 +78,7 @@ def demo_backend_kwargs(data_dir: Optional[Path] = None) -> Dict[str, Any]:
         connect_fn=lambda mode, email: (time.sleep(0.8), DEMO_ACCOUNT)[1],
         calendar_factory=lambda account: calendar,
         calendar_connect_fn=lambda email: (time.sleep(0.8), DEMO_ACCOUNT)[1],
-        grok_link=demo_link,
+        grok_link=_demo_link_with_history,
         # A synthetic chat.db beside the demo data; Full Disk Access starts "off" and the
         # Open System Settings button turns it on. Never the real ~/Library/Messages.
         imessage_options=demo_imessage_options(Path(data_dir) / "demo-messages"),

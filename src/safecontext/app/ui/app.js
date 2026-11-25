@@ -850,16 +850,64 @@ async function loadReview(r) {
   if (!r.ok) return toast(r.error);
   rvLast = r;
   const groups = r.groups.filter((g) => g.checks.length || g.id === "claude");
-  if (!groups.some((g) => g.id === rvTab)) {
+  if (rvTab !== RV_LOG && !groups.some((g) => g.id === rvTab)) {
     const worst = [...groups].sort((a, b) => RV_RANK.indexOf(a.colour) - RV_RANK.indexOf(b.colour))[0];
     rvTab = worst && worst.colour !== "green" ? worst.id : groups[0]?.id;
   }
   $("rv-tally").replaceChildren(...RV_TALLY.filter(([c]) => r.colours[c]).map(([c, word]) =>
     el("span", { class: `rv-t ${c}` }, rvIcon(c), el("b", {}, r.colours[c]), ` ${word}`)));
-  $("rv-tabs").replaceChildren(...groups.map((g) => reviewTab(g)));
+  $("rv-tabs").replaceChildren(...groups.map((g) => reviewTab(g)), historyTab());
   const g = groups.find((x) => x.id === rvTab);
   $("rv-panel").setAttribute("aria-labelledby", `rv-tab-${rvTab}`);
+  if (rvTab === RV_LOG) return loadHistory();
   $("rv-panel").replaceChildren(...(g ? reviewPanel(g, r) : []));
+}
+
+// History: SafeContext's own permission log (permlog.py), newest first. Kept only on this Mac.
+const RV_LOG = "log";
+const RV_LOG_ICON = { approved: ["circle-check", "green"], denied: ["ban", "red"], expired: ["circle-help", "grey"],
+  cancelled: ["circle-help", "grey"] };
+
+function historyTab() {
+  const sel = rvTab === RV_LOG;
+  return el("button", { class: `rv-tab rv-tab-log${sel ? " on" : ""}`, role: "tab", id: `rv-tab-${RV_LOG}`,
+      "aria-selected": String(sel), "aria-controls": "rv-panel", tabindex: sel ? "0" : "-1",
+      onclick: () => rvSelect(RV_LOG), onkeydown: rvTabKey },
+    scIcon("history", "rv-ic grey"), "History");
+}
+
+async function loadHistory() {
+  const r = await api().permission_log();
+  if (!r.ok) return toast(r.error);
+  if (rvTab !== RV_LOG) return;
+  const intro = el("div", { class: "rv-log-top" },
+    el("p", { class: "rv-blurb" }, "Every time an AI app asked to connect through SafeContext, what you answered, " +
+      "and changes to your link and settings. Kept only on this Mac, for up to a year."),
+    r.entries.length ? el("button", { class: "btn small", onclick: clearHistory }, "Clear") : null);
+  if (!r.entries.length) {
+    return $("rv-panel").replaceChildren(intro, el("p", { class: "muted rv-log-empty" }, "Nothing yet."));
+  }
+  let day = "";
+  const rows = [];
+  for (const e of r.entries) {
+    const d = new Date(e.ts_ms);
+    const label = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+    if (label !== day) { day = label; rows.push(el("div", { class: "rv-log-day" }, label)); }
+    const [icon, colour] = e.kind === "connect" ? (RV_LOG_ICON[e.outcome] || RV_LOG_ICON.expired)
+      : e.kind === "scan_change" ? ["triangle-alert", "yellow"] : ["sliders-horizontal", "grey"];
+    rows.push(el("div", { class: "rv-log-row" }, scIcon(icon, `rv-ic ${colour}`),
+      el("span", { class: "rv-log-text" }, e.text),
+      el("time", { class: "muted rv-log-time", datetime: d.toISOString() },
+        d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }))));
+  }
+  $("rv-panel").replaceChildren(intro, el("div", { class: "rv-list rv-log" }, ...rows));
+}
+
+async function clearHistory() {
+  if (!await confirmDialog("Clear the history? This can't be undone.", "Clear")) return;
+  const r = await api().permission_log_clear();
+  if (!r.ok) return toast(r.error);
+  loadHistory();
 }
 
 function reviewTab(g) {
