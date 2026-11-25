@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .. import __version__, auth, env, migrate, review, updater as upd
+from ..scrub.controls import PatternError, add_pattern, builtin_rules, delete_pattern, load_patterns, preview, set_enabled
 from ..errors import NeedsPermission
 from ..grok_link import CONNECTOR_PAGES, GrokLink
 from ..pdf_selection import PdfSelection, PdfSelectionError
@@ -442,6 +443,49 @@ class Backend:
         return {"kept": st["kept"], "dropped_total": st["dropped"],
                 "dropped": dict(sorted(dropped.items(), key=lambda kv: -kv[1])), "redacted": redacted,
                 "by_source": by_source}
+
+    # --- scrubber controls (file and PDF text extracted on this Mac) -------------
+    def _scrubber_view(self) -> Dict[str, Any]:
+        return {"builtin": builtin_rules(),
+                "patterns": [row.as_dict() for row in load_patterns(self._store)]}
+
+    @_safe
+    def scrubber_rules(self) -> Dict[str, Any]:
+        """Built-in rules, which always run, and the patterns the user added for files."""
+        return self._scrubber_view()
+
+    @_safe
+    def scrubber_add(self, name: str, pattern: str) -> Dict[str, Any]:
+        try:
+            add_pattern(self._store, name or "", pattern or "")
+        except PatternError as e:
+            return {"ok": False, "error": e.message}
+        return self._scrubber_view()
+
+    @_safe
+    def scrubber_set_enabled(self, pattern_id: str, enabled: bool) -> Dict[str, Any]:
+        try:
+            set_enabled(self._store, pattern_id or "", bool(enabled))
+        except PatternError as e:
+            return {"ok": False, "error": e.message}
+        return self._scrubber_view()
+
+    @_safe
+    def scrubber_delete(self, pattern_id: str) -> Dict[str, Any]:
+        try:
+            delete_pattern(self._store, pattern_id or "")
+        except PatternError as e:
+            return {"ok": False, "error": e.message}
+        return self._scrubber_view()
+
+    @_safe
+    def scrubber_preview(self, text: str) -> Dict[str, Any]:
+        """Show what a sample would look like after scrubbing. The sample is not saved."""
+        try:
+            cleaned, counts, truncated = preview(self._store, text if isinstance(text, str) else "")
+        except PatternError as e:
+            return {"ok": False, "error": e.message}
+        return {"text": cleaned, "redacted": counts, "truncated": truncated}
 
     # --- MCP link (shown as "MCP"; the grok_* names are kept from "Use in Grok") ----
     @_safe
