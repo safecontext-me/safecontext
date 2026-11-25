@@ -154,7 +154,6 @@ async function refreshStatus() {
   $("shell").hidden = !connected;
   if (!connected) return;
 
-  $("demo-badge").hidden = !r.demo;
   const accounts = [...new Set((r.sources || []).filter((x) => x.account).map((x) => x.account))];
   const who = r.account || accounts.join(", ");
   $("account").textContent = who;
@@ -214,7 +213,11 @@ async function refreshStatus() {
     $("sync-sub").textContent = `${n(r.kept)} messages${extra} · ${r.last_sync_ms ? "checked " + ago(r.last_sync_ms) : "never synced"}`;
   }
   const anySyncing = (r.sources || []).some((x) => x.syncing);
+  // The card shows while a sync runs or something needs attention (a reconnect, a failed sync, an unfinished
+  // first sync), and steps aside once everything is up to date. Sync status (account menu) always has the details.
+  $("sync").hidden = !(r.syncing || anySyncing || dot.classList.contains("warn") || (!!r.account && !r.first_sync_done));
   $("sync-now").disabled = anySyncing || (!!r.account && r.needs_reconnect && !(r.sources || []).some((x) => x.id !== "gmail" && x.account));
+  $("s-check-now").disabled = $("sync-now").disabled;
 
   $("s-account").textContent = r.account || "Not connected";
   $("s-mode").textContent = r.mode === "headers" ? "Headers only (no message text)" : "Full messages, scrubbed";
@@ -228,13 +231,91 @@ function show(view) {
   if (view === "mail" && !pickSource()) view = "sources";  // nothing to browse yet
   state.view = view;
   markNav();
-  for (const v of ["mail", "sources", "source", "mcp", "removed", "review", "settings"]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["mail", "sources", "source", "mcp", "removed", "review", "sync", "settings"]) $(`view-${v}`).hidden = v !== view;
   if (view === "mail") mailShow();
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "source") renderSourcePage();
   if (view === "removed") loadRemoved();
+  if (view === "sync") syncPageShow();
   if (view === "review") loadReview();
   if (view === "mcp") loadMcp();
+  navRecord();
+}
+
+// ---------- header: hide the sidebar, back / forward ----------
+const SIDEBAR_KEY = "safecontext.sidebarHidden";
+
+// Below this width the sidebar collapses and opens as a floating panel over the page (app.css, same number).
+const SIDEBAR_COLLAPSE = window.matchMedia("(max-width: 1000px)");
+
+function setSidebarHidden(hidden, save = true) {
+  $("shell").classList.toggle("sidebar-hidden", hidden);
+  if (save) { try { localStorage.setItem(SIDEBAR_KEY, hidden ? "1" : ""); } catch (e) { /* this session only */ } }
+  sidebarButton();
+}
+
+// Narrow windows: the sidebar floats over the page while open.
+function setSidebarOpen(open) {
+  $("shell").classList.toggle("sidebar-open", open);
+  sidebarButton();
+}
+
+// The header button: on wide windows it hides or shows the sidebar (remembered); on narrow ones it opens
+// or closes the floating panel.
+function toggleSidebar() {
+  const shell = $("shell");
+  if (SIDEBAR_COLLAPSE.matches) setSidebarOpen(!shell.classList.contains("sidebar-open"));
+  else setSidebarHidden(!shell.classList.contains("sidebar-hidden"));
+}
+
+function sidebarButton() {
+  const shell = $("shell");
+  const showing = SIDEBAR_COLLAPSE.matches ? shell.classList.contains("sidebar-open") : !shell.classList.contains("sidebar-hidden");
+  const b = $("nav-sidebar"), label = showing ? "Hide sidebar" : "Show sidebar";
+  b.setAttribute("aria-label", label);
+  b.setAttribute("aria-pressed", String(!showing));
+  b.title = `${label} (⌘\\)`;
+}
+
+// Pages visited, for Back and Forward. A place is a page plus which source page or mailbox it showed.
+const pageHistory = { back: [], fwd: [], cur: null, restoring: false };
+
+function navPlace() {
+  const mailSource = typeof mail !== "undefined" ? mail.source : "";  // mail.js may not have loaded yet
+  return { view: state.view, sourceId: state.sourceId || "", mailSource: mailSource || "" };
+}
+
+function samePlace(a, b) {
+  return a.view === b.view && (a.view !== "source" || a.sourceId === b.sourceId)
+    && (a.view !== "mail" || a.mailSource === b.mailSource);
+}
+
+// Called by show(): a new place goes on the Back list and clears Forward (like a browser).
+function navRecord() {
+  const now = navPlace();
+  if (!pageHistory.restoring && pageHistory.cur && !samePlace(pageHistory.cur, now)) {
+    pageHistory.back.push(pageHistory.cur);
+    pageHistory.fwd = [];
+  }
+  pageHistory.cur = now;
+  $("nav-back").disabled = !pageHistory.back.length;
+  $("nav-fwd").disabled = !pageHistory.fwd.length;
+}
+
+function navGo(step) {  // -1 back, +1 forward
+  const from = step < 0 ? pageHistory.back : pageHistory.fwd;
+  const to = step < 0 ? pageHistory.fwd : pageHistory.back;
+  if (!from.length) return;
+  to.push(pageHistory.cur);
+  const place = from.pop();
+  pageHistory.restoring = true;
+  try {
+    state.sourceId = place.sourceId;
+    if (place.view === "mail" && place.mailSource && place.mailSource !== mail.source) openSource(place.mailSource);
+    else show(place.view);
+  } finally {
+    pageHistory.restoring = false;
+  }
 }
 
 // ---------- sources in the sidebar ----------
@@ -266,7 +347,7 @@ function markNav() {
   for (const b of document.querySelectorAll(".nav [data-view]"))  // a source's page counts as Sources
     b.classList.toggle("active", b.dataset.view === state.view || (b.dataset.view === "sources" && state.view === "source"));
   for (const b of document.querySelectorAll("[data-menu-view]")) b.classList.toggle("active", b.dataset.menuView === state.view);
-  $("acct-btn").classList.toggle("active", state.view === "settings");
+  $("acct-btn").classList.toggle("active", state.view === "settings" || state.view === "sync");
   for (const b of document.querySelectorAll(".nav [data-source]")) {
     const on = state.view === "mail" && b.dataset.source === mail.source;
     b.classList.toggle("active", on);
@@ -280,17 +361,13 @@ function openSource(id) {
     Object.assign(mail, { source: id, rows: [], next: null, sel: -1, openKey: null, query: "", reasons: [] });
     $("mail-q").value = "";
     $("mail-reader").replaceChildren(el("div", { class: "empty" }, "Select an item to read it."));
+    mailReaderBar();
     mailSetView("all");
   }
   show("mail");
 }
 
 // ---------- reader cards (used by mail.js) ----------
-function openButton(m) {
-  if (!m.link) return null;
-  return el("button", { class: "btn small", onclick: () => openLink(m.link) }, OPEN_LABELS[m.source] || "Open original");
-}
-
 function messageCard(m) {
   const atts = (m.attachments || []).map((a) =>
     el("span", { class: "att", title: "Attachment contents are never downloaded" },
@@ -300,8 +377,7 @@ function messageCard(m) {
     el("div", { class: "msg-head" },
       el("div", {},
         el("div", { class: "msg-from" }, m.sender),
-        el("div", { class: "msg-meta" }, fmtDate(m.date, true), to ? ` · to ${to}` : "")),
-      openButton(m)),
+        el("div", { class: "msg-meta" }, fmtDate(m.date, true), to ? ` · to ${to}` : ""))),  // "Open in Gmail" is in the reader's bar
     el("div", { class: "msg-body" }, m.body ? richText(m.body) : el("span", { class: "muted" },
       m.source === "gmail" && state.status && state.status.mode === "headers" ? "Headers-only mode: no message text is stored." : "(empty)")),
     m.body_truncated ? el("p", { class: "muted" }, "Long item shortened. Open the original for the rest.") : null,
@@ -318,8 +394,7 @@ function eventCard(m) {
   for (const [k, v] of Object.entries(d)) rows.push([k, v]);
   return el("article", { class: "msg" },
     el("div", { class: "msg-head" },
-      el("div", { class: "msg-meta" }, "📅 ", sourceName(m.source)),
-      openButton(m)),
+      el("div", { class: "msg-meta" }, "📅 ", sourceName(m.source))),
     el("dl", { class: "details" }, rows.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, richText(String(v)))])),
     m.body ? el("div", { class: "msg-body" }, richText(m.body)) : null,
     m.body_truncated ? el("p", { class: "muted" }, "Long description shortened. Open the original for the rest.") : null);
@@ -697,6 +772,7 @@ async function disconnect(wipe) {
   // Start Mail over: the next status refresh shows it again and reloads the list.
   Object.assign(mail, { source: "", rows: [], sel: -1, openKey: null, folders: null });
   $("mail-reader").replaceChildren(el("div", { class: "empty" }, "Select a conversation to read it."));
+  mailReaderBar();
   state.shown = false;
   refreshStatus();
 }
@@ -817,9 +893,44 @@ function wireAcctMenu() {
 
 function wire() {
   wireAcctMenu();
+  // Header: hide the sidebar (remembered where storage allows), back / forward through pages.
+  let hidden = false;
+  try { hidden = localStorage.getItem(SIDEBAR_KEY) === "1"; } catch (e) { /* default: shown */ }
+  setSidebarHidden(hidden, false);
+  $("nav-sidebar").addEventListener("click", toggleSidebar);
+  // The floating sidebar (narrow windows) closes when you pick something, click outside it, or press Esc,
+  // and whenever the window gets wide enough to show the sidebar normally.
+  document.querySelector(".sidebar").addEventListener("click", (e) => {
+    if (e.target.closest(".nav button, .acct-menu button, .sync")) setSidebarOpen(false);
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if ($("shell").classList.contains("sidebar-open") && !e.target.closest(".sidebar, #nav-sidebar")) setSidebarOpen(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && $("shell").classList.contains("sidebar-open")) setSidebarOpen(false);
+  });
+  SIDEBAR_COLLAPSE.addEventListener("change", () => setSidebarOpen(false));
+  $("nav-back").addEventListener("click", () => navGo(-1));
+  $("nav-fwd").addEventListener("click", () => navGo(1));
+  document.addEventListener("keydown", (e) => {  // ⌘[ back, ⌘] forward, ⌘\ sidebar (standard Mac shortcuts)
+    if (!e.metaKey || e.ctrlKey || e.altKey || document.querySelector("dialog[open]")) return;
+    if (e.key === "[") { e.preventDefault(); navGo(-1); }
+    else if (e.key === "]") { e.preventDefault(); navGo(1); }
+    else if (e.key === "\\") { e.preventDefault(); toggleSidebar(); }
+  });
+  // Search is in the header: results drop down under it and a page opens only when one is chosen
+  // (mail.js searchInit). ⌘K focuses it from anywhere, without changing page.
+  document.addEventListener("keydown", (e) => {
+    if (!e.metaKey || e.ctrlKey || e.altKey || e.key.toLowerCase() !== "k" || document.querySelector("dialog[open]")) return;
+    e.preventDefault();
+    const q = $("mail-q");
+    q.focus();
+    q.select();
+  });
   for (const b of document.querySelectorAll(".nav [data-view]")) b.addEventListener("click", () => show(b.dataset.view));
   for (const b of document.querySelectorAll("[data-goto]")) b.addEventListener("click", (e) => { e.preventDefault(); show(b.dataset.goto); });
   $("sync-now").addEventListener("click", async () => { await api().sync_now(); refreshStatus(); });
+  $("s-check-now").addEventListener("click", async () => { await api().sync_now(); refreshStatus(); syncRefresh(); });
   // Coming back to the window checks for new mail (the backend skips anything checked in the last 2 min).
   const focused = async () => { if (document.visibilityState === "visible") { await api().window_focused(); refreshStatus(); } };
   window.addEventListener("focus", focused);
