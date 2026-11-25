@@ -623,66 +623,69 @@ async function loadRemoved() {
 }
 
 // ---------- AI access review ----------
-// review.py does the grouping and colours; this only draws them. Every colour comes with an icon
-// shape and a word, so nothing depends on telling red from green.
+// review.py does the grouping and colours; this draws one tab per app or account. Every colour
+// comes with an icon shape and a word, so nothing depends on telling red from green.
 const RV_ICON = { red: "circle-x", yellow: "triangle-alert", green: "circle-check", grey: "circle-help" };
-const RV_TALLY = [["red", "to fix"], ["yellow", "worth a look"], ["green", "OK"], ["grey", "not checked yet"]];
+const RV_TALLY = [["red", "to fix"], ["yellow", "worth a look"], ["green", "OK"], ["grey", "not checked"]];
 const RV_ANSWERS = [["ok", "Looks fine"], ["fixed", "I fixed it"], ["issue", "Found a problem"], ["skip", "Don't use this"]];
-const rvOpenGroups = new Map();   // group id → open, once the user has toggled it (kept across redraws)
-const rvOpenRows = new Set();     // green rows whose details the user opened
+const RV_RANK = ["red", "yellow", "grey", "green"];
+let rvTab = null;               // selected group id; first visit opens the worst one
+const rvOpenRows = new Set();   // checks the user expanded (kept across redraws)
+let rvLast = null;
 
-function rvBadge(colour, label, extra = "") {
-  return el("span", { class: `rv-badge ${colour} ${extra}`.trim() }, scIcon(RV_ICON[colour] || RV_ICON.grey), label);
+function rvIcon(colour) {
+  const i = scIcon(RV_ICON[colour] || RV_ICON.grey, `rv-ic ${colour}`);
+  return i;
 }
 
 async function loadReview(r) {
   r = r || await api().review();
   if (!r.ok) return toast(r.error);
-  $("rv-verdict").replaceChildren(rvBadge(r.colour, "", "lg"), el("span", {}, r.verdict));
-  $("rv-verdict").className = `rv-verdict ${r.colour}`;
-  $("rv-tally").replaceChildren(...RV_TALLY.map(([c, word]) =>
-    el("span", { class: `rv-count ${c}${r.colours[c] ? "" : " zero"}` }, scIcon(RV_ICON[c]), `${r.colours[c]} ${word}`)));
-  const start = $("rv-start");
-  start.replaceChildren();
-  if (r.attention.length) {
-    start.append("Start with ");
-    r.attention.forEach((t, i) => {
-      const g = r.groups.find((x) => x.title === t);
-      if (i) start.append(i === r.attention.length - 1 ? " and " : ", ");
-      start.append(el("a", { href: "#", onclick: (e) => { e.preventDefault(); rvJump(g.id); } }, t));
-    });
-    start.append(".");
-  } else if (r.colours.grey) {
-    start.textContent = "Nothing red or yellow so far. The grey checks are ones you haven't done yet.";
+  rvLast = r;
+  const groups = r.groups.filter((g) => g.checks.length || g.id === "claude");
+  if (!groups.some((g) => g.id === rvTab)) {
+    const worst = [...groups].sort((a, b) => RV_RANK.indexOf(a.colour) - RV_RANK.indexOf(b.colour))[0];
+    rvTab = worst && worst.colour !== "green" ? worst.id : groups[0]?.id;
   }
-  $("rv-groups").replaceChildren(...r.groups.filter((g) => g.checks.length || g.id === "claude").map((g) => reviewGroup(g, r)));
+  $("rv-tally").replaceChildren(...RV_TALLY.filter(([c]) => r.colours[c]).map(([c, word]) =>
+    el("span", { class: `rv-t ${c}` }, rvIcon(c), el("b", {}, r.colours[c]), ` ${word}`)));
+  $("rv-tabs").replaceChildren(...groups.map((g) => reviewTab(g)));
+  const g = groups.find((x) => x.id === rvTab);
+  $("rv-panel").setAttribute("aria-labelledby", `rv-tab-${rvTab}`);
+  $("rv-panel").replaceChildren(...(g ? reviewPanel(g, r) : []));
 }
 
-function rvJump(gid) {
-  const d = $(`rv-g-${gid}`);
-  if (!d) return;
-  d.open = true;
-  rvOpenGroups.set(gid, true);
-  d.scrollIntoView({ behavior: "smooth", block: "start" });
+function reviewTab(g) {
+  const open = g.counts.red + g.counts.yellow + g.counts.grey;
+  const sel = g.id === rvTab;
+  return el("button", { class: `rv-tab${sel ? " on" : ""}${g.skipped ? " skipped" : ""}`, role: "tab", id: `rv-tab-${g.id}`,
+      "aria-selected": String(sel), "aria-controls": "rv-panel", tabindex: sel ? "0" : "-1",
+      title: `${g.title}: ${g.label}`, onclick: () => rvSelect(g.id), onkeydown: rvTabKey },
+    rvIcon(g.colour), g.title,
+    open && !g.skipped ? el("span", { class: "rv-n" }, open) : null,
+    el("span", { class: "sr" }, ` (${g.label})`));
 }
 
-function reviewGroup(g, r) {
-  const open = rvOpenGroups.has(g.id) ? rvOpenGroups.get(g.id) : !g.skipped && g.colour !== "green";
-  const tally = RV_TALLY.filter(([c]) => g.counts[c]).map(([c, word]) =>
-    el("span", { class: `rv-mini ${c}` }, scIcon(RV_ICON[c]), `${g.counts[c]}`, el("span", { class: "sr" }, ` ${word}`)));
-  const d = el("details", { class: `card rv-group ${g.colour}${g.skipped ? " skipped" : ""}`, id: `rv-g-${g.id}` },
-    el("summary", {},
-      scIcon("chevron-right", "rv-chev"),
-      el("span", { class: "rv-gtitle" }, el("span", { class: "rv-gname" }, g.title),
-        el("small", {}, g.skipped ? "You said you don't use this." : g.blurb)),
-      el("span", { class: "rv-tallies" }, ...tally),
-      rvBadge(g.colour, g.label)));
-  d.open = open;
-  // Setting .open fires "toggle" too; only remember changes away from the default (the user's own).
-  d.addEventListener("toggle", () => { if (rvOpenGroups.has(g.id) || d.open !== open) rvOpenGroups.set(g.id, d.open); });
-  if (g.id === "claude") d.append(reviewScanRow(r.scan_on));
-  d.append(...g.checks.map(reviewRow));
-  return d;
+function rvSelect(id, focus = false) {
+  rvTab = id;
+  loadReview(rvLast);
+  if (focus) $(`rv-tab-${id}`)?.focus();
+}
+
+function rvTabKey(e) {
+  const tabs = [...document.querySelectorAll(".rv-tab")];
+  const i = tabs.indexOf(e.currentTarget);
+  const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+  if (j == null) return;
+  e.preventDefault();
+  rvSelect(tabs[(j + tabs.length) % tabs.length].id.replace(/^rv-tab-/, ""), true);
+}
+
+function reviewPanel(g, r) {
+  const out = [el("p", { class: "rv-blurb" }, g.skipped ? "You said you don't use this." : g.blurb)];
+  if (g.id === "claude") out.push(reviewScanRow(r.scan_on));
+  out.push(el("div", { class: "rv-list" }, ...g.checks.map(reviewRow)));
+  return out;
 }
 
 function reviewScanRow(on) {
@@ -690,18 +693,27 @@ function reviewScanRow(on) {
   box.checked = on;
   box.addEventListener("change", reviewScan);
   return el("label", { class: "rv-scan-row" }, box,
-    el("span", {}, el("b", {}, "Check Claude Desktop and Claude Code on this Mac"), el("br"),
-      el("small", { class: "muted" }, "Reads Claude Desktop's MCP config and Claude Code's settings to list MCP servers and \"always allow\" rules. Keys and other values in those files are never kept or shown. Nothing leaves this Mac.")));
+    el("span", {}, "Also check Claude Desktop and Claude Code on this Mac ",
+      el("small", { class: "muted" }, "(names and rules only, never keys or values; nothing leaves this Mac)")));
 }
 
 function reviewRow(c) {
-  const head = el("div", { class: "rv-head" }, rvBadge(c.colour, c.label), el("span", { class: "rv-title" }, c.title));
-  if (c.link) head.append(el("button", { class: "btn small rv-open", onclick: () => reviewOpen(c.id) },
-    c.link.startsWith("x-apple") ? "Open System Settings" : "Open page", scIcon("external-link")));
-  const body = [
+  const open = rvOpenRows.has(c.id);
+  const bodyId = `rv-b-${c.id}`;
+  const toggle = el("button", { class: "rv-line", "aria-expanded": String(open), "aria-controls": bodyId,
+      onclick: () => { open ? rvOpenRows.delete(c.id) : rvOpenRows.add(c.id); loadReview(rvLast); } },
+    rvIcon(c.colour), el("span", { class: "rv-title" }, c.title),
+    el("span", { class: `rv-word ${c.colour}` }, c.label), scIcon("chevron-right", "rv-chev"));
+  const row = el("div", { class: `rv-row ${c.colour}${open ? " open" : ""}`, "data-id": c.id },
+    el("div", { class: "rv-head" }, toggle,
+      c.link ? el("button", { class: "btn small rv-open", title: c.link.startsWith("x-apple") ? "Open System Settings" : "Open page",
+        onclick: () => reviewOpen(c.id) }, c.link.startsWith("x-apple") ? "Settings" : "Open", scIcon("external-link"))
+        : el("span", { class: "rv-open-gap" })));  // keeps the status words lined up
+  if (!open) return row;
+  const body = el("div", { class: "rv-body", id: bodyId },
     c.detail ? el("p", { class: "rv-detail" }, c.detail) : null,
     c.items.length ? el("ul", { class: "rv-items" }, ...c.items.map((i) => el("li", {}, i))) : null,
-    c.fix ? el("p", { class: "rv-fix" }, el("b", {}, "What to do: "), c.fix) : null].filter(Boolean);
+    c.fix ? el("p", { class: "rv-fix" }, el("b", {}, "What to do: "), c.fix) : null);
   if (c.manual) {
     const acts = el("div", { class: "rv-actions", role: "group", "aria-label": `What you found: ${c.title}` });
     for (const [a, text] of RV_ANSWERS) {
@@ -709,18 +721,9 @@ function reviewRow(c) {
         onclick: () => reviewAnswer(c.id, c.answer === a ? "" : a) }, text));
     }
     if (c.answered_ms) acts.append(el("span", { class: "muted rv-when" }, `Checked ${new Date(c.answered_ms).toLocaleDateString()}`));
-    body.push(acts);
+    body.append(acts);
   }
-  const row = el("div", { class: `rv-row ${c.colour}`, "data-id": c.id }, head);
-  if (c.colour === "green") {
-    // Fine already: keep it short, with the details and answers one click away.
-    const more = el("details", { class: "rv-more" }, el("summary", {}, "Details"), ...body);
-    more.open = rvOpenRows.has(c.id);
-    more.addEventListener("toggle", () => (more.open ? rvOpenRows.add(c.id) : rvOpenRows.delete(c.id)));
-    row.append(more);
-  } else {
-    row.append(...body);
-  }
+  row.append(body);
   return row;
 }
 
@@ -731,20 +734,12 @@ async function reviewOpen(id) {
 }
 
 async function reviewAnswer(id, answer) {
-  // If the row turns green, keep it and its group open instead of folding them away mid-answer.
-  rvOpenRows.add(id);
-  const group = document.querySelector(`.rv-row[data-id="${id}"]`)?.closest(".rv-group");
-  if (group) rvOpenGroups.set(group.id.replace(/^rv-g-/, ""), true);
-  const r = await api().review_answer(id, answer);
-  await loadReview(r);
-  // Keep focus on the answer the user just picked so keyboard users don't lose their place.
-  const btn = document.querySelector(`.rv-row[data-id="${id}"] .rv-actions .btn.chosen`)
-    || document.querySelector(`.rv-row[data-id="${id}"] .rv-actions .btn`);
-  if (btn) btn.focus({ preventScroll: true });
+  rvOpenRows.add(id);  // keep the row open so the new colour and the chosen answer show together
+  await loadReview(await api().review_answer(id, answer));
+  document.querySelector(`.rv-row[data-id="${id}"] .rv-actions .btn.chosen`)?.focus({ preventScroll: true });
 }
 
 async function reviewScan(e) {
-  rvOpenGroups.set("claude", true);
   const r = await api().review_set_scan(e.target.checked);
   loadReview(r);
   if (r.ok && e.target.checked) toast("Checked Claude Desktop and Claude Code.");
