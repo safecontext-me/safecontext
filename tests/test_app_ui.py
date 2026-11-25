@@ -85,7 +85,7 @@ def test_approve_dialog_names_the_app_it_was_sent():
 
 
 def test_app_opens_on_the_security_dashboard():
-    assert '<section id="view-removed" class="view">' in HTML  # the only view not hidden at start
+    assert '<section id="view-removed" class="view page">' in HTML  # the only view not hidden at start
     assert 'view: "removed"' in JS  # state.view, shown by the first status refresh
     assert "mailInit();  // the mail list may not have been shown yet" in JS  # openSource before mail was ever shown
 
@@ -96,3 +96,46 @@ def test_lucide_licence_ships_with_the_app():
     assert "ISC License" in notice and "Lucide Icons and Contributors" in notice
     assert "Cole Bemis" in notice  # the MIT notice for icons derived from Feather (database, search, ...)
     assert "THIRD_PARTY_NOTICES.txt" in HTML
+
+
+# --- design tokens --------------------------------------------------------------------------------
+# tokens.css is the one place colors, type, radii, shadows and motion are defined. The other
+# stylesheets must use its variables, so a change there reaches every screen.
+
+STYLESHEETS = ("app.css", "mail.css", "components.css")
+TOKENS = (UI / "tokens.css").read_text()
+
+
+def _css_body(name):
+    return re.sub(r"/\*.*?\*/", "", (UI / name).read_text(), flags=re.S)
+
+
+def test_stylesheets_use_tokens_not_hard_coded_values():
+    for name in STYLESHEETS:
+        css = _css_body(name)
+        assert not re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", css), f"{name}: put the color in tokens.css"
+        assert not re.findall(r"font-size:\s*\d", css), f"{name}: use a --text-* token"
+        assert not re.findall(r"font-weight:\s*\d", css), f"{name}: use a --font-weight-* token"
+        assert not re.findall(r"border-radius:[^;]*\d+px", css), f"{name}: use a --radius-* token"
+        assert ":root" not in css, f"{name}: define variables in tokens.css"
+
+
+def test_every_token_used_is_defined():
+    defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", TOKENS))
+    for name in STYLESHEETS:
+        used = set(re.findall(r"var\((--[a-z0-9-]+)", _css_body(name)))
+        assert used <= defined, f"{name} uses undefined tokens: {sorted(used - defined)}"
+
+
+def test_dark_mode_only_overrides_existing_tokens():
+    light, dark = TOKENS.split("@media (prefers-color-scheme: dark)")
+    assert set(re.findall(r"(--[a-z0-9-]+)\s*:", dark)) <= set(re.findall(r"(--[a-z0-9-]+)\s*:", light))
+
+
+def test_type_scale_stays_small():
+    # Nearly everything is --text-base; hierarchy comes from weight and color. Adding a size here is a
+    # design decision: change this list on purpose, not by accident.
+    sizes = dict(re.findall(r"--text-([a-z]+):\s*(\d+)px", TOKENS))
+    assert sizes == {"xs": "11", "sm": "12", "base": "13", "title": "20", "display": "40"}
+    body = _css_body("app.css")
+    assert "font: var(--text-base)" in body  # the window's default text is the base size
