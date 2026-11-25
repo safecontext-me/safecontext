@@ -447,3 +447,41 @@ def test_pace_recovers_slowly_after_clean_minutes_but_never_exceeds_the_cap():
         clock.t += 61
         c._execute(_Req([{"ok": 1}]), 5)
     assert c.rate == pytest.approx(80)
+
+
+# --- Google Calendar API switched off in the Cloud project ---------------------------
+
+_DISABLED = (b'{"error":{"code":403,"message":"Google Calendar API has not been used in project 123 before or it '
+             b'is disabled. Enable it by visiting https://console.developers.google.com/apis/api/'
+             b'calendar-json.googleapis.com/overview?project=123 then retry.","errors":[{"reason":'
+             b'"accessNotConfigured"}],"status":"PERMISSION_DENIED","details":[{"reason":"SERVICE_DISABLED"}]}}')
+
+
+def test_calendar_api_disabled_is_a_clear_error_not_a_crash_or_retry_loop():
+    from safecontext.calendar_api import GoogleCalendarAPI
+    c = GoogleCalendarAPI(creds(), sleep=lambda s: pytest.fail("must not retry"))
+    with pytest.raises(auth.NotConfigured, match="Calendar API isn't switched on"):
+        c._execute(_Req([_http_error(403, _DISABLED)]))
+
+
+def test_calendar_insufficient_scope_still_means_reconnect():
+    from safecontext.calendar_api import GoogleCalendarAPI
+    c = GoogleCalendarAPI(creds(), sleep=lambda s: None)
+    with pytest.raises(NeedsReconnect):
+        c._execute(_Req([_http_error(403, b'{"error":{"message":"Request had insufficient authentication '
+                                          b'scopes.","errors":[{"reason":"insufficientPermissions"}]}}')]))
+
+
+def test_calendar_connect_with_api_disabled_says_so(monkeypatch):
+    import googleapiclient.discovery as discovery
+
+    class _Svc:
+        def calendars(self):
+            return self
+
+        def get(self, calendarId):
+            return _Req([_http_error(403, _DISABLED)])
+
+    monkeypatch.setattr(discovery, "build", lambda *a, **k: _Svc())
+    with pytest.raises(auth.NotConfigured, match="Calendar API"):
+        auth.fetch_calendar_account(creds())
