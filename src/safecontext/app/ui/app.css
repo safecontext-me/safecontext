@@ -367,7 +367,7 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .scrub-builtin { margin: 8px 0 14px; padding-left: 18px; }
 .scrub-builtin li { margin: 4px 0; }
 .scrub-row { display: flex; gap: 10px; align-items: center; justify-content: space-between;
-  padding: 8px 0; border-top: 1px solid var(--line); }
+  padding: 8px 0; border-top: 1px solid var(--border); }
 .scrub-row code { margin-left: 8px; }
 .scrub-add { margin-top: 12px; }
 .scrub-preview { margin-top: 12px; white-space: pre-wrap; }
