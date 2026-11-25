@@ -176,20 +176,31 @@
     </section>
 
     <!-- Files: folders and PDFs the user opts in. Text may be read only from those PDFs. -->
-    <section id="view-files" class="view" hidden>
+    <section id="view-files" class="view page" hidden>
       <h2>Files</h2>
       <p class="muted">Add the folders and PDFs SafeContext may read. Text is read only from PDFs in those folders, and from PDFs you add on their own. Shortcuts that point somewhere else are skipped.</p>
-      <div class="actions">
-        <button class="btn" id="files-add-folder">Add folder</button>
-        <button class="btn btn-outline" id="files-add-file">Add PDF</button>
+      <!-- What the table shows (a Toggle Group) on the left; adding on the right -->
+      <div class="files-toolbar">
+        <div class="toggle-group" role="group" aria-label="Show" id="files-show">
+          <button class="toggle" data-show="all" aria-pressed="true">All</button>
+          <button class="toggle" data-show="folder" aria-pressed="false">Folders</button>
+          <button class="toggle" data-show="file" aria-pressed="false">PDFs</button>
+        </div>
+        <div class="files-add">
+          <button class="btn btn-outline" id="files-add-file">Add PDF</button>
+          <button class="btn" id="files-add-folder">Add folder</button>
+        </div>
       </div>
       <div class="alert alert-destructive" role="alert" id="files-error" hidden><svg data-lucide="circle-exclamation-point"></svg><div class="alert-title" data-alert-text></div></div>
-      <div class="card setting">
-        <div class="card-header"><div class="card-title">Added</div></div><div class="card-content">
-        <div id="files-entries"></div>
-        <h3 class="file-sub">PDFs whose text may be read</h3>
-        <div id="files-pdfs"></div>
-      </div></div>
+      <!-- Every folder added and every PDF whose text may be read, newest first (a Table) -->
+      <div class="table-container files-table">
+        <table class="table">
+          <thead><tr><th>Name</th><th>Path</th><th>Modified</th><th><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="files-rows"></tbody>
+        </table>
+      </div>
+      <!-- Blank state: shown instead of the table when there's nothing to list -->
+      <div class="files-blank" id="files-blank" hidden>No files found</div>
     </section>
 
     <!-- One source's page, opened from a tile on Sources (app.js renderSourcePage) -->

@@ -291,3 +291,24 @@ def test_pick_without_a_window_adds_nothing(backend, monkeypatch):
     result = backend.pdf_pick("folder")
     assert result["ok"] is False
     assert backend.pdf_selection()["entries"] == []
+
+
+def test_demo_files_start_empty_and_add_made_up_ones(tmp_path):
+    """Demo mode starts with nothing added (the empty state). Add folder / Add PDF add made-up folders and
+    PDFs beside the demo data, never anything from the real home folder."""
+    from safecontext.app.backend import Backend
+    from safecontext.app.demo import demo_backend_kwargs
+    b = Backend(**demo_backend_kwargs(tmp_path / "data"), auto_sync=False)
+    try:
+        assert b.pdf_selection()["table"] == []
+        root = str((tmp_path / "data" / "demo-files").resolve())
+        for _ in range(3):
+            b.pdf_pick("folder")
+            b.pdf_pick("file")
+        sel = b.pdf_selection()
+        kinds = [e["kind"] for e in sel["entries"]]
+        assert kinds.count("folder") == 3 and kinds.count("file") == 3
+        assert all(e["path"].startswith(root) for e in sel["entries"])
+        assert len(sel["pdfs"]) >= 10 and all(p.startswith(root) and p.endswith(".pdf") for p in sel["pdfs"])
+    finally:
+        b._shutdown()

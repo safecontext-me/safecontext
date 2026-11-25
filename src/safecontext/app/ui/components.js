@@ -19,6 +19,7 @@ function scEl(tag, attrs = {}, ...children) {
 
 
 // ---------- <sc-menu icon="…" label="…" hotkey="F"> ----------
+// notip: no tooltip on the button (its aria-label still names it).
 // The button is a ghost icon Button (shadcn.css), 28px; size="icon" makes it 32px to sit beside a default Button.
 // align="end" opens the panel from the right edge; compact makes it fit a short list of .sc-item actions.
 // An icon button that toggles a popover holding the element's original children.
@@ -33,7 +34,8 @@ class ScMenu extends HTMLElement {
       ...this.childNodes);
     this._badge = scEl("span", { class: "sc-menu-badge", hidden: "" });
     this._btn = scEl("button", { class: `btn btn-ghost ${this.getAttribute("size") === "icon" ? "btn-icon" : "btn-icon-sm"} sc-menu-btn`, type: "button", "aria-label": label, "aria-haspopup": "dialog",
-      "aria-expanded": "false", title: hotkey ? `${label} (${hotkey})` : label, onclick: () => this.toggle() },
+      "aria-expanded": "false", title: this.hasAttribute("notip") ? null : hotkey ? `${label} (${hotkey})` : label,
+      onclick: () => this.toggle() },
     icon(this.getAttribute("icon"), "sc-svg"), this._badge);
     this.append(this._btn, this._panel);
     this._outside = (e) => { if (this.open && !this.contains(e.target)) this.hide(); };
@@ -195,6 +197,8 @@ customElements.define("sc-filter-list", ScFilterList);
 // Every title="…" in the app shows as a shadcn Tooltip: on hover or keyboard focus the title moves into
 // data-tooltip (so the browser's own tooltip never appears) and one shared .tooltip is placed above the element.
 // Code that sets .title again later (status text, the account email) just works: it's picked up on the next hover.
+// data-tooltip-kind="path": a file path. Wider, wraps only after a "/" (never inside a folder name), and starts
+// at the element's left edge instead of centering over it.
 const scTooltip = (() => {
   const tip = scEl("div", { class: "tooltip", role: "tooltip", hidden: "" });
   let owner = null;
@@ -213,11 +217,14 @@ const scTooltip = (() => {
     if (!text) return hide();
     if (!tip.isConnected) document.body.append(tip);
     owner = el;
-    tip.textContent = text;
+    const path = el.dataset.tooltipKind === "path";
+    tip.classList.toggle("tooltip-path", path);
+    // a path: no break at hyphens (non-breaking hyphen), a break allowed after each "/" (zero-width space)
+    tip.textContent = path ? text.replace(/-/g, "\u2011").replace(/\//g, "/\u200B") : text;
     tip.hidden = false;
     const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
     const side = r.top - t.height - GAP >= 4 ? "top" : "bottom";
-    const left = Math.min(Math.max(4, r.left + r.width / 2 - t.width / 2), innerWidth - t.width - 4);
+    const left = Math.min(Math.max(4, path ? r.left : r.left + r.width / 2 - t.width / 2), innerWidth - t.width - 4);
     tip.dataset.side = side;
     tip.style.left = `${left}px`;
     tip.style.top = `${side === "top" ? r.top - t.height - GAP : r.bottom + GAP}px`;

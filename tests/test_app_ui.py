@@ -88,7 +88,7 @@ def test_files_screen_is_the_opt_in_for_pdfs():
     view = HTML[HTML.index('<section id="view-files"'):]
     view = view[:view.index("</section>")]
     assert "Add folder" in view and "Add PDF" in view
-    assert "PDFs whose text may be read" in view
+    assert 'id="files-rows"' in view and 'class="table"' in view  # one table: folders added and readable PDFs
     assert 'id="files-add-folder"' in view and 'id="files-add-file"' in view
     assert "pdf_pick" in JS and "pdf_selection" in JS and "pdf_remove" in JS
     assert "read_text" not in JS  # the screen lists paths; it does not read PDF text

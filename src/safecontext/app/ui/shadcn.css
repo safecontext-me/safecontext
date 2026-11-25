@@ -21,6 +21,9 @@
      Label    bases/base/ui/label.tsx  + styles/style-nova.css (.cn-label)
      Alert    bases/base/ui/alert.tsx  + styles/style-nova.css (.cn-alert*)
      Kbd      bases/base/ui/kbd.tsx    + styles/style-nova.css (.cn-kbd*)
+     Item     bases/base/ui/item.tsx   + styles/style-nova.css (.cn-item*)
+     Table    bases/base/ui/table.tsx  + styles/style-nova.css (.cn-table*)
+     Toggle, Toggle Group  bases/base/ui/toggle.tsx, toggle-group.tsx + styles/style-nova.css (.cn-toggle*)
      Sonner   bases/base/ui/sonner.tsx + styles/style-nova.css (.cn-toast) + the sonner library's own toast styles
 
    Rules:
@@ -42,6 +45,11 @@
 :where(.alert, .alert-title, .alert-description, .alert-action) { box-sizing: border-box; margin: 0; }
 :where(.kbd, .kbd-group) { box-sizing: border-box; margin: 0; border: 0 solid; }
 :where(.toaster, .toast, .toast-title) { box-sizing: border-box; margin: 0; }
+:where(.item-group, .item, .item-media, .item-content, .item-title, .item-description, .item-actions) { box-sizing: border-box; margin: 0; }
+:where(.table-container, .table, .table th, .table td) { box-sizing: border-box; margin: 0; }
+:where(.toggle-group, .toggle) { box-sizing: border-box; margin: 0; }
+:where(.toggle) { font: inherit; color: inherit; background: transparent; border: 0 solid; padding: 0;
+                  appearance: none; -webkit-appearance: none; cursor: pointer; }
 /* A Dialog's own parts only (the browser gives <dialog> padding, a border and a max size) */
 :where(.dialog, .dialog-header, .dialog-title, .dialog-description, .dialog-footer) { box-sizing: border-box; margin: 0; border: 0 solid; }
 /* A Card's own parts only, not what's inside them: the app's content inside a card keeps its spacing. */
@@ -472,6 +480,83 @@ label.field, .field[data-orientation="horizontal"] .field-label { cursor: pointe
 .kbd svg { width: 12px; height: 12px; }
 .kbd-group { display: inline-flex; align-items: center; gap: var(--space-1); }
 
+/* ---------- Item ----------
+   <div class="item-group" role="list">
+     <div class="item [item-outline|item-muted] [item-sm|item-xs]" role="listitem">
+       <div class="item-media [item-media-icon]"><svg data-lucide="folder"></svg></div>
+       <div class="item-content"><div class="item-title">…</div><p class="item-description">…</p></div>
+       <div class="item-actions">…</div>
+     </div>
+   </div> */
+.item-group { display: flex; flex-direction: column; gap: var(--space-4); width: 100%; }
+.item-group:has(> .item-sm) { gap: var(--space-2-5); }
+.item-group:has(> .item-xs) { gap: var(--space-2); }
+.item {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2-5); width: 100%;
+  padding: var(--space-2-5) var(--space-3); border: 1px solid transparent; border-radius: var(--radius-lg);
+  font-size: var(--text-md); outline: none; transition: background-color 100ms, border-color 100ms;
+}
+.item:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+a.item:hover { background-color: var(--muted); }
+.item-outline { border-color: var(--border); }
+.item-muted { background-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+.item-xs { gap: var(--space-2); padding: var(--space-2) var(--space-2-5); }
+.item-media { display: flex; flex-shrink: 0; align-items: center; justify-content: center; gap: var(--space-2); }
+.item:has(.item-description) > .item-media { align-self: flex-start; transform: translateY(2px); }
+.item-media svg { pointer-events: none; }
+.item-media-icon svg { width: 16px; height: 16px; }
+.item-content { display: flex; flex: 1; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.item-xs .item-content { gap: 0; }
+.item-title {
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+  width: fit-content; max-width: 100%; font-size: var(--text-md); line-height: 1.375; font-weight: var(--font-weight-medium);
+}
+.item-description {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  color: var(--muted-foreground); font-size: var(--text-md); font-weight: var(--font-weight-regular); line-height: 1.5; text-align: left;
+}
+.item-xs .item-description { font-size: var(--text-sm); }
+.item-actions { display: flex; align-items: center; gap: var(--space-2); }
+
+/* ---------- Table ----------
+   <div class="table-container"><table class="table">
+     <thead><tr><th>…</th></tr></thead>
+     <tbody><tr>…<td>…</td></tr></tbody>
+   </table></div>
+   Rows highlight on hover (and while a menu in them is open). */
+.table-container { position: relative; width: 100%; overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; caption-side: bottom; font-size: var(--text-md); }
+.table thead tr { border-bottom: 1px solid var(--border); }
+.table tbody tr { border-bottom: 1px solid var(--border); transition: background-color var(--duration-fast); }
+.table tbody tr:last-child { border-bottom: 0; }
+.table tbody tr:hover, .table tbody tr:has([aria-expanded="true"]) { background-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+.table tr[data-state="selected"] { background-color: var(--muted); }
+.table th { height: 40px; padding: 0 var(--space-2); text-align: left; vertical-align: middle;
+            font-weight: var(--font-weight-medium); color: var(--foreground); white-space: nowrap; }
+.table td { padding: var(--space-2); vertical-align: middle; white-space: nowrap; }
+.table caption { margin-top: var(--space-4); color: var(--muted-foreground); font-size: var(--text-md); }
+
+/* ---------- Toggle and Toggle Group ----------
+   <div class="toggle-group" role="group">
+     <button class="toggle [toggle-outline] [toggle-sm|toggle-lg]" aria-pressed="true">All</button> …
+   </div>   items 8px apart (shadcn's spacing 2) */
+.toggle {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); flex-shrink: 0;
+  height: var(--control); min-width: var(--control); padding: 0 var(--space-2-5); border-radius: var(--radius-lg);
+  font-size: var(--text-md); font-weight: var(--font-weight-medium); white-space: nowrap; outline: none;
+  border: 1px solid transparent; transition: background-color var(--duration-fast), color var(--duration-fast);
+}
+.toggle:hover { background-color: var(--muted); color: var(--foreground); }
+.toggle[aria-pressed="true"], .toggle[data-state="on"] { background-color: var(--muted); }
+.toggle:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.toggle:disabled { pointer-events: none; opacity: .5; }
+.toggle svg { width: 16px; height: 16px; pointer-events: none; flex-shrink: 0; }
+.toggle-outline { border-color: var(--input); }
+.toggle-sm { height: var(--control-sm); min-width: var(--control-sm); border-radius: var(--radius-md); font-size: var(--text-button-sm); }
+.toggle-sm svg { width: 14px; height: 14px; }
+.toggle-lg { height: var(--control-lg); min-width: var(--control-lg); }
+.toggle-group { display: flex; width: fit-content; align-items: center; gap: var(--space-2); border-radius: var(--radius-lg); }
+
 /* ---------- Sonner (toasts) ----------
    <ol class="toaster" id="toaster" aria-live="polite"></ol>   once, in the page; app.js toast(msg, type) fills it.
    <li class="toast" data-type="error"><svg data-lucide="octagon-x"></svg><div class="toast-title">…</div></li>
@@ -509,6 +594,8 @@ label.field, .field[data-orientation="horizontal"] .field-label { cursor: pointe
   animation: sc-pop-in var(--duration-fast) var(--ease-out);
 }
 .tooltip[hidden] { display: none; }
+/* SafeContext addition: a file path's tooltip (data-tooltip-kind="path") is wider and wraps only after a "/" */
+.tooltip-path { max-width: min(560px, calc(100vw - 8px)); overflow-wrap: normal; word-break: normal; }
 
 /* shadcn's open animation (fade-in-0 zoom-in-95) */
 @keyframes sc-pop-in { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: none; } }
