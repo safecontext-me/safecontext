@@ -139,12 +139,24 @@ def _server_bind_without_dns(self) -> None:
     self.server_port = port
 
 
+# The library's redirect app answers the browser with a bare text/plain line. We swap
+# in `_FinishPageApp` (same request handling, HTML answer) for the same span, and
+# pass the source's name through `success_message`, the one value the library
+# hands to the app's constructor.
+
+_ORIGINAL_REDIRECT_APP = None  # google_auth_oauthlib.flow._RedirectWSGIApp, set on first use
+
+
 @contextlib.contextmanager
-def _no_reverse_dns_for_loopback():
-    global _bind_patch_users
+def _loopback_sign_in_patches():
+    global _bind_patch_users, _ORIGINAL_REDIRECT_APP
+    from google_auth_oauthlib import flow as oauthlib_flow
+
     with _bind_patch_lock:
         if _bind_patch_users == 0:
             http.server.HTTPServer.server_bind = _server_bind_without_dns
+            _ORIGINAL_REDIRECT_APP = oauthlib_flow._RedirectWSGIApp
+            oauthlib_flow._RedirectWSGIApp = _finish_page_app_class(_ORIGINAL_REDIRECT_APP)
         _bind_patch_users += 1
     try:
         yield
@@ -153,13 +165,121 @@ def _no_reverse_dns_for_loopback():
             _bind_patch_users -= 1
             if _bind_patch_users == 0:
                 http.server.HTTPServer.server_bind = _ORIGINAL_SERVER_BIND
+                oauthlib_flow._RedirectWSGIApp = _ORIGINAL_REDIRECT_APP
 
 
-def _run_sign_in(flow, open_browser: bool, params: dict) -> Credentials:
+
+CANCELLED_MESSAGE = "Sign-in was cancelled. Click Connect to try again."
+
+
+def _run_sign_in(flow, open_browser: bool, params: dict, source_name: str = "Google") -> Credentials:
     """Browser sign-in through a loopback redirect on 127.0.0.1 (PKCE comes from the flow)."""
-    with _no_reverse_dns_for_loopback():
-        return flow.run_local_server(host="127.0.0.1", port=0, open_browser=open_browser,
-                                     timeout_seconds=600, **params)
+    from oauthlib.oauth2.rfc6749.errors import AccessDeniedError
+
+    with _loopback_sign_in_patches():
+        try:
+            return flow.run_local_server(host="127.0.0.1", port=0, open_browser=open_browser,
+                                         timeout_seconds=600, success_message=source_name, **params)
+        except AccessDeniedError:  # the user clicked Cancel on Google's consent screen
+            raise NotConfigured(CANCELLED_MESSAGE) from None
+
+
+# --- the page the browser lands on after Google -----------------------------
+#
+# Served from this Mac, so it is fully self-contained: inline CSS only, no fonts,
+# scripts or images fetched from anywhere (the CSP header enforces that). It never
+# echoes anything from the query string: not the code, the state, or Google's
+# error text. Colors and type follow app/ui/tokens.css.
+
+_LOGO = ('<svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" '
+         'clip-rule="evenodd" d="M24 0C28.4183 0 32 3.58172 32 8V24C32 28.4183 28.4183 32 24 32H8C3.58172 32 0 '
+         '28.4183 0 24V8C0 3.58172 3.58172 0 8 0H24ZM8.5 9.2998V14.9004C8.50017 19.7002 11.7001 23.5001 16 25.5C'
+         '20.2999 23.5001 23.4998 19.7002 23.5 14.9004V9.2998L16 6.5L8.5 9.2998Z"/></svg>')
+_ICON_OK = ('<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" '
+            'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+_ICON_STOP = ('<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 5l6 6M11 5l-6 6" fill="none" '
+              'stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>')
+
+_FINISH_CSS = """
+:root{color-scheme:light dark;--chrome:#ebeae6;--background:#f6f6f4;--foreground:#1d1d1b;--card:#fff;
+--muted:#6b6a66;--border:#eae9e4;--primary:#2f5bd3;--ok:#2e8b57;--ok-subtle:#e3f3ea;--bad:#c0392b;
+--bad-subtle:#fbe9e7}
+@media (prefers-color-scheme:dark){:root{--chrome:#141416;--background:#1b1b1d;--foreground:#ececea;
+--card:#242427;--muted:#a09f9a;--border:#2b2b2e;--primary:#7c9cff;--ok:#5cc78a;--ok-subtle:#1f3a2b;
+--bad:#ff7a6b;--bad-subtle:#3d2320}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--chrome);
+color:var(--foreground);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,
+sans-serif;-webkit-font-smoothing:antialiased}
+main{width:100%;max-width:400px;background:var(--card);border:1px solid var(--border);border-radius:12px;
+padding:32px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+.brand{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:24px;font-weight:600;
+color:var(--foreground)}
+.logo{width:22px;height:22px;color:var(--primary)}
+.status{width:40px;height:40px;margin:0 auto 16px;border-radius:999px;display:flex;align-items:center;
+justify-content:center}
+.status svg{width:20px;height:20px}
+.ok .status{background:var(--ok-subtle);color:var(--ok)}
+.bad .status{background:var(--bad-subtle);color:var(--bad)}
+h1{margin:0 0 8px;font-size:20px;font-weight:600;line-height:1.3}
+p{margin:0;color:var(--muted)}
+p+p{margin-top:4px}
+"""
+
+_FINISH_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'none'"
+
+
+def _escape(text: str) -> str:
+    import html
+    return html.escape(text, quote=True)
+
+
+def finish_page(query: str, source_name: str = "Google") -> str:
+    """The HTML shown after Google redirects back. Only reads which keys are present
+    (`code`, `error`) and whether the error is access_denied; never echoes values."""
+    params = urllib.parse.parse_qs(query or "", keep_blank_values=True)
+    name = _escape(source_name or "Google")
+    if "error" in params:
+        cancelled = params["error"][:1] == ["access_denied"]
+        ok, title = False, "Sign-in was cancelled" if cancelled else "Sign-in didn\u2019t finish"
+        lines = ["Return to SafeContext to try again.", "You can close this tab."]
+    elif params.get("code", [""])[0]:
+        ok, title = True, (f"{name} connected" if source_name != "Google" else "You\u2019re signed in")
+        lines = ["You\u2019re signed in. Go back to SafeContext to finish.", "It\u2019s safe to close this tab."]
+    else:
+        ok, title = False, "Sign-in didn\u2019t finish"
+        lines = ["Return to SafeContext to try again.", "You can close this tab."]
+    body = "".join(f"<p>{line}</p>" for line in lines)
+    return ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+            "<meta name=\"referrer\" content=\"no-referrer\">"
+            f"<title>{title} \u2013 SafeContext</title><style>{_FINISH_CSS}</style></head>"
+            f"<body><main class=\"{'ok' if ok else 'bad'}\">"
+            f"<div class=\"brand\">{_LOGO}<span>SafeContext</span></div>"
+            f"<div class=\"status\">{_ICON_OK if ok else _ICON_STOP}</div>"
+            f"<h1>{title}</h1>{body}</main></body></html>")
+
+
+def _finish_page_app_class(base):
+    """Subclass of the library's `_RedirectWSGIApp` that answers with `finish_page`.
+    It still records `last_request_uri`, which `run_local_server` reads for the code."""
+    import wsgiref.util
+
+    class _FinishPageApp(base):
+        def __call__(self, environ, start_response):
+            self.last_request_uri = wsgiref.util.request_uri(environ)
+            page = finish_page(environ.get("QUERY_STRING", ""), self._success_message)
+            start_response("200 OK", [
+                ("Content-Type", "text/html; charset=utf-8"),
+                ("Content-Security-Policy", _FINISH_CSP),
+                ("Cache-Control", "no-store"),
+                ("Referrer-Policy", "no-referrer"),
+                ("X-Content-Type-Options", "nosniff"),
+            ])
+            return [page.encode("utf-8")]
+
+    return _FinishPageApp
 
 
 # --- token storage ---------------------------------------------------------
@@ -199,7 +319,7 @@ def connect(mode: str = "full", login_hint: Optional[str] = None, *, client_conf
             tokens: Optional[TokenStore] = None, open_browser: bool = True) -> Tuple[Credentials, str]:
     """Run the browser sign-in. Returns (credentials, account email)."""
     flow = build_flow(client_config or load_client_config(), mode)
-    creds = _run_sign_in(flow, open_browser, _auth_params(login_hint))
+    creds = _run_sign_in(flow, open_browser, _auth_params(login_hint), "Gmail")
     if not required_scope_granted(creds, mode):
         raise NeedsReconnect("scope_not_granted",
                              "Gmail access wasn't granted. On Google's consent screen, tick the box that lets "
@@ -268,7 +388,7 @@ def connect_calendar(login_hint: Optional[str] = None, *, client_config: Optiona
     flow = InstalledAppFlow.from_client_config(client_config or load_client_config(), scopes=[SCOPE_CALENDAR],
                                                autogenerate_code_verifier=True)
     params = {**_auth_params(login_hint), "include_granted_scopes": "true"}
-    creds = _run_sign_in(flow, open_browser, params)
+    creds = _run_sign_in(flow, open_browser, params, "Google Calendar")
     if SCOPE_CALENDAR not in set(creds.granted_scopes or creds.scopes or []):
         raise NeedsReconnect("scope_not_granted",
                              "Calendar access wasn't granted. On Google's consent screen, tick the box that lets "
