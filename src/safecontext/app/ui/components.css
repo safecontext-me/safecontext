@@ -1,15 +1,11 @@
 /* Styles for components.js (<sc-menu>, <sc-filter-list>, <sc-icon>). Uses the app's color tokens. */
 
-.sc-svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
-          stroke-linecap: round; stroke-linejoin: round; }
+.sc-svg { width: 16px; height: 16px; flex: none; }  /* stroke and fill come from icon() (icons.js) */
 
 /* ---------- <sc-menu> ---------- */
 sc-menu { position: relative; display: inline-block; }
-.sc-menu-btn { position: relative; display: grid; place-items: center; width: 30px; height: 30px; padding: 0;
-               border: 0; border-radius: var(--radius-md); background: transparent; color: var(--muted-foreground); cursor: pointer; }
-.sc-menu-btn:hover { background: var(--hover); color: var(--foreground); }
-.sc-menu-btn.on { background: var(--active); color: var(--foreground); }
-.sc-menu-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.sc-menu-btn { position: relative; color: var(--muted-foreground); }  /* the button itself is a ghost icon Button (shadcn.css) */
+.sc-menu-btn.on { color: var(--foreground); }
 .sc-menu-badge { position: absolute; top: 1px; right: 1px; min-width: 14px; height: 14px; padding: 0 var(--space-1);
                  border-radius: var(--radius-full); background: var(--primary); color: var(--primary-foreground);
                  font-size: var(--text-xs); font-weight: var(--font-weight-bold); line-height: 14px; text-align: center; }

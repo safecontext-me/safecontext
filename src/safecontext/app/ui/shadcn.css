@@ -1,0 +1,257 @@
+/* SafeContext's component library: shadcn/ui components translated by hand into plain CSS.
+
+   No React, no Tailwind, no build step. Each component below is copied from shadcn's "base-nova" style:
+   its Tailwind classes turned into ordinary CSS rules. Colors, radii and type come from tokens.css,
+   which uses shadcn's token names (--primary, --muted, --destructive, --ring…).
+
+   Sources (github.com/shadcn-ui/ui, apps/v4/registry):
+     Button   bases/base/ui/button.tsx + styles/style-nova.css (.cn-button*)
+     Card     bases/base/ui/card.tsx   + styles/style-nova.css (.cn-card*)
+     Badge    bases/base/ui/badge.tsx  + styles/style-nova.css (.cn-badge*)
+     Switch   bases/base/ui/switch.tsx + styles/style-nova.css (.cn-switch*)
+     Input    bases/base/ui/input.tsx  + styles/style-nova.css (.cn-input)
+     Textarea bases/base/ui/textarea.tsx + styles/style-nova.css (.cn-textarea)
+     Tabs     bases/base/ui/tabs.tsx   + styles/style-nova.css (.cn-tabs*)
+
+   Rules:
+   - Use these components for every button (and, as they're added, cards, badges, menus…).
+     Don't add one-off button or menu styles anywhere else; add the shadcn component here instead.
+   - A new component is copied from shadcn's published definition, with its source listed above.
+   - Behavior shadcn gets from its React libraries (menus opening, focus, Escape) is written in the app's JS.
+   - Layout-only tweaks for one spot (width: 100%, a margin) can live with that screen's CSS. */
+
+/* ---------- Reset ----------
+   shadcn assumes Tailwind's reset (preflight), which this app doesn't have. This does the same job for
+   the components in this file only, so the app's global rules (h1, label, small, p margins…) can't leak in. */
+:where(.btn, .badge, .switch, .tabs-list), :where(.btn, .badge, .switch, .tabs-list) *, :where(.btn) *::before, :where(.btn) *::after {
+  box-sizing: border-box; margin: 0; border: 0 solid;
+}
+/* Form controls: same job as Tailwind's preflight for inputs */
+:where(.input, .textarea) { box-sizing: border-box; margin: 0; font: inherit; color: inherit; }
+/* A Card's own parts only, not what's inside them: the app's content inside a card keeps its spacing. */
+:where(.card, .card-header, .card-title, .card-description, .card-action, .card-content, .card-footer) {
+  box-sizing: border-box; margin: 0; border: 0 solid;
+}
+:where(.btn) { font: inherit; letter-spacing: inherit; color: inherit; background: transparent; padding: 0;
+               appearance: none; -webkit-appearance: none; text-align: center; }
+
+/* ---------- Button ----------
+   <button class="btn [btn-outline|btn-secondary|btn-ghost|btn-destructive|btn-link]
+                      [btn-xs|btn-sm|btn-lg|btn-icon|btn-icon-xs|btn-icon-sm|btn-icon-lg]">
+   An icon before or after the label takes data-icon="inline-start" / "inline-end" (pulls that side in). */
+.btn {
+  display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; gap: var(--space-1-5);
+  height: var(--control); padding: 0 var(--space-2-5);
+  border: 1px solid transparent; border-radius: var(--radius-lg); background-clip: padding-box;
+  font-size: var(--text-md); line-height: 20px; font-weight: var(--font-weight-medium); white-space: nowrap;
+  background-color: var(--primary); color: var(--primary-foreground);
+  cursor: pointer; outline: none; user-select: none; -webkit-user-select: none; text-decoration: none;
+  transition: background-color var(--duration-fast), color var(--duration-fast), border-color var(--duration-fast),
+              box-shadow var(--duration-fast), transform var(--duration-fast);
+}
+.btn[hidden] { display: none; }  /* display above would otherwise beat the hidden attribute */
+.btn:hover { background-color: color-mix(in srgb, var(--primary) 80%, transparent); }
+.btn:active:not([aria-haspopup]) { transform: translateY(1px); }
+.btn:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.btn:disabled, .btn[aria-disabled="true"] { pointer-events: none; opacity: .5; }
+.btn svg { pointer-events: none; flex-shrink: 0; }
+.btn svg:not([class*="size-"]) { width: 16px; height: 16px; }
+.btn:has(> [data-icon="inline-start"]) { padding-left: var(--space-2); }
+.btn:has(> [data-icon="inline-end"]) { padding-right: var(--space-2); }
+
+/* variants */
+.btn-outline { border-color: var(--border); background-color: var(--background); color: var(--foreground); }
+.btn-outline:hover, .btn-outline[aria-expanded="true"] { background-color: var(--muted); color: var(--foreground); }
+
+.btn-secondary { background-color: var(--secondary); color: var(--secondary-foreground); }
+.btn-secondary:hover { background-color: color-mix(in oklch, var(--secondary), var(--foreground) 5%); }
+.btn-secondary[aria-expanded="true"] { background-color: var(--secondary); color: var(--secondary-foreground); }
+
+.btn-ghost { background-color: transparent; color: var(--foreground); }
+.btn-ghost:hover, .btn-ghost[aria-expanded="true"] { background-color: var(--muted); color: var(--foreground); }
+
+.btn-destructive { background-color: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
+.btn-destructive:hover { background-color: color-mix(in srgb, var(--destructive) 20%, transparent); }
+.btn-destructive:focus-visible { border-color: color-mix(in srgb, var(--destructive) 40%, transparent);
+                                 box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive) 20%, transparent); }
+
+.btn-link { background-color: transparent; color: var(--primary); text-underline-offset: 4px; }
+.btn-link:hover { background-color: transparent; text-decoration: underline; }
+
+/* sizes (default is h-8) */
+.btn-xs { height: var(--control-xs); gap: var(--space-1); padding: 0 var(--space-2); border-radius: var(--radius-md);
+          font-size: var(--text-sm); line-height: 16px; }
+.btn-xs svg:not([class*="size-"]) { width: 12px; height: 12px; }
+.btn-sm { height: var(--control-sm); gap: var(--space-1); padding: 0 var(--space-2-5); border-radius: var(--radius-md);
+          font-size: var(--text-button-sm); }
+.btn-sm svg:not([class*="size-"]) { width: 14px; height: 14px; }
+.btn-xs:has(> [data-icon="inline-start"]), .btn-sm:has(> [data-icon="inline-start"]) { padding-left: var(--space-1-5); }
+.btn-xs:has(> [data-icon="inline-end"]), .btn-sm:has(> [data-icon="inline-end"]) { padding-right: var(--space-1-5); }
+.btn-lg { height: var(--control-lg); }
+
+.btn-icon, .btn-icon-xs, .btn-icon-sm, .btn-icon-lg { padding: 0; }
+.btn-icon { width: var(--control); }
+.btn-icon-xs { width: var(--control-xs); height: var(--control-xs); border-radius: var(--radius-md); }
+.btn-icon-xs svg:not([class*="size-"]) { width: 12px; height: 12px; }
+.btn-icon-sm { width: var(--control-sm); height: var(--control-sm); border-radius: var(--radius-md); }
+.btn-icon-lg { width: var(--control-lg); height: var(--control-lg); }
+
+@media (prefers-color-scheme: dark) {
+  .btn-outline { background-color: color-mix(in srgb, var(--input) 30%, transparent); border-color: var(--input); }
+  .btn-outline:hover { background-color: color-mix(in srgb, var(--input) 50%, transparent); }
+  .btn-ghost:hover { background-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+  .btn-destructive { background-color: color-mix(in srgb, var(--destructive) 20%, transparent); }
+  .btn-destructive:hover { background-color: color-mix(in srgb, var(--destructive) 30%, transparent); }
+  .btn-destructive:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive) 40%, transparent); }
+}
+
+/* ---------- Card ----------
+   <div class="card [card-sm]">
+     <div class="card-header [border-b]">
+       <div class="card-title">…</div>
+       <div class="card-description">…</div>     (optional)
+       <div class="card-action">…</div>          (optional: top right, beside title and description)
+     </div>
+     <div class="card-content">…</div>
+     <div class="card-footer">…</div>            (optional: muted strip along the bottom)
+   </div> */
+.card {
+  display: flex; flex-direction: column; gap: var(--card-spacing); overflow: hidden;
+  padding: var(--card-spacing) 0; border-radius: var(--radius-xl);
+  background-color: var(--card); color: var(--card-foreground); font-size: var(--text-md);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);  /* ring-1 ring-foreground/10 */
+}
+.card[hidden] { display: none; }
+.card-sm { --card-spacing: var(--space-3); }
+.card:has(> .card-footer) { padding-bottom: 0; }
+
+.card-header { display: grid; grid-auto-rows: min-content; align-items: start; gap: var(--space-1);
+               padding: 0 var(--card-spacing); border-top-left-radius: var(--radius-xl); border-top-right-radius: var(--radius-xl); }
+.card-header:has(> .card-action) { grid-template-columns: 1fr auto; }
+.card-header:has(> .card-description) { grid-template-rows: auto auto; }
+.card-header.border-b { padding-bottom: var(--card-spacing); border-bottom: 1px solid var(--border); }
+
+.card-title { font-size: var(--text-lg); line-height: var(--leading-snug); font-weight: var(--font-weight-medium); }
+.card-sm .card-title { font-size: var(--text-md); }
+.card-description { color: var(--muted-foreground); font-size: var(--text-md); }
+.card-action { grid-column: 2; grid-row: 1 / span 2; align-self: start; justify-self: end; }
+.card-content { padding: 0 var(--card-spacing); }
+.card-footer { display: flex; align-items: center; padding: var(--card-spacing);
+               border-top: 1px solid var(--border); background-color: color-mix(in srgb, var(--muted) 50%, transparent);
+               border-bottom-left-radius: var(--radius-xl); border-bottom-right-radius: var(--radius-xl); }
+
+/* ---------- Badge ----------
+   <span class="badge [badge-secondary|badge-outline|badge-destructive|badge-ghost|badge-link]">…</span>
+   SafeContext status additions (not in shadcn; same shape, our status colors):
+   badge-success (connected), badge-info (syncing), badge-warning (needs attention), badge-redacted (blanked-out counts). */
+.badge {
+  display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; gap: var(--space-1); width: fit-content;
+  height: 20px; padding: var(--space-0-5) var(--space-2); overflow: hidden;
+  border: 1px solid transparent; border-radius: var(--radius-full);
+  font-size: var(--text-sm); line-height: 16px; font-weight: var(--font-weight-medium); white-space: nowrap;
+  background-color: var(--primary); color: var(--primary-foreground);
+  transition: background-color var(--duration-fast), color var(--duration-fast), box-shadow var(--duration-fast);
+}
+.badge[hidden] { display: none; }
+.badge > svg { width: 12px; height: 12px; pointer-events: none; }
+.badge:has(> [data-icon="inline-start"]) { padding-left: var(--space-1-5); }
+.badge:has(> [data-icon="inline-end"]) { padding-right: var(--space-1-5); }
+.badge:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+a.badge:hover { background-color: color-mix(in srgb, var(--primary) 80%, transparent); }
+
+.badge-secondary { background-color: var(--secondary); color: var(--secondary-foreground); }
+a.badge-secondary:hover { background-color: color-mix(in srgb, var(--secondary) 80%, transparent); }
+.badge-outline { background-color: transparent; border-color: var(--border); color: var(--foreground); }
+a.badge-outline:hover { background-color: var(--muted); color: var(--muted-foreground); }
+.badge-destructive { background-color: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
+a.badge-destructive:hover { background-color: color-mix(in srgb, var(--destructive) 20%, transparent); }
+.badge-ghost { background-color: transparent; color: var(--foreground); }
+.badge-ghost:hover { background-color: var(--muted); color: var(--muted-foreground); }
+.badge-link { background-color: transparent; color: var(--primary); text-underline-offset: 4px; }
+.badge-link:hover { text-decoration: underline; }
+
+/* SafeContext additions */
+.badge-success { background-color: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+.badge-info { background-color: var(--primary-subtle); color: var(--primary); }
+.badge-warning { background-color: var(--warning-subtle); color: var(--warning-foreground); border-color: var(--warning-border); }
+.badge-redacted { background-color: var(--badge); color: var(--badge-foreground); }
+
+@media (prefers-color-scheme: dark) {
+  .badge-ghost:hover { background-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+  .badge-destructive { background-color: color-mix(in srgb, var(--destructive) 20%, transparent); }
+}
+
+/* ---------- Switch ----------
+   <label class="switch [switch-sm]"><input type="checkbox" role="switch"><span class="switch-thumb"></span></label>
+   A native checkbox carries the state and the keyboard; it's invisible and covers the track.
+   SafeContext change: the thumb stays white in both states and both modes (shadcn darkens it in dark mode). */
+.switch {
+  position: relative; display: inline-flex; flex-shrink: 0; align-items: center;
+  width: 32px; height: 18.4px; border: 1px solid transparent; border-radius: var(--radius-full);
+  background-color: var(--input); cursor: pointer; transition: background-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+.switch > input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.switch-thumb { display: block; width: 16px; height: 16px; border-radius: var(--radius-full); pointer-events: none;
+                background-color: var(--switch-thumb); transition: transform var(--duration-fast); }
+.switch:has(> input:checked) { background-color: var(--primary); }
+.switch:has(> input:checked) .switch-thumb { transform: translateX(calc(100% - 2px)); }
+.switch:has(> input:focus-visible) { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.switch:has(> input:disabled) { cursor: not-allowed; opacity: .5; }
+.switch-sm { width: 24px; height: 14px; }
+.switch-sm .switch-thumb { width: 12px; height: 12px; }
+@media (prefers-color-scheme: dark) {
+  .switch:not(:has(> input:checked)) { background-color: color-mix(in srgb, var(--input) 80%, transparent); }
+}
+
+/* ---------- Input and Textarea ----------
+   <input class="input">   <textarea class="textarea"></textarea> */
+.input, .textarea {
+  width: 100%; min-width: 0; border: 1px solid var(--input); border-radius: var(--radius-lg);
+  background-color: transparent; padding: var(--space-1) var(--space-2-5); font-size: var(--text-md); outline: none;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+.input { height: var(--control); }
+.textarea { display: flex; min-height: 64px; padding: var(--space-2) var(--space-2-5); field-sizing: content; }
+.input::placeholder, .textarea::placeholder { color: var(--muted-foreground); }
+.input:focus-visible, .textarea:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.input[aria-invalid="true"], .textarea[aria-invalid="true"] { border-color: var(--destructive);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive) 20%, transparent); }
+.input:disabled, .textarea:disabled { pointer-events: none; cursor: not-allowed; opacity: .5; background-color: color-mix(in srgb, var(--input) 50%, transparent); }
+@media (prefers-color-scheme: dark) {
+  .input, .textarea { background-color: color-mix(in srgb, var(--input) 30%, transparent); }
+  .input:disabled, .textarea:disabled { background-color: color-mix(in srgb, var(--input) 80%, transparent); }
+}
+
+/* ---------- Tabs ----------
+   <div class="tabs-list [tabs-line]" role="tablist">
+     <button class="tabs-trigger" role="tab" aria-selected="true">…</button> …
+   </div>
+   The selected tab is the one with aria-selected="true" (shadcn's data-active). */
+.tabs-list {
+  display: inline-flex; align-items: center; justify-content: center; width: fit-content; height: var(--control);
+  padding: 3px; border-radius: var(--radius-lg); background-color: var(--muted); color: var(--muted-foreground);
+}
+.tabs-line { gap: var(--space-1); border-radius: 0; background-color: transparent; }
+.tabs-trigger {
+  position: relative; display: inline-flex; flex: 1; align-items: center; justify-content: center; gap: var(--space-1-5);
+  height: calc(100% - 1px); padding: var(--space-0-5) var(--space-1-5); border: 1px solid transparent; border-radius: var(--radius-md);
+  background: transparent; font-size: var(--text-md); font-weight: var(--font-weight-medium); white-space: nowrap; cursor: pointer;
+  color: color-mix(in srgb, var(--foreground) 60%, transparent); transition: color var(--duration-fast), background-color var(--duration-fast);
+}
+.tabs-trigger:hover { color: var(--foreground); }
+.tabs-trigger:focus-visible { border-color: var(--ring); outline: 1px solid var(--ring);
+                              box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.tabs-trigger:disabled, .tabs-trigger[aria-disabled="true"] { pointer-events: none; opacity: .5; }
+.tabs-trigger svg { pointer-events: none; flex-shrink: 0; }
+.tabs-trigger svg:not([class*="size-"]) { width: 16px; height: 16px; }
+.tabs-trigger[aria-selected="true"] { background-color: var(--background); color: var(--foreground); box-shadow: var(--shadow-tab); }
+/* line variant: no pill, an underline under the selected tab */
+.tabs-line .tabs-trigger[aria-selected="true"] { background-color: transparent; box-shadow: none; }
+.tabs-line .tabs-trigger::after { content: ""; position: absolute; left: 0; right: 0; bottom: -5px; height: 2px;
+                                  background-color: var(--foreground); opacity: 0; transition: opacity var(--duration-fast); }
+.tabs-line .tabs-trigger[aria-selected="true"]::after { opacity: 1; }
+@media (prefers-color-scheme: dark) {
+  .tabs-trigger { color: var(--muted-foreground); }
+  .tabs-trigger[aria-selected="true"] { border-color: var(--input); background-color: color-mix(in srgb, var(--input) 30%, transparent); }
+  .tabs-line .tabs-trigger[aria-selected="true"] { border-color: transparent; background-color: transparent; }
+}

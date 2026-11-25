@@ -10,6 +10,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SafeContext</title>
 <link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="shadcn.css">
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="components.css">
 <link rel="stylesheet" href="mail.css">
@@ -25,16 +26,16 @@
   <div class="ob-side ob-connect-side">
     <div class="ob-col">
       <div class="home-hero onboard-hero">
-        <svg class="home-hero-logo" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M24 0C28.4183 0 32 3.58172 32 8V24C32 28.4183 28.4183 32 24 32H8C3.58172 32 0 28.4183 0 24V8C0 3.58172 3.58172 0 8 0H24ZM8.5 9.2998V14.9004C8.50017 19.7002 11.7001 23.5001 16 25.5C20.2999 23.5001 23.4998 19.7002 23.5 14.9004V9.2998L16 6.5L8.5 9.2998Z"/></svg>
+        <svg class="home-hero-logo" data-mark="safecontext"></svg>
         <h2>SafeContext</h2>
         <p class="muted">Your private context layer</p>
       </div>
-      <div class="card onboard-card">
+      <div class="card onboard-card"><div class="card-content">
         <label class="field"><span>Email</span>
-          <input id="ob-email" type="email" placeholder="you@gmail.com" autocomplete="off"></label>
-        <button id="ob-connect" class="btn primary lg">Connect Gmail</button>
+          <input class="input" id="ob-email" type="email" placeholder="you@gmail.com" autocomplete="off"></label>
+        <button id="ob-connect" class="btn btn-lg">Connect Gmail</button>
         <p class="error" id="ob-error" hidden></p>
-      </div>
+      </div></div>
       <p class="hint ob-foot" id="ob-hint">Google will warn that this app isn't verified. That's expected for a small app like this: click <b>Advanced</b>, then <b>Go to SafeContext</b>.</p>
     </div>
   </div>
@@ -42,9 +43,9 @@
     <div class="ob-pitch">
       <h1>Use your email and calendar in AI apps like Grok and Claude, with the sensitive parts removed first.</h1>
       <ul class="ob-checks">
-        <li><svg class="ob-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>Stays on this Mac.</b> Your mail is downloaded and stored here, never uploaded to SafeContext.</span></li>
-        <li><svg class="ob-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>Scrubbed before it's saved.</b> 2FA codes, passwords, card and account numbers, API keys, addresses and more are removed. Security, banking, tax and health email is skipped entirely.</span></li>
-        <li><svg class="ob-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>You decide what AI sees.</b> Turn on <b>MCP</b> and the AI apps you connect can search your scrubbed data, only while SafeContext is open. Nothing is sent until you do.</span></li>
+        <li><svg class="ob-check" data-lucide="check"></svg><span><b>Stays on this Mac.</b> Your mail is downloaded and stored here, never uploaded to SafeContext.</span></li>
+        <li><svg class="ob-check" data-lucide="check"></svg><span><b>Scrubbed before it's saved.</b> 2FA codes, passwords, card and account numbers, API keys, addresses and more are removed. Security, banking, tax and health email is skipped entirely.</span></li>
+        <li><svg class="ob-check" data-lucide="check"></svg><span><b>You decide what AI sees.</b> Turn on <b>MCP</b> and the AI apps you connect can search your scrubbed data, only while SafeContext is open. Nothing is sent until you do.</span></li>
       </ul>
       <p class="muted ob-more">You can add Google Calendar and iMessage on the Sources screen afterwards, and choose folders and PDFs on the Files screen. WhatsApp and call recordings are coming.</p>
     </div>
@@ -58,21 +59,21 @@
   <header class="app-header window-drag">
     <!-- Next to the traffic lights: hide/show the sidebar, and back / forward through pages (app.js) -->
     <div class="header-nav">
-      <button class="icon-btn" id="nav-sidebar" aria-label="Hide sidebar" title="Hide sidebar (⌘\)">
-        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+      <button class="btn btn-ghost btn-icon-sm" id="nav-sidebar" aria-label="Hide sidebar" title="Hide sidebar (⌘\)">
+        <svg class="nav-svg" data-lucide="panel-left"></svg>
       </button>
-      <button class="icon-btn" id="nav-back" aria-label="Back" title="Back (⌘[)" disabled>
-        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+      <button class="btn btn-ghost btn-icon-sm" id="nav-back" aria-label="Back" title="Back (⌘[)" disabled>
+        <svg class="nav-svg" data-lucide="chevron-left"></svg>
       </button>
-      <button class="icon-btn" id="nav-fwd" aria-label="Forward" title="Forward (⌘])" disabled>
-        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+      <button class="btn btn-ghost btn-icon-sm" id="nav-fwd" aria-label="Forward" title="Forward (⌘])" disabled>
+        <svg class="nav-svg" data-lucide="chevron-right"></svg>
       </button>
     </div>
     <!-- Search: results drop down under the field; a page opens only when one is chosen (mail.js searchInit) -->
     <div class="header-search">
       <label class="mail-search" title="⌘K to search from anywhere · ↑ ↓ to pick a result · Enter to open it · Esc to close">
-        <svg class="nav-svg mail-search-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
-        <input id="mail-q" type="search" placeholder="Search" aria-label="Search mail" aria-controls="search-results" aria-autocomplete="list" autocomplete="off">
+        <svg class="nav-svg mail-search-ico" data-lucide="search"></svg>
+        <input class="input" id="mail-q" type="search" placeholder="Search" aria-label="Search mail" aria-controls="search-results" aria-autocomplete="list" autocomplete="off">
         <span class="mail-search-keys" aria-hidden="true"><kbd>⌘</kbd><kbd>K</kbd></span>
       </label>
       <div class="search-results" id="search-results" role="listbox" aria-label="Search results" hidden></div>
@@ -83,29 +84,29 @@
     <!-- MCP icon: Model Context Protocol mark from LobeHub Icons (lobehub.com/icons, MIT). -->
     <nav class="nav">
       <button data-view="removed">
-        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
+        <svg class="nav-svg" data-lucide="shield"></svg>
         Security Dashboard
       </button>
       <button data-view="sources">
-        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>
+        <svg class="nav-svg" data-lucide="database"></svg>
         Sources
       </button>
       <div class="nav-children" id="nav-sources" role="group" aria-label="Your sources"></div>
       <button data-view="files">
-        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+        <svg class="nav-svg" data-lucide="folder"></svg>
         Files
       </button>
       <button data-view="mcp">
-        <svg class="nav-svg filled" viewBox="0 0 24 24" fill-rule="evenodd" aria-hidden="true"><path d="M15.688 2.343a2.588 2.588 0 00-3.61 0l-9.626 9.44a.863.863 0 01-1.203 0 .823.823 0 010-1.18l9.626-9.44a4.313 4.313 0 016.016 0 4.116 4.116 0 011.204 3.54 4.3 4.3 0 013.609 1.18l.05.05a4.115 4.115 0 010 5.9l-8.706 8.537a.274.274 0 000 .393l1.788 1.754a.823.823 0 010 1.18.863.863 0 01-1.203 0l-1.788-1.753a1.92 1.92 0 010-2.754l8.706-8.538a2.47 2.47 0 000-3.54l-.05-.049a2.588 2.588 0 00-3.607-.003l-7.172 7.034-.002.002-.098.097a.863.863 0 01-1.204 0 .823.823 0 010-1.18l7.273-7.133a2.47 2.47 0 00-.003-3.537z"/><path d="M14.485 4.703a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a4.115 4.115 0 000 5.9 4.314 4.314 0 006.016 0l7.12-6.982a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a2.588 2.588 0 01-3.61 0 2.47 2.47 0 010-3.54l7.12-6.982z"/></svg>
+        <svg class="nav-svg" data-mark="mcp"></svg>
         MCP
       </button>
       <button data-view="review">
-        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg class="nav-svg" data-lucide="eye"></svg>
         AI access review
       </button>
     </nav>
     <!-- Sync status, pinned to the bottom of the sidebar. Clicking it (not Check now) opens Sync status. -->
-    <div class="sync" id="sync" role="button" tabindex="0" title="Open Sync status">
+    <div class="card card-sm sync" id="sync" role="button" tabindex="0" title="Open Sync status"><div class="card-content">
       <div class="sync-line"><span class="dot" id="sync-dot"></span><span id="sync-text">—</span><span class="sync-more" aria-hidden="true">›</span></div>
       <div class="sync-sub" id="sync-sub"></div>
       <dl class="sync-stats" id="sync-stats" hidden>
@@ -116,26 +117,26 @@
         <dt>Running</dt><dd id="ss-time"></dd>
       </dl>
       <div class="sync-note muted" id="sync-note" hidden></div>
-      <button class="btn small" id="sync-now" title="SafeContext checks on its own every few minutes, at launch and when you come back to this window.">Check now</button>
-    </div>
+      <button class="btn btn-outline btn-sm" id="sync-now" title="SafeContext checks on its own every few minutes, at launch and when you come back to this window.">Check now</button>
+    </div></div>
     <!-- Account: at the bottom of the sidebar; the email opens a menu with Sync status and Settings (app.js) -->
     <div class="acct">
       <div class="acct-menu" id="acct-menu" role="menu" aria-label="Account" hidden>
         <div class="acct-menu-email" id="acct-menu-email"></div>
         <div class="acct-menu-sep" role="separator"></div>
         <button role="menuitem" data-menu-view="sync">
-          <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+          <svg class="nav-svg" data-lucide="refresh-cw"></svg>
           Sync status
         </button>
         <button role="menuitem" data-menu-view="settings">
-          <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="nav-svg" data-lucide="settings"></svg>
           Settings
         </button>
       </div>
       <button class="acct-btn" id="acct-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="acct-menu">
         <span class="acct-avatar" id="acct-avatar" aria-hidden="true"></span>
         <span class="acct-email" id="account"></span>
-        <svg class="nav-svg acct-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
+        <svg class="nav-svg acct-chev" data-lucide="chevrons-up-down"></svg>
       </button>
     </div>
   </aside>
@@ -143,13 +144,13 @@
   <main class="main">
     <div id="banner" class="banner" hidden>
       <span id="banner-text"></span>
-      <button class="btn small primary" id="reconnect">Reconnect Gmail</button>
+      <button class="btn btn-sm" id="reconnect">Reconnect Gmail</button>
     </div>
     <div id="update-banner" class="banner info" hidden>
       <span id="update-banner-text"></span>
       <span class="actions">
-        <button class="btn small" id="update-later">Later</button>
-        <button class="btn small primary" id="update-now">Update and restart</button>
+        <button class="btn btn-outline btn-sm" id="update-later">Later</button>
+        <button class="btn btn-sm" id="update-now">Update and restart</button>
       </span>
     </div>
 
@@ -165,16 +166,16 @@
       <h2>Files</h2>
       <p class="muted">Add the folders and PDFs SafeContext may read. Text is read only from PDFs in those folders, and from PDFs you add on their own. Shortcuts that point somewhere else are skipped.</p>
       <div class="actions">
-        <button class="btn primary" id="files-add-folder">Add folder</button>
-        <button class="btn" id="files-add-file">Add PDF</button>
+        <button class="btn" id="files-add-folder">Add folder</button>
+        <button class="btn btn-outline" id="files-add-file">Add PDF</button>
       </div>
       <p class="error" id="files-error" hidden></p>
       <div class="card setting">
-        <h3>Added</h3>
+        <div class="card-header"><div class="card-title">Added</div></div><div class="card-content">
         <div id="files-entries"></div>
         <h3 class="file-sub">PDFs whose text may be read</h3>
         <div id="files-pdfs"></div>
-      </div>
+      </div></div>
     </section>
 
     <!-- One source's page, opened from a tile on Sources (app.js renderSourcePage) -->
@@ -185,28 +186,28 @@
       <h2>MCP</h2>
       <p class="muted">Let AI apps search your scrubbed mail and calendar, read-only.</p>
       <!-- MCP: a link AI apps (Grok, Claude, Muse) connect to through the relay -->
-      <div class="card mcp-card" id="mcp-card">
+      <div class="card mcp-card" id="mcp-card"><div class="card-content">
         <div class="mcp-row">
           <div class="src-icon lg" aria-hidden="true">
-            <!-- the same MCP mark as the sidebar, in the same icon holder as the Sources tiles -->
-            <svg viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd"><path d="M15.688 2.343a2.588 2.588 0 00-3.61 0l-9.626 9.44a.863.863 0 01-1.203 0 .823.823 0 010-1.18l9.626-9.44a4.313 4.313 0 016.016 0 4.116 4.116 0 011.204 3.54 4.3 4.3 0 013.609 1.18l.05.05a4.115 4.115 0 010 5.9l-8.706 8.537a.274.274 0 000 .393l1.788 1.754a.823.823 0 010 1.18.863.863 0 01-1.203 0l-1.788-1.753a1.92 1.92 0 010-2.754l8.706-8.538a2.47 2.47 0 000-3.54l-.05-.049a2.588 2.588 0 00-3.607-.003l-7.172 7.034-.002.002-.098.097a.863.863 0 01-1.204 0 .823.823 0 010-1.18l7.273-7.133a2.47 2.47 0 00-.003-3.537z"/><path d="M14.485 4.703a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a4.115 4.115 0 000 5.9 4.314 4.314 0 006.016 0l7.12-6.982a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a2.588 2.588 0 01-3.61 0 2.47 2.47 0 010-3.54l7.12-6.982z"/></svg>
+            <!-- the MCP mark (same as the sidebar), in the same icon holder as the Sources tiles -->
+            <svg data-mark="mcp"></svg>
           </div>
           <div class="mcp-main">
-            <div class="mcp-title">MCP link</div>
-            <div class="mcp-status"><span class="dot" id="mcp-dot"></span><span><span id="mcp-status-text">Off</span> · Works while your Mac is awake and SafeContext is open.</span></div>
+            <div class="card-title">MCP link</div>
+            <div class="card-description mcp-status"><span class="dot" id="mcp-dot"></span><span><span id="mcp-status-text">Off</span> · Works while your Mac is awake and SafeContext is open.</span></div>
           </div>
           <label class="switch" title="Turn the MCP link on or off">
             <input type="checkbox" id="mcp-toggle" role="switch" aria-label="MCP link for AI apps">
-            <span class="slider" aria-hidden="true"></span>
+            <span class="switch-thumb" aria-hidden="true"></span>
           </label>
         </div>
-      </div>
+      </div></div>
         <!-- shown while the link is on: its own card under the switch card -->
-        <div class="card mcp-card mcp-on" id="mcp-on" hidden>
+        <div class="card mcp-card mcp-on" id="mcp-on" hidden><div class="card-content">
           <div class="mcp-link-label">Your MCP link</div>
           <div class="mcp-link-row">
             <code id="mcp-url" class="mcp-url"></code>
-            <button class="btn small primary" id="mcp-link-copy">Copy link</button>
+            <button class="btn btn-sm" id="mcp-link-copy">Copy link</button>
           </div>
           <div class="mcp-opts">
             <label class="check"><input type="checkbox" id="mcp-awake"> Keep Mac awake while plugged in</label>
@@ -226,10 +227,10 @@
           </div>
 
           <div class="mcp-howto">
-            <div class="mcp-tabs" role="tablist" aria-label="Set up an AI app">
-              <button role="tab" id="tab-grok" data-app="grok" aria-controls="panel-grok">Grok</button>
-              <button role="tab" id="tab-claude" data-app="claude" aria-controls="panel-claude">Claude</button>
-              <button role="tab" id="tab-muse" data-app="muse" aria-controls="panel-muse">Muse</button>
+            <div class="tabs-list mcp-tabs" role="tablist" aria-label="Set up an AI app">
+              <button class="tabs-trigger" role="tab" id="tab-grok" data-app="grok" aria-controls="panel-grok">Grok</button>
+              <button class="tabs-trigger" role="tab" id="tab-claude" data-app="claude" aria-controls="panel-claude">Claude</button>
+              <button class="tabs-trigger" role="tab" id="tab-muse" data-app="muse" aria-controls="panel-muse">Muse</button>
             </div>
 
             <div class="mcp-panel" id="panel-grok" role="tabpanel" aria-labelledby="tab-grok" data-app="grok">
@@ -238,7 +239,7 @@
                 <li>Paste your link as the server URL and add it.</li>
                 <li>Click <b>Approve</b> here when SafeContext asks. Then ask Grok about your mail or calendar.</li>
               </ol>
-              <button class="btn small" data-open-app="grok">Open Grok connectors</button>
+              <button class="btn btn-outline btn-sm" data-open-app="grok">Open Grok connectors</button>
             </div>
 
             <div class="mcp-panel" id="panel-claude" role="tabpanel" aria-labelledby="tab-claude" data-app="claude" hidden>
@@ -249,7 +250,7 @@
                 <li>Click <b>Connect</b>. When Claude's sign-in page shows a 4-digit code, click <b>Approve</b> here if SafeContext shows the same code.</li>
               </ol>
               <p class="mcp-soon">Leave <b>Connect with just the link</b> (under Trouble connecting?) off, or Claude skips signing in. Connectors you add on claude.ai also work in the Claude desktop app. Claude Desktop can also use SafeContext on this Mac with no link at all: see <b>Apps on this Mac</b> below.</p>
-              <button class="btn small" data-open-app="claude">Open Claude connectors</button>
+              <button class="btn btn-outline btn-sm" data-open-app="claude">Open Claude connectors</button>
             </div>
 
             <div class="mcp-panel" id="panel-muse" role="tabpanel" aria-labelledby="tab-muse" data-app="muse" hidden>
@@ -262,18 +263,17 @@
               <p class="mcp-soon">Signing in with Approve is coming for Muse.</p>
             </div>
           </div>
-        </div>
+        </div></div>
       <div class="card setting">
-        <h3>Apps on this Mac (local MCP)</h3>
-        <p class="muted">Add this to a local MCP client's config (Claude Desktop, for example) to give it the same read-only, scrubbed search tools, with no link and nothing leaving this Mac.</p>
+        <div class="card-header"><div class="card-title">Apps on this Mac (local MCP)</div><div class="card-description">Add this to a local MCP client's config (Claude Desktop, for example) to give it the same read-only, scrubbed search tools, with no link and nothing leaving this Mac.</div></div><div class="card-content">
         <pre id="mcp-json" class="code"></pre>
-        <button class="btn small" id="mcp-copy">Copy</button>
-      </div>
+        <button class="btn btn-outline btn-sm" id="mcp-copy">Copy</button>
+      </div></div>
     </section>
 
     <!-- Sync status: per-source sync details (mail.js), opened from the account menu or the sidebar sync card -->
     <section id="view-sync" class="view page" hidden>
-      <div class="page-head"><h2>Sync status</h2><button class="btn small" id="s-check-now">Check now</button></div>
+      <div class="page-head"><h2>Sync status</h2><button class="btn btn-outline btn-sm" id="s-check-now">Check now</button></div>
       <p class="muted">SafeContext checks for new mail at launch, when you come back to the window, after your Mac wakes and every 5 minutes.</p>
       <div class="coverage sync-page" id="sync-page-coverage"></div>
     </section>
@@ -282,38 +282,37 @@
     <section id="view-removed" class="view page">
       <!-- Home page header: the SafeContext logo over a centered title -->
       <div class="home-hero">
-        <svg class="home-hero-logo" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M24 0C28.4183 0 32 3.58172 32 8V24C32 28.4183 28.4183 32 24 32H8C3.58172 32 0 28.4183 0 24V8C0 3.58172 3.58172 0 8 0H24ZM8.5 9.2998V14.9004C8.50017 19.7002 11.7001 23.5001 16 25.5C20.2999 23.5001 23.4998 19.7002 23.5 14.9004V9.2998L16 6.5L8.5 9.2998Z"/></svg>
+        <svg class="home-hero-logo" data-mark="safecontext"></svg>
         <h2>Security Dashboard</h2>
         <p class="muted">Everything below was removed on this Mac before anything was saved.</p>
       </div>
       <div class="tiles">
-        <div class="tile"><div class="num" id="t-kept">0</div><div class="lbl">items kept (scrubbed)</div></div>
-        <div class="tile"><div class="num" id="t-dropped">0</div><div class="lbl">items skipped entirely</div></div>
-        <div class="tile"><div class="num" id="t-redacted">0</div><div class="lbl">sensitive values blanked out</div></div>
+        <div class="card card-sm tile"><div class="card-content"><div class="num" id="t-kept">0</div><div class="lbl">items kept (scrubbed)</div></div></div>
+        <div class="card card-sm tile"><div class="card-content"><div class="num" id="t-dropped">0</div><div class="lbl">items skipped entirely</div></div></div>
+        <div class="card card-sm tile"><div class="card-content"><div class="num" id="t-redacted">0</div><div class="lbl">sensitive values blanked out</div></div></div>
       </div>
       <div class="two-col">
-        <div class="card"><h3>Skipped entirely</h3><div id="dropped-bars" class="bars"></div></div>
-        <div class="card"><h3>Blanked out inside kept items</h3><div id="redacted-bars" class="bars"></div></div>
+        <div class="card"><div class="card-header"><div class="card-title">Skipped entirely</div></div><div class="card-content"><div id="dropped-bars" class="bars"></div></div></div>
+        <div class="card"><div class="card-header"><div class="card-title">Blanked out inside kept items</div></div><div class="card-content"><div id="redacted-bars" class="bars"></div></div></div>
       </div>
-      <div class="card by-source"><h3>By source</h3><div id="by-source" class="bars"></div></div>
+      <div class="card by-source"><div class="card-header"><div class="card-title">By source</div></div><div class="card-content"><div id="by-source" class="bars"></div></div></div>
       <div class="card" id="scrub-controls">
-        <h3>What gets removed from files</h3>
-        <p class="muted">These rules run when SafeContext reads text out of a PDF or another file on this Mac. The built-in ones always run. A pattern you add runs after them. Mail and calendar keep the scrubber they already use.</p>
+        <div class="card-header"><div class="card-title">What gets removed from files</div><div class="card-description">These rules run when SafeContext reads text out of a PDF or another file on this Mac. The built-in ones always run. A pattern you add runs after them. Mail and calendar keep the scrubber they already use.</div></div><div class="card-content">
         <ul class="scrub-builtin" id="scrub-builtin"></ul>
         <div id="scrub-patterns"></div>
         <form id="scrub-add" class="scrub-add">
           <label class="field">Name
-            <input id="scrub-name" maxlength="40" autocomplete="off" placeholder="Employee ID"></label>
+            <input class="input" id="scrub-name" maxlength="40" autocomplete="off" placeholder="Employee ID"></label>
           <label class="field">Pattern
-            <input id="scrub-pattern" maxlength="200" spellcheck="false" autocomplete="off" placeholder="EMP-\d{4}"></label>
-          <button class="btn primary" type="submit">Add pattern</button>
+            <input class="input" id="scrub-pattern" maxlength="200" spellcheck="false" autocomplete="off" placeholder="EMP-\d{4}"></label>
+          <button class="btn" type="submit">Add pattern</button>
         </form>
         <label class="field">Try a sample. It is not saved.
-          <textarea id="scrub-sample" rows="3" maxlength="4000" placeholder="Paste an example of the text a file would contain"></textarea>
+          <textarea class="textarea" id="scrub-sample" rows="3" maxlength="4000" placeholder="Paste an example of the text a file would contain"></textarea>
         </label>
-        <button class="btn" type="button" id="scrub-try">See what would be removed</button>
+        <button class="btn btn-outline" type="button" id="scrub-try">See what would be removed</button>
         <div id="scrub-preview" class="scrub-preview" hidden></div>
-      </div>
+      </div></div>
     </section>
 
     <!-- AI access review (review.py) -->
@@ -323,10 +322,10 @@
           <h2>AI access review</h2>
           <p class="muted rv-intro">What Grok, Claude and other AI apps can reach, one app at a time.</p>
         </div>
-        <button class="btn small" id="rv-save">Save report</button>
+        <button class="btn btn-outline btn-sm" id="rv-save">Save report</button>
       </div>
       <div class="rv-tally" id="rv-tally"></div>
-      <div class="rv-tabs" role="tablist" aria-label="Apps and accounts" id="rv-tabs"></div>
+      <div class="tabs-list tabs-line rv-tabs" role="tablist" aria-label="Apps and accounts" id="rv-tabs"></div>
       <div class="rv-panel" role="tabpanel" id="rv-panel"></div>
       <p class="hint">SafeContext checks its own access itself. Checks marked grey are ones you do yourself: open the page, look, then say what you found. Answers expire after 90 days.</p>
     </section>
@@ -335,30 +334,30 @@
     <section id="view-settings" class="view page" hidden>
       <h2>Settings</h2>
       <div class="card setting">
-        <h3>Gmail</h3>
+        <div class="card-header"><div class="card-title">Gmail</div></div><div class="card-content">
         <div class="row"><span class="muted">Account</span><span id="s-account">—</span></div>
         <div class="row"><span class="muted">Mode</span><span id="s-mode">—</span></div>
         <div class="row"><span class="muted">Stored at</span><code id="s-dir"></code></div>
         <div class="actions">
-          <button class="btn" id="s-disconnect">Disconnect, keep local mail</button>
-          <button class="btn danger" id="s-wipe">Disconnect and delete local mail</button>
+          <button class="btn btn-outline" id="s-disconnect">Disconnect, keep local mail</button>
+          <button class="btn btn-destructive" id="s-wipe">Disconnect and delete local mail</button>
         </div>
         <p class="hint">Google Calendar and other sources are on the <a href="#" data-goto="sources">Sources</a> screen.</p>
-      </div>
+      </div></div>
       <div class="card setting" id="s-updates">
-        <h3>Updates</h3>
+        <div class="card-header"><div class="card-title">Updates</div></div><div class="card-content">
         <div class="row"><span class="muted">Version</span><span id="u-current">—</span></div>
         <div class="row"><span class="muted">Status</span><span id="u-state">—</span></div>
         <p class="hint" id="u-notes" hidden></p>
         <label class="u-auto"><input type="checkbox" id="u-auto"> Check for updates automatically (once a day)</label>
         <div class="actions">
-          <button class="btn" id="u-check">Check for updates</button>
-          <button class="btn primary" id="u-install" hidden>Update and restart</button>
-          <button class="btn" id="u-download" hidden>Open download page</button>
+          <button class="btn btn-outline" id="u-check">Check for updates</button>
+          <button class="btn" id="u-install" hidden>Update and restart</button>
+          <button class="btn btn-outline" id="u-download" hidden>Open download page</button>
         </div>
         <p class="hint">Checking downloads a small file from safecontext.me. It sends no account, device ID or usage data.
           Updates must be signed by SafeContext's developer before they replace the app. Your data and settings stay as they are.</p>
-      </div>
+      </div></div>
     </section>
     <!-- One source (picked under Sources in the sidebar): browse what's synced, see what isn't (mail.js) -->
     <section id="view-mail" class="view" hidden>
@@ -397,7 +396,7 @@
               <div class="mail-bar mail-reader-head">
                 <button class="mail-back" id="mail-back" aria-label="Back to the list">←</button>
                 <h2 class="mail-reader-title" id="mail-reader-title"></h2>
-                <button class="btn small mail-open-orig" id="mail-open-orig" hidden></button>
+                <button class="btn btn-outline btn-sm mail-open-orig" id="mail-open-orig" hidden></button>
               </div>
               <div class="mail-reader" id="mail-reader" tabindex="-1"><div class="empty">Select a conversation to read it.</div></div>
             </div>
@@ -412,8 +411,8 @@
   <form method="dialog">
     <p id="confirm-text"></p>
     <div class="actions">
-      <button class="btn" value="cancel">Cancel</button>
-      <button class="btn danger" value="ok" id="confirm-ok">Delete</button>
+      <button class="btn btn-outline" value="cancel">Cancel</button>
+      <button class="btn btn-destructive" value="ok" id="confirm-ok">Delete</button>
     </div>
   </form>
 </dialog>
@@ -425,11 +424,15 @@
     <p class="approve-code" id="ga-code"></p>
     <p class="hint">Check that the page in your browser shows the same number.</p>
     <div class="actions">
-      <button class="btn" id="ga-deny">Deny</button>
-      <button class="btn primary" id="ga-ok">Approve</button>
+      <button class="btn btn-outline" id="ga-deny">Deny</button>
+      <button class="btn" id="ga-ok">Approve</button>
     </div>
   </div>
 </dialog>
+
+<!-- Marks that aren't Lucide icons, drawn where <svg data-mark="…"> asks for them (icons.js) -->
+<template id="icon-safecontext"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M24 0C28.4183 0 32 3.58172 32 8V24C32 28.4183 28.4183 32 24 32H8C3.58172 32 0 28.4183 0 24V8C0 3.58172 3.58172 0 8 0H24ZM8.5 9.2998V14.9004C8.50017 19.7002 11.7001 23.5001 16 25.5C20.2999 23.5001 23.4998 19.7002 23.5 14.9004V9.2998L16 6.5L8.5 9.2998Z"/></svg></template>
+<template id="icon-mcp"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd" aria-hidden="true"><path d="M15.688 2.343a2.588 2.588 0 00-3.61 0l-9.626 9.44a.863.863 0 01-1.203 0 .823.823 0 010-1.18l9.626-9.44a4.313 4.313 0 016.016 0 4.116 4.116 0 011.204 3.54 4.3 4.3 0 013.609 1.18l.05.05a4.115 4.115 0 010 5.9l-8.706 8.537a.274.274 0 000 .393l1.788 1.754a.823.823 0 010 1.18.863.863 0 01-1.203 0l-1.788-1.753a1.92 1.92 0 010-2.754l8.706-8.538a2.47 2.47 0 000-3.54l-.05-.049a2.588 2.588 0 00-3.607-.003l-7.172 7.034-.002.002-.098.097a.863.863 0 01-1.204 0 .823.823 0 010-1.18l7.273-7.133a2.47 2.47 0 00-.003-3.537z"/><path d="M14.485 4.703a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a4.115 4.115 0 000 5.9 4.314 4.314 0 006.016 0l7.12-6.982a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a2.588 2.588 0 01-3.61 0 2.47 2.47 0 010-3.54l7.12-6.982z"/></svg></template>
 
 <!-- Source icons as SVG (used by sourceIcon() in app.js; sources without one show their emoji) -->
 <template id="icon-gmail"><svg xmlns="http://www.w3.org/2000/svg" viewBox="52 42 88 66" aria-hidden="true">
@@ -472,6 +475,7 @@
 </svg></template>
 
 <div id="toast" class="toast" hidden></div>
+<script src="icons.js"></script>
 <script src="components.js"></script>
 <script src="app.js"></script>
 <script src="mail.js"></script>

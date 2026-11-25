@@ -2,45 +2,9 @@
 // They render into the light DOM, so app.css / components.css theme them like the rest of the app.
 // As everywhere in the app, text only ever goes in as text, never as HTML.
 //
-//   <sc-icon name="check">                    a Lucide icon (lucide.dev, ISC license)
 //   <sc-menu icon="…" label="…" hotkey="F">   an icon button that opens a popover with its children
 //   <sc-filter-list>                          "Add filter…" search, categories, and a flyout of options
 "use strict";
-
-// Lucide icons used by the components: [tag, attributes] per shape, on a 24px grid.
-const SC_ICONS = {
-  "list-filter": [["path", { d: "M2 5h20" }], ["path", { d: "M6 12h12" }], ["path", { d: "M9 19h6" }]],
-  "sliders-horizontal": ["M10 5H3", "M12 19H3", "M14 3v4", "M16 17v4", "M21 12h-9", "M21 19h-5", "M21 5h-7", "M8 10v4", "M8 12H3"]
-    .map((d) => ["path", { d }]),
-  "chevron-right": [["path", { d: "m9 18 6-6-6-6" }]],
-  check: [["path", { d: "M20 6 9 17l-5-5" }]],
-  ban: [["circle", { cx: "12", cy: "12", r: "10" }], ["path", { d: "M4.929 4.929 19.07 19.071" }]],
-  x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
-  ellipsis: [["circle", { cx: "12", cy: "12", r: "1" }], ["circle", { cx: "19", cy: "12", r: "1" }], ["circle", { cx: "5", cy: "12", r: "1" }]],
-  // AI access review: a distinct shape per colour, so colour is never the only cue
-  "circle-x": [["circle", { cx: "12", cy: "12", r: "10" }], ["path", { d: "m15 9-6 6" }], ["path", { d: "m9 9 6 6" }]],
-  "triangle-alert": [["path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" }],
-    ["path", { d: "M12 9v4" }], ["path", { d: "M12 17h.01" }]],
-  "circle-check": [["circle", { cx: "12", cy: "12", r: "10" }], ["path", { d: "m9 12 2 2 4-4" }]],
-  "circle-help": [["circle", { cx: "12", cy: "12", r: "10" }], ["path", { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" }],
-    ["path", { d: "M12 17h.01" }]],
-  "external-link": [["path", { d: "M15 3h6v6" }], ["path", { d: "M10 14 21 3" }],
-    ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" }]],
-};
-
-function scIcon(name, cls = "") {
-  const NS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(NS, "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("class", `sc-svg ${cls}`.trim());
-  for (const [tag, attrs] of SC_ICONS[name] || []) {
-    const s = document.createElementNS(NS, tag);
-    for (const [k, v] of Object.entries(attrs)) s.setAttribute(k, v);
-    svg.append(s);
-  }
-  return svg;
-}
 
 function scEl(tag, attrs = {}, ...children) {
   const n = document.createElement(tag);
@@ -53,12 +17,9 @@ function scEl(tag, attrs = {}, ...children) {
   return n;
 }
 
-// ---------- <sc-icon name="…"> ----------
-class ScIcon extends HTMLElement {
-  connectedCallback() { this.replaceChildren(scIcon(this.getAttribute("name"))); }
-}
 
 // ---------- <sc-menu icon="…" label="…" hotkey="F"> ----------
+// The button is a ghost icon Button (shadcn.css), 28px; size="icon" makes it 32px to sit beside a default Button.
 // align="end" opens the panel from the right edge; compact makes it fit a short list of .sc-item actions.
 // An icon button that toggles a popover holding the element's original children.
 // Closes on outside click, Esc, or another menu opening. Fires "sc-open" / "sc-close".
@@ -71,9 +32,9 @@ class ScMenu extends HTMLElement {
     this._panel = scEl("div", { class: "sc-menu-panel", role: "dialog", "aria-label": label, hidden: "" },
       ...this.childNodes);
     this._badge = scEl("span", { class: "sc-menu-badge", hidden: "" });
-    this._btn = scEl("button", { class: "sc-menu-btn", type: "button", "aria-label": label, "aria-haspopup": "dialog",
+    this._btn = scEl("button", { class: `btn btn-ghost ${this.getAttribute("size") === "icon" ? "btn-icon" : "btn-icon-sm"} sc-menu-btn`, type: "button", "aria-label": label, "aria-haspopup": "dialog",
       "aria-expanded": "false", title: hotkey ? `${label} (${hotkey})` : label, onclick: () => this.toggle() },
-    scIcon(this.getAttribute("icon")), this._badge);
+    icon(this.getAttribute("icon"), "sc-svg"), this._badge);
     this.append(this._btn, this._panel);
     this._outside = (e) => { if (this.open && !this.contains(e.target)) this.hide(); };
     document.addEventListener("pointerdown", this._outside);
@@ -141,7 +102,7 @@ class ScFilterList extends HTMLElement {
     const on = this._isOn(cat.id, o.value);
     return scEl("button", { class: "sc-filter-opt", type: "button", role: "menuitemcheckbox", "aria-checked": String(on),
       tabindex: "-1", "data-key": `${prefix ? "q" : "f"}:${cat.id}:${o.value}`, onclick: () => this._toggle(cat, o) },
-    scEl("span", { class: "sc-check" + (on ? " on" : "") }, on ? scIcon("check") : null),
+    scEl("span", { class: "sc-check" + (on ? " on" : "") }, on ? icon("check", "sc-svg") : null),
     scEl("span", { class: "sc-filter-label" }, prefix ? scEl("span", { class: "sc-muted" }, `${prefix} › `) : null, o.label),
     o.count != null ? scEl("span", { class: "sc-count" }, Number(o.count).toLocaleString()) : null);
   }
@@ -166,16 +127,16 @@ class ScFilterList extends HTMLElement {
         return scEl("button", { class: "sc-filter-cat" + (this._open === c.id ? " open" : ""), type: "button",
           role: "menuitem", "aria-haspopup": "menu", "aria-expanded": String(this._open === c.id), tabindex: "-1",
           "data-cat": c.id, "data-key": `c:${c.id}`, onclick: () => this._openCat(c.id, true), onmouseenter: () => this._openCat(c.id) },
-        scIcon(c.icon || "list-filter"),
+        icon(c.icon || "list-filter", "sc-svg"),
         scEl("span", { class: "sc-filter-label" }, c.label, c.hint ? scEl("small", {}, c.hint) : null),
         n ? scEl("span", { class: "sc-count on" }, String(n)) : null,
-        scIcon("chevron-right", "sc-chev"));
+        icon("chevron-right", "sc-svg sc-chev"));
       }));
       this._renderFly();
     }
     const any = Object.values(this._sel).some((v) => v && v.length);
     this._foot.replaceChildren(...(any ? [scEl("button", { class: "sc-filter-clear", type: "button", tabindex: "-1",
-      onclick: () => this.dispatchEvent(new CustomEvent("sc-filter-clear")) }, scIcon("x"), "Clear filters")] : []));
+      onclick: () => this.dispatchEvent(new CustomEvent("sc-filter-clear")) }, icon("x", "sc-svg"), "Clear filters")] : []));
     if (focused) { const f = this.querySelector(`[data-key="${CSS.escape(focused)}"]`); if (f) f.focus(); }
   }
 
@@ -226,6 +187,5 @@ class ScFilterList extends HTMLElement {
   }
 }
 
-customElements.define("sc-icon", ScIcon);
 customElements.define("sc-menu", ScMenu);
 customElements.define("sc-filter-list", ScFilterList);
