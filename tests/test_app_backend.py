@@ -148,7 +148,9 @@ def test_window_cannot_reach_internals(backend):
                       "open_link", "mail_folders", "mail_list", "mail_thread", "mail_reasons",
                       "mail_coverage", "update_status", "update_check", "update_set_auto",
                       "update_install", "update_open_download", "review", "review_answer",
-                      "review_set_scan", "review_open", "review_save_report", "window_focused"}
+                      "review_set_scan", "review_open", "review_save_report", "window_focused",
+                      "scrubber_rules", "scrubber_add", "scrubber_set_enabled", "scrubber_delete",
+                      "scrubber_preview"}
 
 
 def test_mcp_config_points_at_this_data(backend):
@@ -259,3 +261,24 @@ def test_a_finished_sync_counts_as_a_check(backend, monkeypatch):
     backend._last_run["gmail"] = 0.0  # started long ago...
     backend._run_sync("gmail")  # ...and just finished
     assert backend._auto_sync(backend_mod.AUTO_SYNC_SECONDS, 10_000_000.0 + 60) == []
+
+
+def test_scrubber_controls_preview_a_file_sample_without_storing_it(backend):
+    import json
+    ssn = "536-22-1987"
+    rules = backend.scrubber_rules()
+    assert rules["ok"] and any(row["kind"] == "SSN" for row in rules["builtin"])
+    assert rules["patterns"] == []
+    added = backend.scrubber_add("Employee ID", r"EMP-\d{4}")
+    assert added["ok"] and added["patterns"][0]["kind"] == "EMPLOYEE_ID"
+    refused = backend.scrubber_add("Too loose", r"a*")
+    assert refused["ok"] is False and "empty" in refused["error"]
+    sample = f"SSN {ssn} badge EMP-4242"
+    shown = backend.scrubber_preview(sample)
+    assert shown["ok"] and ssn not in shown["text"] and "EMP-4242" not in shown["text"]
+    saved = json.dumps(backend.scrubber_rules())
+    assert sample not in saved and ssn not in saved
+    off = backend.scrubber_set_enabled(added["patterns"][0]["id"], False)
+    assert off["patterns"][0]["enabled"] is False
+    gone = backend.scrubber_delete(added["patterns"][0]["id"])
+    assert gone["patterns"] == []

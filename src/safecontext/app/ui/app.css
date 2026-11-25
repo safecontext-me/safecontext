@@ -328,6 +328,14 @@ mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1
 .bar-fill { height: 100%; background: var(--accent); border-radius: 99px; }
 .bar-n { font-variant-numeric: tabular-nums; color: var(--muted); }
 
+.scrub-builtin { margin: 8px 0 14px; padding-left: 18px; }
+.scrub-builtin li { margin: 4px 0; }
+.scrub-row { display: flex; gap: 10px; align-items: center; justify-content: space-between;
+  padding: 8px 0; border-top: 1px solid var(--line); }
+.scrub-row code { margin-left: 8px; }
+.scrub-add { margin-top: 12px; }
+.scrub-preview { margin-top: 12px; white-space: pre-wrap; }
+
 /* ---------- settings ---------- */
 .setting { margin: 14px 0; max-width: 760px; }
 .row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 4px 0; }
