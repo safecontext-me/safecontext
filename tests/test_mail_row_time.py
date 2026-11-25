@@ -1,4 +1,4 @@
-"""The mail list's date column shows the date; the full date and time is a hover tooltip.
+"""The mail list's date column shows the time for today and the date otherwise (as Gmail does); the full date and time is a hover tooltip.
 
 The tooltip is the native `title` (WebKit shows it after its own hover delay, as Gmail does), in
 Gmail's format: "Wed, Mar 4, 2026, 3:42 PM". mailRow() runs in Node's vm with a tiny `el` stub
@@ -35,6 +35,8 @@ vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(file, "utf8"), ctx);
 vm.runInContext("mail.folders = null; mail.sel = -1;", ctx);
 const iso = "2026-03-04T15:42:00Z";
+const now = new Date(); now.setUTCHours(9, 5, 0, 0);   // TZ is UTC, so this is today
+const todayIso = now.toISOString();
 const find = (node, cls) => {
   if (!node || typeof node !== "object") return null;
   if (node.cls.split(" ").includes(cls)) return node;
@@ -50,6 +52,9 @@ console.log(JSON.stringify({
   dropped: show({ type: "dropped", date: iso, reason_info: { label: "l", why: "w" } }),
   event: show({ type: "item", kind: "event", source: "cal", date: iso, title: "t" }),
   nodate: show({ type: "dropped", date: null, reason_info: { label: "l", why: "w" } }),
+  today: show({ type: "item", kind: "mail", sender: "a", date: todayIso, title: "t" }),
+  todayDropped: show({ type: "dropped", date: todayIso, reason_info: { label: "l", why: "w" } }),
+  todayEvent: show({ type: "item", kind: "event", source: "cal", date: todayIso, title: "t" }),
 }));
 """
 
@@ -74,8 +79,19 @@ def test_rows_show_the_date_with_a_gmail_style_tooltip(tmp_path):
 
 
 @pytest.mark.skipif(NODE is None, reason="needs Node")
-def test_tooltip_follows_the_locale_clock(tmp_path):
-    assert _rows(tmp_path, "en-GB")["item"]["title"] == "Wed, 4 Mar 2026, 15:42"
+def test_todays_mail_shows_the_time_like_gmail(tmp_path):
+    r = _rows(tmp_path, "en-US")
+    assert r["today"]["kids"] == ["9:05 AM"]
+    assert r["todayDropped"]["kids"] == ["9:05 AM"]
+    assert r["today"]["title"].endswith(", 9:05 AM")      # tooltip still has the full date
+    assert r["todayEvent"]["kids"] == ["DATE+TIME"]        # events unchanged
+
+
+@pytest.mark.skipif(NODE is None, reason="needs Node")
+def test_tooltip_and_time_follow_the_locale_clock(tmp_path):
+    r = _rows(tmp_path, "en-GB")
+    assert r["item"]["title"] == "Wed, 4 Mar 2026, 15:42"
+    assert r["today"]["kids"][0] in ("9:05", "09:05")   # 24-hour, no AM/PM (padding varies by ICU)
 
 
 def test_no_hover_swap_left():

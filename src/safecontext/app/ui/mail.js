@@ -346,12 +346,17 @@ function mailRow(r, i) {
       el("span", { class: "mrow-snip" }, richText((r.snippet || "").replace(/\s+/g, " "))), ...badges));
 }
 
-// The list's date column: the short date (events: date and time), with the full date and time
-// as a native tooltip in Gmail's hover format, e.g. "Wed, Mar 4, 2026, 3:42 PM". WebKit shows a
-// title after its own hover delay, like Gmail. The Mac's locale decides 12- or 24-hour time.
+// The list's date column, as in Gmail: the time for today's mail ("2:15 PM"), otherwise the
+// short date ("Nov 24"); events always show date and time. The full date and time is a native
+// tooltip in Gmail's hover format, e.g. "Wed, Mar 4, 2026, 3:42 PM", which WebKit shows after
+// its own hover delay. The Mac's locale decides 12- or 24-hour time.
 function mailWhen(iso, withTime = false) {
   if (!iso) return el("span", { class: "mrow-date" }, "");
-  return el("span", { class: "mrow-date", title: mailDateTitle(iso) }, fmtDate(iso, withTime));
+  const d = new Date(iso);
+  const text = !withTime && d.toDateString() === new Date().toDateString()
+    ? d.toLocaleString(undefined, { hour: "numeric", minute: "2-digit" })
+    : fmtDate(iso, withTime);
+  return el("span", { class: "mrow-date", title: mailDateTitle(iso) }, text);
 }
 
 function mailDateTitle(iso) {
