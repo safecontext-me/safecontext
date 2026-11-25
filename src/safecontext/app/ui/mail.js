@@ -362,7 +362,7 @@ function mailRow(r, i) {
     return el("div", attrs,
       el("div", { class: "mrow-top" },
         el("span", { class: "mrow-from" }, "Not synced", mailManySources() ? el("span", { class: "cnt" }, `· ${sourceName(r.source)}`) : null),
-        mailWhen(r.date)),
+        mailWhen(r)),
       el("div", { class: "mrow-subj" }, el("span", {}, ri.label)),
       el("div", { class: "mrow-bottom" },
         el("span", { class: "mrow-snip" }, r.thread_title ? ["In “", richText(r.thread_title), "”"] : ri.why),
@@ -377,7 +377,7 @@ function mailRow(r, i) {
     el("div", { class: "mrow-top" },
       el("span", { class: "mrow-from" }, isEvent ? sourceName(r.source) : senderName(r.sender),
         r.count > 1 ? el("span", { class: "cnt" }, String(r.count)) : null),
-      mailWhen(r.date, isEvent)),
+      mailWhen(r, isEvent)),
     el("div", { class: "mrow-subj" }, el("span", {}, richText(r.title || "(no subject)"))),
     el("div", { class: "mrow-bottom" },
       el("span", { class: "mrow-snip" }, richText((r.snippet || "").replace(/\s+/g, " "))), ...badges));
@@ -386,18 +386,25 @@ function mailRow(r, i) {
 // The list's date column, as in Gmail: the time for today's mail ("2:15 PM"), otherwise the
 // short date ("Nov 24"); events always show date and time. The full date and time is a native
 // tooltip in Gmail's hover format, e.g. "Wed, Mar 4, 2026, 3:42 PM", which WebKit shows after
-// its own hover delay. The Mac's locale decides 12- or 24-hour time.
-function mailWhen(iso, withTime = false) {
+// its own hover delay. The Mac's locale decides 12- or 24-hour time. All-day events show
+// their day (read in UTC, as in the event view) and no time.
+function mailWhen(r, withTime = false) {
+  const iso = r.date;
   if (!iso) return el("span", { class: "mrow-date" }, "");
+  if (r.all_day) return el("span", { class: "mrow-date", title: mailDateTitle(r) }, fmtAllDay(iso));
   const d = new Date(iso);
   const text = !withTime && d.toDateString() === new Date().toDateString()
     ? d.toLocaleString(undefined, { hour: "numeric", minute: "2-digit" })
     : fmtDate(iso, withTime);
-  return el("span", { class: "mrow-date", title: mailDateTitle(iso) }, text);
+  return el("span", { class: "mrow-date", title: mailDateTitle(r) }, text);
 }
 
-function mailDateTitle(iso) {
-  return new Date(iso).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short",
+function mailDateTitle(r) {
+  if (r.all_day) {
+    const last = allDayLast(r.date, r.end);
+    return fmtAllDay(r.date, true) + (last ? ` – ${fmtAllDay(last, true)}` : "");
+  }
+  return new Date(r.date).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short",
     day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
@@ -459,7 +466,7 @@ function searchRender(error) {
   sourceIcon(r.source, "sr-ico"),
   el("span", { class: "sr-main" },
     el("span", { class: "sr-title" }, richText(r.title || "(no subject)")),
-    el("span", { class: "sr-meta" }, r.kind === "event" ? sourceName(r.source) : senderName(r.sender), " · ", fmtDate(r.date)))));
+    el("span", { class: "sr-meta" }, r.kind === "event" ? sourceName(r.source) : senderName(r.sender), " · ", r.all_day ? fmtAllDay(r.date) : fmtDate(r.date)))));
   const all = search.results.length;
   const footer = el("button", { class: "sr-item sr-all" + (search.active === all ? " active" : ""), type: "button",
     role: "option", "aria-selected": String(search.active === all), onclick: () => searchChoose(all) },

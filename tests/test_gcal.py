@@ -5,7 +5,7 @@ import json
 import pytest
 
 from safecontext.demo.fake_calendar import FakeCalendar, event, make_fake_calendar
-from safecontext.sources.gcal import GCAL, CalendarSyncer, GoogleCalendarSource, event_to_item
+from safecontext.sources.gcal import GCAL, RESCRUB_META, CalendarSyncer, GoogleCalendarSource, event_to_item
 from safecontext.store import Store
 from safecontext.tools import run_tool
 
@@ -148,6 +148,31 @@ def test_expired_sync_token_resyncs_and_prunes(store, cal):
     r = run(store, cal)
     assert r.status == "ok"
     assert f"{ME}/ev02" not in items(store) and len(items(store)) == 5
+
+
+def test_events_stored_before_dial_in_rules_are_rescrubbed_once(store, cal):
+    cal.put(event("ev20", "Vendor call", "2026-12-02T17:00:00Z",
+                  description="Join by phone +1-415-555-0199 Access code: 2633 145 1234"))
+    run(store, cal)
+    iid = f"{ME}/ev20"
+    assert "2633 145 1234" not in everything(store)
+    # An older build stored the code as-is and kept a sync token, so the event won't come back
+    # by itself: put the leaked text back and forget the one-off re-scrub.
+    leaked = "Join by phone [REDACTED:PHONE] Access code: 2633 145 1234"
+    row = dict(store._db.execute("SELECT * FROM items WHERE source='gcal' AND id=?", (iid,)).fetchone())
+    store._db.execute("DELETE FROM items WHERE source='gcal' AND id=?", (iid,))  # keeps the index in step
+    row["body"] = leaked
+    store._db.execute(f"INSERT INTO items ({','.join(row)}) VALUES ({','.join('?' * len(row))})", list(row.values()))
+    store.set_meta(RESCRUB_META, None)
+    assert store.search("2633", source=GCAL)  # AI apps can find the leaked code
+    r = run(store, cal)
+    assert r.status == "ok" and r.phase == "backfill"
+    assert "2633 145 1234" not in everything(store) and "REDACTED" in items(store)[iid]["body"]
+    assert not store.search("2633", source=GCAL)
+    assert store.get_meta(RESCRUB_META) == "1"
+    before = cal.calls["events"]
+    r = run(store, cal)  # remembered: back to cheap incremental syncs
+    assert r.phase == "incremental" and r.fetched == 0 and cal.calls["events"] - before == 1
 
 
 def test_event_can_move_from_kept_to_dropped(store, cal):
