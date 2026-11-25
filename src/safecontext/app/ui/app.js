@@ -11,6 +11,7 @@ const REDACTION_NAMES = {
   HEALTH: "health detail", LEGAL: "legal detail", PERSONAL: "personal detail",
 };
 
+const REQ_KINDS = { oauth_scope: "Google permission", macos_permission: "Mac permission", file: "File", folder: "Folder" };
 const SOURCE_ICONS = { gmail: "✉️", gcal: "📅", imessage: "💬", whatsapp: "🟢", recordings: "🎙️" };
 const OPEN_LABELS = { gmail: "Open in Gmail", gcal: "Open in Calendar" };
 const STATE_LABELS = {
@@ -18,7 +19,6 @@ const STATE_LABELS = {
   needs_permission: ["Needs permission", "warn"], error: ["Will retry", "warn"], not_connected: ["Not connected", ""],
   coming_soon: ["Coming soon", ""],
 };
-const REQ_KINDS = { oauth_scope: "Google permission", macos_permission: "Mac permission", file: "File", folder: "Folder" };
 
 const $ = (id) => document.getElementById(id);
 const api = () => window.pywebview.api;
@@ -454,6 +454,15 @@ function eventCard(m) {
 }
 
 // ---------- sources ----------
+// A Lucide-style line icon (24×24 viewBox, stroked in the text color) from its path data.
+function icon(paths) {
+  const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  for (const d of paths) { const p = document.createElementNS(NS, "path"); p.setAttribute("d", d); svg.append(p); }
+  return svg;
+}
+
 // ---------- sources: a grid of tiles, and a page per source ----------
 // A source's icon: an SVG from a <template id="icon-<id>"> in index.html when there is one, else its emoji.
 function sourceIcon(id, cls = "src-icon") {
@@ -476,13 +485,36 @@ function renderSources(list) {
 
 // The Sources grid shows only icon, name, description and status; everything else is on the source's page.
 function sourceTile(x) {
-  const [label, tone] = sourceStatus(x);
   return el("button", { class: "src-tile" + (x.state === "coming_soon" ? " soon" : ""), type: "button",
     onclick: () => openSourcePage(x.id) },
   sourceIcon(x.id, "src-icon lg"),
   el("span", { class: "src-tile-main" }, el("span", { class: "src-tile-name" }, x.name),
     el("span", { class: "src-tile-desc" }, x.description)),
-  el("span", { class: `pill ${tone}` }, tone === "ok" ? "✓ " : "", label));
+  sourceTileStatus(x));
+}
+
+// A connected source's ⋯ menu on its page: Disconnect lives here, not as a button, so it's harder to hit by accident.
+function sourceMoreMenu(x) {
+  const menu = el("sc-menu", { icon: "ellipsis", label: `More options for ${x.name}`, align: "end", compact: "" },
+    el("button", { class: "sc-item danger", role: "menuitem", onclick: () => { menu.hide(); disconnectSource(x); } }, "Disconnect"));
+  return menu;
+}
+
+// The tile's status: a green check when connected, a plus when not, a text pill for anything else
+// (coming soon, needs permission or reconnecting, will retry). The check and plus are the app's standard
+// icon button (.icon-btn; the plus is the secondary variant) with tooltips; like the rest of the tile they open the source's page (the tile
+// itself is the button, so they're spans, not nested buttons).
+function sourceTileStatus(x) {
+  if (x.state === "connected" || x.state === "syncing") {
+    const tip = x.state === "syncing" ? `Connected · Syncing ${x.name}…` : `Connected · Open ${x.name}`;
+    return el("span", { class: "icon-btn src-state-btn ok", title: tip, "aria-label": tip }, icon(["M20 6 9 17l-5-5"]));
+  }
+  if (x.state === "not_connected") {
+    const tip = `Not connected · Open to connect ${x.name}`;
+    return el("span", { class: "icon-btn secondary src-state-btn", title: tip, "aria-label": tip }, icon(["M5 12h14", "M12 5v14"]));
+  }
+  const [label, tone] = sourceStatus(x);
+  return el("span", { class: `pill ${tone}` }, label);
 }
 
 function openSourcePage(id) {
@@ -507,16 +539,19 @@ function renderSourcePage() {
   } else if (perm) {
     // The permission box carries Open System Settings; here: try again, or back out.
     actions.append(el("button", { class: "btn", onclick: (e) => connectSource(x, e.target) }, "Check again"));
-    if (connected) actions.append(el("button", { class: "btn danger", onclick: () => disconnectSource(x) }, "Disconnect"));
+    if (connected) actions.append(sourceMoreMenu(x));
     else actions.append(el("button", { class: "btn", onclick: () => cancelSource(x) }, "Not now"));
   } else if (!connected) {
-    actions.append(el("button", { class: "btn primary lg-ish", onclick: (e) => connectSource(x, e.target) }, `Connect ${x.name}`));
+    actions.append(el("button", { class: "btn primary lg-ish", onclick: (e) => connectSource(x, e.target) }, "Connect"));
   } else {
     if (x.state === "needs_reconnect")
       actions.append(el("button", { class: "btn primary", onclick: (e) => connectSource(x, e.target) }, "Reconnect"));
     // No per-source sync button: every source checks itself (launch, focus, wake, every few minutes),
     // and the sidebar's Check now covers "right now".
-    actions.append(el("button", { class: "btn danger", onclick: () => disconnectSource(x) }, "Disconnect"));
+    actions.append(sourceMoreMenu(x));
+    // Browse sits right of the ⋯ menu, for sources that have a browse page (Gmail today).
+    if (navSources().some((s) => s.id === x.id))
+      actions.append(el("button", { class: "btn primary", onclick: () => openSource(x.id) }, `Browse ${x.name}`));
   }
 
   const main = el("div", { class: "sp-main" });
@@ -526,26 +561,23 @@ function renderSourcePage() {
     const tile = (num, lbl) => el("div", { class: "sp-tile" }, el("div", { class: "sp-num" }, num), el("div", { class: "sp-lbl" }, lbl));
     main.append(el("h3", {}, "On this Mac"),
       el("div", { class: "sp-tiles" }, tile(n(x.item_count), "kept, scrubbed"), tile(n(x.dropped_count), "skipped"),
-        tile(x.syncing ? "now" : x.last_sync_ms ? ago(x.last_sync_ms) : "—", "last sync")),
-      navSources().some((s) => s.id === x.id)
-        ? el("button", { class: "linkish sp-browse", onclick: () => openSource(x.id) }, `Browse ${x.name} →`) : null);
+        tile(x.syncing ? "now" : x.last_sync_ms ? ago(x.last_sync_ms) : "—", "last sync")));
   }
-  main.append(el("h3", {}, "Access it needs"),
-    el("ul", { class: "sp-needs" }, (x.requirements || []).map((q) => el("li", {},
-      el("div", { class: "sp-need-head" }, el("b", {}, q.label), REQ_KINDS[q.kind] ? el("span", { class: "chip" }, REQ_KINDS[q.kind]) : null),
-      el("p", {}, q.why)))));
+  // What access the source needs: each one's name is its own heading (no card, no "Access it needs" over it).
+  for (const q of x.requirements || [])
+    main.append(el("section", { class: "sp-need" },
+      el("h3", {}, q.label, REQ_KINDS[q.kind] ? el("span", { class: "pill" }, REQ_KINDS[q.kind]) : null),
+      el("p", {}, q.why)));
 
   const meta = (k, v) => v ? el("div", { class: "sp-meta-row" }, el("div", { class: "sp-k" }, k), el("div", {}, v)) : null;
-  const kinds = [...new Set((x.requirements || []).map((q) => REQ_KINDS[q.kind]).filter(Boolean))].join(", ");
   const aside = el("aside", { class: "sp-meta" },
     meta("Status", el("span", { class: `pill ${tone}` }, label)),
     meta("Account", x.account || null),
-    meta("Access", kinds || null),
     connected ? meta("Last sync", x.syncing ? "Syncing now" : x.last_sync_ms ? ago(x.last_sync_ms) : "Never") : null,
     meta("Stored", soon ? null : "On this Mac, scrubbed before it's saved"));
 
   page.replaceChildren(el("div", { class: "sp" },
-    el("button", { class: "sp-back linkish", onclick: () => show("sources") }, "← Sources"),
+    el("button", { class: "btn ghost small sp-back", onclick: () => show("sources") }, icon(["m12 19-7-7 7-7", "M19 12H5"]), "Sources"),
     el("div", { class: "sp-head" }, sourceIcon(x.id, "src-icon xl"),
       el("div", { class: "sp-title" }, el("h1", {}, x.name), el("p", {}, x.description)), actions),
     el("div", { class: "sp-body" }, main, aside)));
@@ -602,7 +634,8 @@ async function disconnectSource(x) {
 // ---------- MCP (relay link for Grok, Claude, Muse) ----------
 // The backend calls keep their grok_* names: they drive the same relay link for every app.
 const MCP_STATES = {
-  off: ["Off", ""], connecting: ["Connecting…", "busy"], waiting: ["Waiting for an AI app to connect", "busy"],
+  // The dot: gray when off, green when connected, yellow for every on-but-not-connected state.
+  off: ["Off", ""], connecting: ["Connecting", "warn"], waiting: ["Waiting for an AI app to connect", "warn"],
   connected: ["Connected", "ok"], offline: ["Can't reach the relay. Retrying…", "warn"],
   rejected: ["Link not accepted. Regenerate it.", "warn"],
 };
@@ -624,7 +657,6 @@ function renderMcp(g) {
   $("mcp-dot").className = "dot" + (tone === "ok" ? " on" : tone === "busy" ? " busy" : tone === "warn" ? " warn" : " off");
   $("mcp-card").classList.toggle("is-on", on);
   $("mcp-on").hidden = !on;
-  $("mcp-pitch").hidden = on;
   $("mcp-url").textContent = g.url || "";
   $("mcp-awake").checked = !!g.keep_awake;
   for (const box of document.querySelectorAll(".link-only-box")) box.checked = !!g.link_only;
@@ -951,8 +983,9 @@ async function disconnect(wipe) {
 
 // ---------- connect ----------
 async function connect(btn, errEl) {
-  const mode = (document.querySelector('input[name="mode"]:checked') || {}).value
-    || (state.status && state.status.mode) || "full";
+  // Sign-in always downloads full messages (scrubbed); reconnecting keeps the account's current mode.
+  // Headers-only is still available from the command line: safecontext connect --headers-only.
+  const mode = (state.status && state.status.mode) || "full";
   const email = $("ob-email").value.trim();
   btn.disabled = true;
   const label = btn.textContent;

@@ -19,6 +19,15 @@ sc-menu { position: relative; display: inline-block; }
                  box-shadow: var(--shadow-popover); }
 .sc-menu-panel[hidden] { display: none; }
 sc-menu[align="end"] .sc-menu-panel { left: auto; right: 0; }
+sc-menu[compact] .sc-menu-panel { min-width: 180px; padding: var(--space-1); }
+
+/* an action in a menu panel (like the account menu's rows); .danger for destructive ones */
+.sc-item { display: flex; align-items: center; gap: var(--space-2); width: 100%; font: inherit; font-size: var(--text-base);
+           text-align: left; padding: var(--space-1-5) var(--space-2); border: 0; border-radius: var(--radius-md);
+           background: transparent; color: var(--foreground); cursor: pointer; }
+.sc-item:hover { background: var(--hover); }
+.sc-item:focus-visible { background: var(--active); outline: none; }
+.sc-item.danger { color: var(--destructive); }
 
 /* rows inside a menu panel: a label on the left, a control on the right */
 .sc-section { padding: var(--space-1-5); }
