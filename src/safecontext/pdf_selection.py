@@ -88,6 +88,20 @@ class PdfSelection:
                 found.add(file)
         return sorted(found)
 
+    def table(self) -> List[Dict[str, Any]]:
+        """The Files table: the folders added and every readable PDF, newest first by when each was last
+        modified (a stat, the files aren't opened). `removable`: the user added it (a PDF found in an
+        added folder goes when its folder does)."""
+        data = self._load()
+        rows: List[Dict[str, Any]] = []
+        for folder in data["folders"]:
+            rows.append({"kind": "folder", "path": folder, "removable": True, "modified_ms": _mtime_ms(folder)})
+        added = set(data["files"])
+        for pdf in self.readable_pdfs():
+            rows.append({"kind": "file", "path": pdf, "removable": pdf in added, "modified_ms": _mtime_ms(pdf)})
+        rows.sort(key=lambda r: (r["modified_ms"] or 0, r["path"]), reverse=True)
+        return rows
+
     def read_text(self, path: str, reader: Callable[[Path], str]) -> str:
         """Read one opted-in PDF. ``reader`` is not called for any other path."""
         allowed = self._allowed_pdf(path)
@@ -182,6 +196,13 @@ def _strings(value: Any) -> List[str]:
     if not isinstance(value, list):
         return []
     return [p for p in value if isinstance(p, str) and p]
+
+
+def _mtime_ms(path: str) -> Optional[int]:
+    try:
+        return int(os.stat(path).st_mtime * 1000)
+    except OSError:
+        return None
 
 
 def _is_regular_pdf(path: Path) -> bool:

@@ -19,7 +19,7 @@ import subprocess
 import time
 import webbrowser
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 from .. import __version__, auth, env, migrate, permlog, review, updater as upd
 from ..scrub.controls import PatternError, add_pattern, builtin_rules, delete_pattern, load_patterns, preview, set_enabled
@@ -108,7 +108,8 @@ class Backend:
                  updater: Optional[upd.Updater] = None,
                  review_home: Optional[Path] = None,
                  auto_sync: bool = True,
-                 pdf_chooser: Optional[Callable[[str], Any]] = None) -> None:
+                 pdf_chooser: Optional[Callable[[str], Any]] = None,
+                 pdf_start: Optional[Sequence[Tuple[str, str]]] = None) -> None:
         self._demo = demo
         self._data_dir = Path(data_dir or DEFAULT_DATA_DIR)
         # Where the opt-in review scan looks for other AI tools' config. Demo mode never looks
@@ -121,6 +122,9 @@ class Backend:
         self._store = Store(self._data_dir / "mail.db")
         # Folders and PDFs the user opts in. Text may be read only from those PDFs.
         self._pdfs = PdfSelection(self._store, chooser=pdf_chooser)
+        if pdf_start and not self._pdfs.entries():  # demo: made-up folders and PDFs, opted in at first start
+            for kind, path in pdf_start:
+                (self._pdfs.add_folder if kind == "folder" else self._pdfs.add_file)(path)
         self._connect_fn = connect_fn  # None: the real Google sign-in
         self._sources: Sources = default_sources(
             self._store, gmail_factory=gmail_factory,
@@ -249,7 +253,9 @@ class Backend:
 
     # --- files: the only PDFs whose text may be read ---------------------------
     def _pdf_payload(self) -> Dict[str, Any]:
-        return {"entries": self._pdfs.entries(), "pdfs": self._pdfs.readable_pdfs()}
+        # home: so the Files table can show paths under it as ~/…
+        return {"entries": self._pdfs.entries(), "pdfs": self._pdfs.readable_pdfs(), "table": self._pdfs.table(),
+                "home": str(Path.home())}
 
     @_safe
     def pdf_selection(self) -> Dict[str, Any]:

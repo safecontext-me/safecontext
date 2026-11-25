@@ -272,12 +272,48 @@ function show(view) {
   navRecord();
 }
 
-// ---------- files: folders and PDFs the user opts in ----------
-function fileRow(entry) {
-  const kind = entry.kind === "folder" ? "Folder" : "PDF";
-  return el("div", { class: "file-row" },
-    el("div", {}, el("span", { class: "file-kind" }, kind), el("code", {}, entry.path)),
-    el("button", { class: "btn btn-outline btn-sm", onclick: () => removeFile(entry.path) }, "Remove"));
+// ---------- Files: one table of the folders added and the PDFs whose text may be read ----------
+// Newest first by when each was last modified. A folder or PDF the user added has a ⋯ menu with Remove (takes it
+// out of SafeContext; the file itself stays where it is); a PDF found inside an added folder goes with its folder.
+const files = { rows: [], show: "all", home: "" };
+
+// Where a folder or PDF lives, short: its parent folder, the home folder as ~, and only the last two folders
+// ("…/" when cut). The full path is the cell's tooltip and accessible label.
+function filePlace(path, home) {
+  const parent = path.replace(/\/+$/, "").replace(/\/[^/]*$/, "") || "/";
+  const inHome = !!home && (parent === home || parent.startsWith(home + "/"));
+  const parts = (inHome ? parent.slice(home.length) : parent).split("/").filter(Boolean);
+  if (parts.length > 2) return `…/${parts.slice(-2).join("/")}`;
+  return inHome ? ["~", ...parts].join("/") : `/${parts.join("/")}`;
+}
+
+function fileDate(ms) {
+  return ms ? new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—";
+}
+
+function fileRow(f) {
+  const name = f.path.split("/").filter(Boolean).pop() || f.path;
+  const menu = !f.removable ? null : el("sc-menu", { icon: "ellipsis", size: "icon-sm", label: `More options for ${name}`,
+      align: "end", compact: "", notip: "" },
+    el("button", { class: "dropdown-menu-item", "data-variant": "destructive", role: "menuitem",
+      onclick: () => { menu.hide(); removeFile(f.path); } }, "Remove"));
+  return el("tr", {},
+    el("td", { class: "files-name" }, el("span", { class: "files-name-in" },
+      icon(f.kind === "folder" ? "folder" : "file", "files-ico"), el("span", { class: "files-name-text" }, name))),
+    el("td", { class: "files-path", title: f.path, "aria-label": f.path, "data-tooltip-kind": "path" },
+      filePlace(f.path, files.home)),
+    el("td", { class: "files-date" }, fileDate(f.modified_ms)),
+    el("td", { class: "files-actions" }, menu));
+}
+
+
+function renderFiles() {
+  for (const b of document.querySelectorAll("#files-show .toggle")) b.setAttribute("aria-pressed", String(b.dataset.show === files.show));
+  const rows = files.rows.filter((f) => files.show === "all" || f.kind === files.show);
+  // Nothing to list: no table, just "No files found" in the middle of the page
+  document.querySelector(".files-table").hidden = !rows.length;
+  $("files-blank").hidden = !!rows.length;
+  $("files-rows").replaceChildren(...rows.map(fileRow));
 }
 
 async function loadFiles(keepError) {
@@ -289,14 +325,9 @@ async function loadFiles(keepError) {
     return;
   }
   if (!keepError) err.hidden = true;
-  const entries = r.entries || [];
-  $("files-entries").replaceChildren(entries.length
-    ? el("div", { class: "file-list" }, entries.map(fileRow))
-    : el("p", { class: "muted" }, "Nothing added yet. No PDF text can be read."));
-  const pdfs = r.pdfs || [];
-  $("files-pdfs").replaceChildren(pdfs.length
-    ? el("div", { class: "file-list" }, pdfs.map((p) => el("div", { class: "file-row" }, el("code", {}, p))))
-    : el("p", { class: "muted" }, "No PDFs in the folders and files you added."));
+  files.rows = r.table || [];
+  files.home = r.home || "";
+  renderFiles();
 }
 
 async function addFiles(kind) {
@@ -1252,6 +1283,8 @@ function wire() {
   window.addEventListener("focus", focused);
   document.addEventListener("visibilitychange", focused);
   $("files-add-folder").addEventListener("click", () => addFiles("folder"));
+  for (const b of document.querySelectorAll("#files-show .toggle"))
+    b.addEventListener("click", () => { files.show = b.dataset.show; renderFiles(); });
   $("files-add-file").addEventListener("click", () => addFiles("file"));
   $("ob-connect").addEventListener("click", () => connect($("ob-connect"), $("ob-error")));
   $("reconnect").addEventListener("click", () => connect($("reconnect"), null));

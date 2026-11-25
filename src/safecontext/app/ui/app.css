@@ -325,12 +325,25 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .scrub-preview { margin-top: 12px; white-space: pre-wrap; }
 
 /* ---------- files (opted-in folders and PDFs) ---------- */
-.file-sub { margin-top: 18px; }
-#view-files > .alert { margin-top: var(--space-3); }  /* the error under Add folder / Add PDF */
-.file-list { display: grid; }
-.file-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3);
-            padding: var(--space-2) 0; border-top: 1px solid var(--border); }
-.file-kind { color: var(--muted-foreground); font-size: var(--text-sm); margin-right: var(--space-2); }
+/* Files: Show (All / Folders / PDFs) on the left, Add PDF and Add folder on the right, then the Table */
+.files-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+                 flex-wrap: wrap; margin: 0 0 var(--space-3); }  /* the description above already leaves 32px */
+.files-add { display: flex; gap: var(--space-2); }
+#view-files > .alert { margin-bottom: var(--space-3); }  /* the error under the toolbar */
+.files-table { margin-top: var(--space-1); }
+.files-name-in { display: flex; align-items: center; gap: var(--space-2); max-width: 280px; }
+.files-ico { width: 16px; height: 16px; flex: none; color: var(--muted-foreground); }
+.files-name-text { overflow: hidden; text-overflow: ellipsis; font-weight: var(--font-weight-medium); }
+/* the path takes what's left of the row and is cut short with "…" (the full path is its tooltip) */
+.files-path { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted-foreground); }
+.files-date { color: var(--muted-foreground); }
+.files-actions { width: 1%; text-align: right; }
+/* The page is a column so the blank state can take the space under the toolbar and center itself in it */
+#view-files:not([hidden]) { display: flex; flex-direction: column; }
+#view-files > * { width: 100%; }
+.files-table[hidden] { display: none; }
+.files-blank { flex: 1; display: grid; place-items: center; color: var(--muted-foreground); }
+.files-blank[hidden] { display: none; }
 
 /* ---------- settings ---------- */
 .setting { margin: var(--space-3-5) 0; }
