@@ -9,11 +9,14 @@
       content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'self';style-src 'unsafe-inline' 'self'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SafeContext</title>
+<link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="components.css">
 <link rel="stylesheet" href="mail.css">
 </head>
 <body>
+<!-- With the title bar hidden (Mac app), this strip drags the window on the sign-in screen (the app has its header). -->
+<div class="titlebar pywebview-drag-region" aria-hidden="true"></div>
 <div id="loading" class="loading">Loading…</div>
 
 <!-- First run: connect Gmail -->
@@ -44,13 +47,37 @@
 
 <!-- Main app -->
 <div id="shell" class="shell" hidden>
+  <!-- Header: the top row of the window (the Mac title area, where the traffic lights sit). Dragging its empty
+       space moves the window; search sits in the middle and works from any screen (mail.js). -->
+  <header class="app-header pywebview-drag-region">
+    <!-- Next to the traffic lights: hide/show the sidebar, and back / forward through pages (app.js) -->
+    <div class="header-nav">
+      <button class="icon-btn" id="nav-sidebar" aria-label="Hide sidebar" title="Hide sidebar (⌘\)">
+        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+      </button>
+      <button class="icon-btn" id="nav-back" aria-label="Back" title="Back (⌘[)" disabled>
+        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <button class="icon-btn" id="nav-fwd" aria-label="Forward" title="Forward (⌘])" disabled>
+        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
+    </div>
+    <!-- Search: results drop down under the field; a page opens only when one is chosen (mail.js searchInit) -->
+    <div class="header-search">
+      <label class="mail-search" title="⌘K to search from anywhere · ↑ ↓ to pick a result · Enter to open it · Esc to close">
+        <svg class="nav-svg mail-search-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        <input id="mail-q" type="search" placeholder="Search" aria-label="Search mail" aria-controls="search-results" aria-autocomplete="list" autocomplete="off">
+        <span class="mail-search-keys" aria-hidden="true"><kbd>⌘</kbd><kbd>K</kbd></span>
+      </label>
+      <div class="search-results" id="search-results" role="listbox" aria-label="Search results" hidden></div>
+    </div>
+  </header>
   <aside class="sidebar">
-    <div class="brand"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect class="logo-bg" width="32" height="32" rx="8"/><path class="logo-fg" d="M16 6.5l7.5 2.8v5.6c0 4.8-3.2 8.6-7.5 10.6-4.3-2-7.5-5.8-7.5-10.6V9.3z"/></svg> SafeContext <span id="demo-badge" class="tag" hidden>Demo</span></div>
-    <div class="brand-sub muted">Private context layer</div>
     <!-- Icons are Lucide (lucide.dev, ISC license; notice in src/safecontext/THIRD_PARTY_NOTICES.txt), inlined because the window loads nothing remote. -->
+    <!-- MCP icon: Model Context Protocol mark from LobeHub Icons (lobehub.com/icons, MIT). -->
     <nav class="nav">
       <button data-view="removed">
-        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
         Security Dashboard
       </button>
       <button data-view="sources">
@@ -59,7 +86,7 @@
       </button>
       <div class="nav-children" id="nav-sources" role="group" aria-label="Your sources"></div>
       <button data-view="mcp">
-        <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z"/><path d="M9 8V2"/></svg>
+        <svg class="nav-svg filled" viewBox="0 0 24 24" fill-rule="evenodd" aria-hidden="true"><path d="M15.688 2.343a2.588 2.588 0 00-3.61 0l-9.626 9.44a.863.863 0 01-1.203 0 .823.823 0 010-1.18l9.626-9.44a4.313 4.313 0 016.016 0 4.116 4.116 0 011.204 3.54 4.3 4.3 0 013.609 1.18l.05.05a4.115 4.115 0 010 5.9l-8.706 8.537a.274.274 0 000 .393l1.788 1.754a.823.823 0 010 1.18.863.863 0 01-1.203 0l-1.788-1.753a1.92 1.92 0 010-2.754l8.706-8.538a2.47 2.47 0 000-3.54l-.05-.049a2.588 2.588 0 00-3.607-.003l-7.172 7.034-.002.002-.098.097a.863.863 0 01-1.204 0 .823.823 0 010-1.18l7.273-7.133a2.47 2.47 0 00-.003-3.537z"/><path d="M14.485 4.703a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a4.115 4.115 0 000 5.9 4.314 4.314 0 006.016 0l7.12-6.982a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a2.588 2.588 0 01-3.61 0 2.47 2.47 0 010-3.54l7.12-6.982z"/></svg>
         MCP
       </button>
       <button data-view="review">
@@ -67,8 +94,8 @@
         AI access review
       </button>
     </nav>
-    <!-- Sync status, pinned to the bottom of the sidebar. Clicking it (not Sync now) opens the sync modal. -->
-    <div class="sync" id="sync" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="sync-modal" title="Show sync details">
+    <!-- Sync status, pinned to the bottom of the sidebar. Clicking it (not Check now) opens Sync status. -->
+    <div class="sync" id="sync" role="button" tabindex="0" title="Open Sync status">
       <div class="sync-line"><span class="dot" id="sync-dot"></span><span id="sync-text">—</span><span class="sync-more" aria-hidden="true">›</span></div>
       <div class="sync-sub" id="sync-sub"></div>
       <dl class="sync-stats" id="sync-stats" hidden>
@@ -81,11 +108,15 @@
       <div class="sync-note muted" id="sync-note" hidden></div>
       <button class="btn small" id="sync-now" title="SafeContext checks on its own every few minutes, at launch and when you come back to this window.">Check now</button>
     </div>
-    <!-- Account: the email at the very bottom opens a menu with Settings (app.js) -->
+    <!-- Account: at the bottom of the sidebar; the email opens a menu with Sync status and Settings (app.js) -->
     <div class="acct">
       <div class="acct-menu" id="acct-menu" role="menu" aria-label="Account" hidden>
         <div class="acct-menu-email" id="acct-menu-email"></div>
         <div class="acct-menu-sep" role="separator"></div>
+        <button role="menuitem" data-menu-view="sync">
+          <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+          Sync status
+        </button>
         <button role="menuitem" data-menu-view="settings">
           <svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
           Settings
@@ -113,17 +144,17 @@
     </div>
 
     <!-- Sources -->
-    <section id="view-sources" class="view" hidden>
+    <section id="view-sources" class="view page" hidden>
       <h2>Sources</h2>
       <p class="muted">Each source is copied to this Mac and scrubbed before it's saved. Nothing leaves your Mac unless you turn on MCP or connect an AI app on this Mac.</p>
       <div class="source-grid" id="source-grid"></div>
     </section>
 
     <!-- One source's page, opened from a tile on Sources (app.js renderSourcePage) -->
-    <section id="view-source" class="view" hidden></section>
+    <section id="view-source" class="view page" hidden></section>
 
     <!-- MCP: the relay link for cloud AI apps, and the local config for apps on this Mac -->
-    <section id="view-mcp" class="view" hidden>
+    <section id="view-mcp" class="view page" hidden>
       <h2>MCP</h2>
       <p class="muted">Let AI apps search your scrubbed mail and calendar, read-only.</p>
       <!-- MCP: a link AI apps (Grok, Claude, Muse) connect to through the relay -->
@@ -215,10 +246,21 @@
       </div>
     </section>
 
+    <!-- Sync status: per-source sync details (mail.js), opened from the account menu or the sidebar sync card -->
+    <section id="view-sync" class="view page" hidden>
+      <div class="page-head"><h2>Sync status</h2><button class="btn small" id="s-check-now">Check now</button></div>
+      <p class="muted">SafeContext checks for new mail at launch, when you come back to the window, after your Mac wakes and every 5 minutes.</p>
+      <div class="coverage sync-page" id="sync-page-coverage"></div>
+    </section>
+
     <!-- Security Dashboard: what the scrubber removed -->
-    <section id="view-removed" class="view">
-      <h2>Security Dashboard</h2>
-      <p class="muted">Everything below was removed on this Mac before anything was saved.</p>
+    <section id="view-removed" class="view page">
+      <!-- Home page header: the SafeContext logo over a centered title -->
+      <div class="home-hero">
+        <svg class="home-hero-logo" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M24 0C28.4183 0 32 3.58172 32 8V24C32 28.4183 28.4183 32 24 32H8C3.58172 32 0 28.4183 0 24V8C0 3.58172 3.58172 0 8 0H24ZM8.5 9.2998V14.9004C8.50017 19.7002 11.7001 23.5001 16 25.5C20.2999 23.5001 23.4998 19.7002 23.5 14.9004V9.2998L16 6.5L8.5 9.2998Z"/></svg>
+        <h2>Security Dashboard</h2>
+        <p class="muted">Everything below was removed on this Mac before anything was saved.</p>
+      </div>
       <div class="tiles">
         <div class="tile"><div class="num" id="t-kept">0</div><div class="lbl">items kept (scrubbed)</div></div>
         <div class="tile"><div class="num" id="t-dropped">0</div><div class="lbl">items skipped entirely</div></div>
@@ -232,7 +274,7 @@
     </section>
 
     <!-- AI access review (review.py) -->
-    <section id="view-review" class="view" hidden>
+    <section id="view-review" class="view page" hidden>
       <div class="rv-top">
         <div>
           <h2>AI access review</h2>
@@ -247,7 +289,7 @@
     </section>
 
     <!-- Settings -->
-    <section id="view-settings" class="view" hidden>
+    <section id="view-settings" class="view page" hidden>
       <h2>Settings</h2>
       <div class="card setting">
         <h3>Gmail</h3>
@@ -279,17 +321,12 @@
     <section id="view-mail" class="view" hidden>
       <div class="mail-shell">
         <div class="mail-main">
-          <!-- Search, with its shortcut shown inside the field on the right (⌘K or /) -->
-          <label class="mail-search" title="Keyboard: ⌘K or / to search, F to filter, j / k or arrows to move, Enter to open, Esc to go back">
-            <svg class="nav-svg mail-search-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
-            <input id="mail-q" type="search" placeholder="Search synced mail" aria-label="Search mail" autocomplete="off">
-            <span class="mail-search-keys" aria-hidden="true"><kbd>⌘</kbd><kbd>K</kbd></span>
-          </label>
           <div class="mail-panes">
             <div class="mail-list-wrap">
-              <!-- All mail / Synced / Not synced (counts in each tab's tooltip), then the Filter and Display menus (components.js) -->
-              <div class="mail-tabbar">
-                <div class="mail-tabs" id="mail-tabs" role="tablist" aria-label="Mailboxes"></div>
+              <!-- The source's name (lined up with the row text), then the Filter and Display menus (components.js).
+                   All / Synced / Not synced live in the Filter menu under Status. -->
+              <div class="mail-bar mail-list-bar">
+                <h2 class="mail-list-title" id="mail-list-title"></h2>
                 <div class="mail-tools">
                   <sc-menu id="mail-filter" icon="list-filter" label="Filter" hotkey="F">
                     <sc-filter-list id="mail-filter-list" hotkey="F"></sc-filter-list>
@@ -310,7 +347,17 @@
                 <div class="mail-spacer" id="mail-spacer"></div>
               </div>
             </div>
-            <div class="mail-reader" id="mail-reader" tabindex="-1"><div class="empty">Select a conversation to read it.</div></div>
+            <div class="mail-resizer" id="mail-resizer" role="separator" aria-orientation="vertical" aria-label="Resize message list"
+                 tabindex="0" title="Drag to resize · double-click to reset"></div>
+            <div class="mail-reader-col">
+              <!-- Same height as the tab row, so their bottom line runs straight across (mail.js sets the title) -->
+              <div class="mail-bar mail-reader-head">
+                <button class="mail-back" id="mail-back" aria-label="Back to the list">←</button>
+                <h2 class="mail-reader-title" id="mail-reader-title"></h2>
+                <button class="btn small mail-open-orig" id="mail-open-orig" hidden></button>
+              </div>
+              <div class="mail-reader" id="mail-reader" tabindex="-1"><div class="empty">Select a conversation to read it.</div></div>
+            </div>
           </div>
         </div>
       </div>
@@ -326,15 +373,6 @@
       <button class="btn danger" value="ok" id="confirm-ok">Delete</button>
     </div>
   </form>
-</dialog>
-
-<!-- Sync details for every source, opened from the sync card in the sidebar (mail.js) -->
-<dialog id="sync-modal" class="sync-modal" aria-labelledby="sync-modal-title">
-  <div class="sync-modal-head">
-    <h2 id="sync-modal-title">Sync</h2>
-    <button class="btn small" id="sync-modal-close" aria-label="Close">Close</button>
-  </div>
-  <div class="coverage" id="mail-coverage"></div>
 </dialog>
 
 <dialog id="mcp-approve" class="approve">
