@@ -12,6 +12,7 @@ from typing import Optional
 
 from ..env import label
 from .backend import Backend
+from .window_frame import fit_frame
 
 UI_DIR = Path(__file__).with_name("ui")
 
@@ -96,6 +97,68 @@ def _keep_traffic_lights_centered(w) -> None:
             name, w, None, lambda _note: _place_traffic_lights(w)))
 
 
+def _start_window_drag(window) -> None:
+    """The page calls this (as pywebview.api.start_window_drag) on a mouse-down in the header's empty
+    space. macOS then moves the window itself, the same as dragging a normal title bar: it follows the
+    mouse across displays and snaps to edges and tiles.
+
+    This replaces pywebview's own drag region, which moved the window from JavaScript by absolute
+    position: it added the page's screen coordinates (already relative to the main display) to the
+    origin of the screen the window opened on. With a second display to the left of the main one, that
+    adds the display's offset twice and throws the window off the left edge on the first drag."""
+    try:
+        import AppKit
+        from PyObjCTools import AppHelper
+    except Exception:  # not on macOS
+        return
+
+    def drag() -> None:
+        w = window.native
+        if w is None or not AppKit.NSEvent.pressedMouseButtons() & 1:
+            return  # the button is already up: that was a click, not a drag
+        event = AppKit.NSApp.currentEvent()
+        if (event is None or event.window() != w
+                or event.type() not in (AppKit.NSEventTypeLeftMouseDown, AppKit.NSEventTypeLeftMouseDragged)):
+            event = AppKit.NSEvent.mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure_(
+                AppKit.NSEventTypeLeftMouseDown, w.mouseLocationOutsideOfEventStream(), 0,
+                AppKit.NSProcessInfo.processInfo().systemUptime(), w.windowNumber(), None, 0, 1, 1.0)
+        w.performWindowDragWithEvent_(event)
+
+    AppHelper.callAfter(drag)
+
+
+def _rect(r) -> tuple:
+    return (r.origin.x, r.origin.y, r.size.width, r.size.height)
+
+
+def _fit_on_screen(w) -> None:
+    """Move the window back onto a visible screen if it isn't fully on one (say its display was
+    unplugged or rearranged while it was open). A window that is fully visible is left alone."""
+    import AppKit
+    if w.styleMask() & AppKit.NSWindowStyleMaskFullScreen:
+        return
+    screens = [_rect(s.visibleFrame()) for s in AppKit.NSScreen.screens()]
+    main = AppKit.NSScreen.mainScreen()
+    frame = _rect(w.frame())
+    fitted = fit_frame(frame, screens, _rect(main.visibleFrame()) if main is not None else None)
+    if fitted != frame:
+        w.setFrame_display_(AppKit.NSMakeRect(*fitted), True)
+
+
+def _keep_window_on_screen(window) -> None:
+    """Open fully on a visible screen, and stay on one when displays change. Runs just before show."""
+    try:
+        import AppKit
+    except Exception:
+        return
+    w = window.native
+    if w is None:
+        return
+    _fit_on_screen(w)
+    _light_observers.append(AppKit.NSNotificationCenter.defaultCenter().addObserverForName_object_queue_usingBlock_(
+        "NSApplicationDidChangeScreenParametersNotification", None, None, lambda _note: _fit_on_screen(w)))
+
+
 def _set_dock_icon() -> None:
     """Show the SafeContext icon in the Dock when running from a checkout, where macOS would
     otherwise show Python's. (The packaged app gets it from its .icns; this is harmless there.)
@@ -131,12 +194,16 @@ def run(demo: bool = False, data_dir: Optional[Path] = None, debug: bool = False
         updater.mark_launched()  # an update helper waiting on this version knows it started
     title = ("SafeContext (demo)" if demo else "SafeContext") + label()
     mac = sys.platform == "darwin"
-    # Only the header's empty space drags the window, not the search field inside it.
-    webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
     window = webview.create_window(title, html=build_html(mac_titlebar=mac), js_api=backend, width=1180, height=780,
                                    min_size=(860, 560), text_select=True, draggable=True)
+    # The header's empty space drags the window natively (see _start_window_drag). The page marks it with
+    # .window-drag, not pywebview's .pywebview-drag-region, so pywebview's JavaScript drag never runs.
+    def start_window_drag() -> None:
+        _start_window_drag(window)
+    window.expose(start_window_drag)
     if mac:
         window.events.before_show += _unified_title_bar
+        window.events.before_show += _keep_window_on_screen
     backend._quit_fn = window.destroy  # "Update and restart" closes the window; the helper does the rest
     window.events.shown += _set_dock_icon  # once the app is up; see _set_dock_icon
     try:
