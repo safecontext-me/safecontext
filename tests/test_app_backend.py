@@ -280,5 +280,9 @@ def test_scrubber_controls_preview_a_file_sample_without_storing_it(backend):
     assert sample not in saved and ssn not in saved
     off = backend.scrubber_set_enabled(added["patterns"][0]["id"], False)
     assert off["patterns"][0]["enabled"] is False
+    paused = backend.scrubber_preview(sample)
+    assert paused["ok"] and "EMP-4242" in paused["text"] and ssn not in paused["text"]
     gone = backend.scrubber_delete(added["patterns"][0]["id"])
     assert gone["patterns"] == []
+    removed = backend.scrubber_preview(sample)
+    assert removed["ok"] and "EMP-4242" in removed["text"] and ssn not in removed["text"]

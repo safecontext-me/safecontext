@@ -52,6 +52,24 @@ def test_a_broken_saved_pattern_is_skipped():
     assert SSN not in cleaned and "still here" in cleaned
 
 
+def test_add_disable_and_remove_change_extracted_text(tmp_path):
+    store = Store(tmp_path / "mail.db")
+    sample = "Badge EMP-4242 was printed on the form."
+    created = add_pattern(store, "Employee ID", r"EMP-\d{4}")
+    cleaned, counts = scrub_file_text(sample, load_patterns(store))
+    assert "EMP-4242" not in cleaned and counts["EMPLOYEE_ID"] == 1
+
+    set_enabled(store, created.id, False)
+    cleaned, counts = scrub_file_text(sample, load_patterns(store))
+    assert "EMP-4242" in cleaned and "EMPLOYEE_ID" not in counts
+
+    delete_pattern(store, created.id)
+    cleaned, counts = scrub_file_text(sample, load_patterns(store))
+    assert load_patterns(store) == []
+    assert "EMP-4242" in cleaned and "EMPLOYEE_ID" not in counts
+    store.close()
+
+
 def test_patterns_round_trip_in_the_store(tmp_path):
     store = Store(tmp_path / "mail.db")
     created = add_pattern(store, "Employee ID", r"EMP-\d{4}")
