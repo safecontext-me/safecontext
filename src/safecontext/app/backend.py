@@ -529,6 +529,13 @@ class Backend:
         return {}
 
     @_safe
+    def grok_revoke(self, grant_id: str) -> Dict[str, Any]:
+        """Sign one AI app out of the MCP link (the relay deletes that sign-in's tokens)."""
+        if not self._grok.revoke(str(grant_id)):
+            return {"ok": False, "error": "Couldn't revoke it. Check that MCP is connected, then try again."}
+        return self._grok.status()
+
+    @_safe
     def grok_set_keep_awake(self, on: bool) -> Dict[str, Any]:
         self._grok.set_keep_awake(bool(on))
         return self._grok.status()

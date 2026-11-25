@@ -518,3 +518,153 @@ def test_regenerate_is_logged(link, relay):
     relay.secret = None
     link.regenerate()
     assert _log(link)[-1][:2] == ("link", "regenerated")
+
+
+# --- per-app sign-ins (relay with sign-in lists) ---------------------------------------------------
+
+def _g(gid, client, created=1_700_000_000_000, last=None):
+    return {"id": gid, "client": client, "created_ms": created, "last_used_ms": last}
+
+
+def _online(link):
+    link.enable()
+    wait(lambda: link.status()["state"] == "waiting")
+
+
+def test_old_relay_gives_only_a_count(link, relay):
+    _online(link)
+    assert link.status()["signins"] is None  # hello had no list
+    relay.send({"t": "grants", "n": 2})
+    wait(lambda: link.status()["grants"] == 2)
+    assert link.status()["signins"] is None and link.revoke("anything") is False
+    assert _log(link)[-1] == ("signins", "", "", "0 → 2")
+
+
+def test_new_relay_lists_sign_ins(link, relay):
+    _online(link)
+    relay.send({"t": "hello", "grants": 2, "list": [_g("g1", "Grok", last=1_700_000_100_000),
+                                                    _g("g2", ""), "junk", {"id": 5}, {"id": "x" * 65}]})
+    wait(lambda: link.status()["signins"] is not None)
+    st = link.status()
+    assert st["grants"] == 2 and [g["id"] for g in st["signins"]] == ["g1", "g2"]  # bad entries dropped
+    assert st["signins"][0] == _g("g1", "Grok", last=1_700_000_100_000)
+    assert st["signins"][1]["client"] == "" and st["signins"][1]["last_used_ms"] is None
+    relay.send({"t": "grants", "n": 3, "list": [_g("g1", "Grok"), _g("g2", ""), _g("g3", "Claude " * 20)]})
+    wait(lambda: link.status()["grants"] == 3)
+    assert len(link.status()["signins"][2]["client"]) == 60
+    assert not [e for e in _log(link) if e[0] == "signins"]  # grant events say it instead
+
+
+def test_grant_events_are_logged_by_app_without_ids(link, relay, tmp_path):
+    _online(link)
+    relay.send({"t": "hello", "grants": 1, "list": [_g("gid-secret-1", "Grok")]})
+    for kind in ("created", "refreshed", "refreshed", "expired", "bogus"):
+        relay.send({"t": "grant_event", "kind": kind, "id": "gid-secret-1", "client": "Grok"})
+    relay.send({"t": "grant_event", "kind": "created", "id": "gid-secret-2", "client": ""})
+    wait(lambda: len([e for e in _log(link) if e[0] == "signin"]) == 4)
+    assert [e for e in _log(link) if e[0] == "signin"] == [
+        ("signin", "created", "Grok", ""), ("signin", "refreshed", "Grok", ""),  # second renewal not logged
+        ("signin", "expired", "Grok", ""), ("signin", "created", "", "")]
+    assert link.status()["signins"] == []  # the expired one left the list
+    texts = [e["text"] for e in link.permlog.entries()]
+    assert "An unknown app signed in through your link" in texts and "Grok's sign-in expired" in texts
+    assert "gid-secret" not in (tmp_path / "permission_log.json").read_text()
+
+
+def test_revoke_round_trip(link, relay, tmp_path):
+    _online(link)
+    relay.send({"t": "hello", "grants": 2, "list": [_g("g1", "Grok"), _g("g2", "Claude")]})
+    wait(lambda: link.status()["grants"] == 2)
+    assert link.revoke("nope") is False  # not in the list: nothing sent
+    assert link.revoke("g1") is True
+    assert relay.wait_for("revoke") == {"t": "revoke", "id": "g1"}
+    st = link.status()
+    assert [g["id"] for g in st["signins"]] == ["g2"] and st["grants"] == 1  # gone at once
+    relay.send({"t": "grant_event", "kind": "revoked", "id": "g1", "client": "Grok"})
+    relay.send({"t": "grants", "n": 1, "list": [_g("g2", "Claude")]})
+    wait(lambda: ("signin", "revoked", "Grok", "") in _log(link))
+    assert link.permlog.entries()[0]["text"] == "You signed Grok out"
+    assert [g["id"] for g in link.status()["signins"]] == ["g2"]
+    assert "g1" not in (tmp_path / "permission_log.json").read_text()
+
+
+def test_revoke_of_an_id_the_relay_no_longer_has(link, relay):
+    _online(link)
+    relay.send({"t": "hello", "grants": 1, "list": [_g("g1", "Grok")]})
+    wait(lambda: link.status()["grants"] == 1)
+    assert link.revoke("g1")
+    relay.wait_for("revoke")
+    relay.send({"t": "grants", "n": 1, "list": [_g("g1", "Grok")]})  # it says what it really has
+    wait(lambda: link.status()["grants"] == 1)
+    assert not [e for e in _log(link) if e[0] == "signin"]
+
+
+def test_requests_say_which_app_asked(link, relay, tmp_path):
+    _online(link)
+    relay.send({"t": "hello", "grants": 1, "list": [_g("g1", "Grok", last=1_700_000_000_000)]})
+    wait(lambda: link.status()["grants"] == 1)
+    for i in range(3):
+        relay.send({"t": "http", "id": f"r{i}", "method": "POST", "headers": {}, "client": "Grok", "grant": "g1",
+                    "body": rpc("tools/call", {"name": "search", "arguments": {"query": "Nopa"}})})
+        relay.wait_for("http_result")
+    relay.send({"t": "http", "id": "lo", "method": "POST", "headers": {}, "client": "", "grant": None,
+                "body": rpc("tools/call", {"name": "search", "arguments": {"query": "x"}})})
+    relay.wait_for("http_result")
+    st = link.status()
+    assert st["activity"][0].get("client") is None and st["activity"][1]["client"] == "Grok"
+    assert st["signins"][0]["last_used_ms"] > 1_700_000_000_000  # seen here, newer than the relay's hourly value
+    assert [e for e in _log(link) if e[0] == "used"] == [("used", "", "Grok", "")]  # once a day, link-only not named
+    saved = (tmp_path / "permission_log.json").read_text()
+    assert "Nopa" not in saved and "g1" not in saved
+    assert "g1" not in (tmp_path / "grok_activity.json").read_text()
+
+
+def test_used_is_not_logged_twice_after_a_restart(store, tmp_path, relay):
+    from safecontext.permlog import PermissionLog
+    PermissionLog(tmp_path / "permission_log.json").record("used", client="Grok")
+    g = GrokLink(store, tmp_path, base_url=relay.url, keep_awake_runner=lambda: None, backoff=(0.05, 0.2))
+    try:
+        g._log_use("Grok")
+        g._log_use("Claude")
+        assert [e["client"] for e in g.permlog.entries() if e["kind"] == "used"] == ["Claude", "Grok"]
+    finally:
+        g.shutdown()
+
+
+def test_backend_revoke(backend, relay):
+    backend.grok_enable()
+    wait(lambda: backend.grok_status()["state"] == "waiting")
+    relay.send({"t": "hello", "grants": 1, "list": [_g("g1", "Grok")]})
+    wait(lambda: backend.grok_status()["grants"] == 1)
+    assert backend.grok_revoke("zzz")["ok"] is False
+    r = backend.grok_revoke("g1")
+    assert r["ok"] and r["signins"] == []
+    assert relay.wait_for("revoke")["id"] == "g1"
+
+
+def test_demo_relay_signs_in_and_revokes(tmp_path):
+    from safecontext.app.demo import demo_backend_kwargs
+    b = Backend(**demo_backend_kwargs(tmp_path / "demo"), auto_sync=False)
+    try:
+        b.grok_enable()
+        wait(lambda: b.grok_status()["signins"] is not None, timeout=8)
+        assert [g["client"] for g in b.grok_status()["signins"]] == ["", "Claude"]
+        review = b.review()
+        sc = next(g for g in review["groups"] if g["id"] == "safecontext")
+        rows = {c["title"]: c for c in sc["checks"] if c["grant"]}
+        assert rows["Unknown app: not used for 41 days"]["colour"] == "yellow"
+        assert rows["Claude is signed in"]["colour"] == "green"
+        wait(lambda: (b.grok_status().get("approval") or {}).get("code") == "4821", timeout=8)
+        b.grok_approve("demo-approval", True)
+        wait(lambda: [g["client"] for g in b.grok_status()["signins"]] == ["", "Claude", "Grok"])
+        wait(lambda: len(b.grok_status()["activity"]) == 2)
+        assert b.grok_status()["activity"][0]["client"] == "Grok"
+        assert b.grok_revoke("demo-old")["ok"]
+        wait(lambda: any(e["kind"] == "signin" and e["outcome"] == "revoked" and e["ts_ms"] > time.time() * 1000 - 60_000
+                         for e in b.permission_log()["entries"]))
+        assert [g["client"] for g in b.grok_status()["signins"]] == ["Claude", "Grok"]
+        texts = [e["text"] for e in b.permission_log()["entries"][:8]]
+        assert "Grok signed in through your link" in texts and "Claude renewed its sign-in" in texts
+        assert "You signed an unknown app out" in texts
+    finally:
+        b._shutdown()

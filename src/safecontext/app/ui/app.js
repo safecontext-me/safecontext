@@ -684,6 +684,7 @@ function renderMcp(g) {
   $("mcp-auth-url").textContent = (g.oauth && g.oauth.authorize) || "";
   $("mcp-token-url").textContent = (g.oauth && g.oauth.token) || "";
   renderMcpActivity(g.activity || []);
+  renderMcpSignins(g.signins, g.grants || 0);
   const d = $("mcp-approve");
   if (g.approval && state.approvalId !== g.approval.id) {
     state.approvalId = g.approval.id;
@@ -702,9 +703,57 @@ function renderMcpActivity(rows) {
   const list = $("mcp-activity-list");
   list.replaceChildren(...(rows.length ? rows.map((a) => el("li", {},
     el("span", { class: "act-time" }, ago(a.ts_ms)),
-    el("span", { class: "act-q" }, a.query),
+    el("span", { class: "act-q" }, a.client ? `${a.client}: ${a.query}` : a.query),
     el("span", { class: "act-n" }, a.error ? "error" : a.results == null ? "" : `${n(a.results)} result${a.results === 1 ? "" : "s"}`)))
     : [el("li", { class: "muted" }, "Nothing yet.")]));
+}
+
+// "today", "yesterday", "3 days ago", "never": calendar days, like the review.
+function daysAgo(ms) {
+  if (!ms) return "never";
+  const midnight = (t) => new Date(t).setHours(0, 0, 0, 0);
+  const days = Math.round((midnight(Date.now()) - midnight(ms)) / 86400000);
+  return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+}
+
+const SIGNIN_IDLE_DAYS = 30;  // review.SIGNIN_IDLE_DAYS
+
+// The apps signed in through the link (null: the relay only sent a count, so no per-app Revoke).
+function renderMcpSignins(list, count) {
+  const box = $("mcp-signins");
+  const key = JSON.stringify([list, count, new Date().toDateString()]);
+  if (box.dataset.key === key) return;  // redrawn only on change, so focus stays on a button
+  box.dataset.key = key;
+  const ul = $("mcp-signin-list");
+  if (list == null) {
+    box.hidden = !count;
+    ul.replaceChildren(el("li", { class: "muted" },
+      `${count} sign-in${count === 1 ? "" : "s"}. Regenerate link signs every app out.`));
+    return;
+  }
+  box.hidden = false;
+  if (!list.length) return ul.replaceChildren(el("li", { class: "muted" }, "No AI app is signed in."));
+  ul.replaceChildren(...list.map((g) => {
+    const name = g.client || "Unknown app";
+    const ref = g.last_used_ms || g.created_ms;
+    const stale = ref && Date.now() - ref >= SIGNIN_IDLE_DAYS * 86400000;
+    const since = g.created_ms ? `Signed in ${new Date(g.created_ms).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : "Signed in";
+    return el("li", {},
+      el("span", { class: `si-name${g.client ? "" : " unknown"}` }, name),
+      el("span", { class: `si-when${stale ? " stale" : ""}` }, `${since} · last used ${daysAgo(g.last_used_ms)}`),
+      el("button", { class: "btn small", onclick: () => mcpRevoke(g.id, name) }, "Revoke"));
+  }));
+}
+
+async function mcpRevoke(id, name) {
+  const who = name === "Unknown app" ? "this unknown app" : name;
+  const ok = await confirmDialog(`Revoke ${who}? It loses access right away. To come back it has to sign in again, and you'll approve it.`, "Revoke");
+  if (!ok) return false;
+  const r = await api().grok_revoke(id);
+  if (!r.ok) { toast(r.error); return false; }
+  toast(name === "Unknown app" ? "Signed out. That app can't reach your data now." : `${name} is signed out.`);
+  renderMcp(r);
+  return true;
 }
 
 function showMcpApp(app, remember = true) {
@@ -888,6 +937,8 @@ async function loadReview(r) {
 const RV_LOG = "log";
 const RV_LOG_ICON = { approved: ["circle-check", "green"], denied: ["ban", "red"], expired: ["circle-help", "grey"],
   cancelled: ["circle-help", "grey"] };
+const RV_LOG_SIGNIN = { created: ["circle-check", "green"], refreshed: ["history", "grey"],
+  expired: ["circle-help", "grey"], revoked: ["ban", "red"] };
 
 function historyTab() {
   const sel = rvTab === RV_LOG;
@@ -902,8 +953,9 @@ async function loadHistory() {
   if (!r.ok) return toast(r.error);
   if (rvTab !== RV_LOG) return;
   const intro = el("div", { class: "rv-log-top" },
-    el("p", { class: "rv-blurb" }, "Every time an AI app asked to connect through SafeContext, what you answered, " +
-      "and changes to your link and settings. Kept only on this Mac, for up to a year."),
+    el("p", { class: "rv-blurb" }, "Every time an AI app asked to connect through SafeContext and what you answered, " +
+      "sign-ins made, renewed, expired or revoked, which app used your link each day, and changes to your " +
+      "link and settings. Never what an app searched for. Kept only on this Mac, for up to a year."),
     r.entries.length ? el("button", { class: "btn small", onclick: clearHistory }, "Clear") : null);
   if (!r.entries.length) {
     return $("rv-panel").replaceChildren(intro, el("p", { class: "muted rv-log-empty" }, "Nothing yet."));
@@ -915,6 +967,8 @@ async function loadHistory() {
     const label = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
     if (label !== day) { day = label; rows.push(el("div", { class: "rv-log-day" }, label)); }
     const [icon, colour] = e.kind === "connect" ? (RV_LOG_ICON[e.outcome] || RV_LOG_ICON.expired)
+      : e.kind === "signin" ? (RV_LOG_SIGNIN[e.outcome] || RV_LOG_ICON.expired)
+      : e.kind === "used" ? ["check", "grey"]
       : e.kind === "scan_change" ? ["triangle-alert", "yellow"] : ["sliders-horizontal", "grey"];
     rows.push(el("div", { class: "rv-log-row" }, scIcon(icon, `rv-ic ${colour}`),
       el("span", { class: "rv-log-text" }, e.text),
@@ -982,7 +1036,8 @@ function reviewRow(c) {
     el("span", { class: `rv-word ${c.colour}` }, c.label), scIcon("chevron-right", "rv-chev"));
   const row = el("div", { class: `rv-row ${c.colour}${open ? " open" : ""}`, "data-id": c.id },
     el("div", { class: "rv-head" }, toggle,
-      c.link ? el("button", { class: "btn small rv-open", title: c.link.startsWith("x-apple") ? "Open System Settings" : "Open page",
+      c.grant ? el("button", { class: "btn small rv-open", onclick: () => reviewRevoke(c) }, "Revoke")
+      : c.link ? el("button", { class: "btn small rv-open", title: c.link.startsWith("x-apple") ? "Open System Settings" : "Open page",
         onclick: () => reviewOpen(c.id) }, c.link.startsWith("x-apple") ? "Settings" : "Open", scIcon("external-link"))
         : el("span", { class: "rv-open-gap" })));  // keeps the status words lined up
   if (!open) return row;
@@ -1001,6 +1056,12 @@ function reviewRow(c) {
   }
   row.append(body);
   return row;
+}
+
+async function reviewRevoke(c) {
+  const g = ((state.mcp && state.mcp.signins) || []).find((x) => x.id === c.grant);
+  const name = (g && g.client) || "Unknown app";
+  if (await mcpRevoke(c.grant, name)) loadReview();
 }
 
 async function reviewOpen(id) {

@@ -22,11 +22,16 @@ DEMO_ACCOUNT = "alex@example.org"
 # A made-up permission history: Grok asking again and again over the past week, as it does when it
 # keeps losing its sign-in, plus a few setting changes.
 _DEMO_HISTORY = [  # (days ago, kind, outcome, client, note)
-    (9.0, "link", "on", "", ""), (9.0, "connect", "approved", "Grok", ""), (9.0, "signins", "", "", "0 → 1"),
-    (6.2, "connect", "approved", "Claude", ""), (6.2, "signins", "", "", "1 → 2"),
+    (47.0, "link", "on", "", ""), (47.0, "signin", "created", "", ""),
+    (9.0, "connect", "approved", "Grok", ""), (9.0, "signin", "created", "Grok", ""),
+    (8.9, "used", "", "Grok", ""),
+    (6.2, "connect", "approved", "Claude", ""), (6.2, "signin", "created", "Claude", ""),
     (5.1, "connect", "denied", "Grok", ""), (4.0, "connect", "expired", "Grok", ""),
+    (3.4, "signin", "expired", "Grok", ""),
     (3.3, "link_only", "on", "", ""), (3.2, "link_only", "off", "", ""),
-    (2.5, "connect", "approved", "Grok", ""), (1.4, "connect", "denied", "Grok", ""),
+    (2.5, "connect", "approved", "Grok", ""), (2.5, "signin", "created", "Grok", ""),
+    (2.0, "signin", "revoked", "Grok", ""),
+    (1.4, "connect", "denied", "Grok", ""), (1.0, "used", "", "Claude", ""),
     (0.8, "connect", "cancelled", "Grok", ""),
 ]
 

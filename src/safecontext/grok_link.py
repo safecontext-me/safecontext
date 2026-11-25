@@ -28,15 +28,27 @@ Pieces:
   * GrokLink: ties them together for the app window.
 
 Relay protocol (JSON text frames):
-  relay -> Mac  {"t":"hello","grants":n}           connected; n = sign-ins apps hold
-                {"t":"grants","n":n}               that number changed
-                {"t":"http","id":..,"method":..,"headers":{..},"body":".."}
+  relay -> Mac  {"t":"hello","grants":n,"list":[G..]}   connected; n = sign-ins apps hold
+                {"t":"grants","n":n,"list":[G..]}       a sign-in was made, revoked or expired, and in
+                                                        answer to every revoke
+                {"t":"grant_event","kind":"created|refreshed|expired|revoked","id":gid,"client":".."}
+                                                        expired comes at the relay's next cleanup
+                {"t":"http","id":..,"method":..,"headers":{..},"body":"..","client":"Grok","grant":gid}
+                                                        link-only requests: "client":"", "grant":null
                 {"t":"approve","id":..,"client":..,"code":"1234"}   an app wants to connect
                 {"t":"approve_cancel","id":..}
   Mac -> relay  {"t":"http_result","id":..,"status":200,"headers":{..},"body":".."}
                 {"t":"approve_result","id":..,"ok":true}
                 {"t":"settings","link_only":false}
+                {"t":"revoke","id":gid}            sign one app out: its access and refresh tokens go
                 {"t":"revoke_all"}                 forget every sign-in and client
+  G = {"id":gid,"client":"Grok","created_ms":..,"last_used_ms":..|null}, oldest first. `client` is the
+  app's registered name, or "Grok"/"Claude" from its callback, or "". `last_used_ms` moves at most
+  hourly. A relay from before sign-in lists sends only the count ("list" missing); then the window
+  shows the number and Regenerate link is the only way to sign apps out.
+
+Grant ids (gid) stay in memory and in the window; they're never written to the activity file or the
+permission log.
 """
 from __future__ import annotations
 
@@ -79,6 +91,8 @@ MAX_REQUEST_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 900 * 1024  # the relay's socket carries at most 1 MiB per message
 ACTIVITY_KEEP = 200
 APPROVAL_TTL_MS = 5 * 60_000  # the relay's sign-in page gives up after this long
+REFRESH_LOG_GAP_MS = 6 * 3_600_000  # log a sign-in's renewals at most this often
+GRANT_EVENTS = ("created", "refreshed", "expired", "revoked")
 
 _META_ENABLED = "grok_link_enabled"
 _META_KEEP_AWAKE = "grok_keep_awake"
@@ -97,6 +111,24 @@ def new_secret() -> str:
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def clean_client(name: Any) -> str:
+    """An app name from the relay, made safe to show and keep: one line, at most 60 characters."""
+    return " ".join(str(name or "").split())[:60] if isinstance(name, str) else ""
+
+
+def parse_grant(g: Any) -> Optional[Dict[str, Any]]:
+    """One sign-in from a hello/grants frame, or None if it isn't well formed."""
+    if not isinstance(g, dict):
+        return None
+    gid = g.get("id")
+    if not isinstance(gid, str) or not 0 < len(gid) <= 64:
+        return None
+    created, last = g.get("created_ms"), g.get("last_used_ms")
+    return {"id": gid, "client": clean_client(g.get("client")),
+            "created_ms": created if isinstance(created, int) and created > 0 else None,
+            "last_used_ms": last if isinstance(last, int) and last > 0 else None}
 
 
 # --- secrets -----------------------------------------------------------------------
@@ -198,9 +230,11 @@ class ActivityLog:
             except (OSError, ValueError):
                 self._entries = []
 
-    def record(self, tool: str, args: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    def record(self, tool: str, args: Dict[str, Any], result: Dict[str, Any], client: str = "") -> Dict[str, Any]:
         entry = {"ts_ms": _now_ms(), "tool": tool, "query": describe_query(tool, args),
                  "results": _result_count(result), "error": "error" in result}
+        if client:
+            entry["client"] = clean_client(client)
         with self._lock:
             self._entries.append(entry)
             del self._entries[:-ACTIVITY_KEEP]
@@ -251,7 +285,9 @@ class MCPHttpHandler:
         self.store = store
         self.activity = activity
 
-    def handle(self, method: str, headers: Dict[str, str], body: str) -> Tuple[int, Dict[str, str], str]:
+    def handle(self, method: str, headers: Dict[str, str], body: str,
+               client: str = "") -> Tuple[int, Dict[str, str], str]:
+        """`client`: the signed-in app's name from the relay ("" for link-only requests), for Activity."""
         method = (method or "").upper()
         if method != "POST":  # no server-initiated stream (GET) and no sessions to end (DELETE)
             return 405, {"allow": "POST", "content-type": "application/json"}, json.dumps(
@@ -268,7 +304,8 @@ class MCPHttpHandler:
             return _json(400, _err(None, -32600, "Invalid Request"))
 
         hdrs = {k.lower(): v for k, v in (headers or {}).items()}
-        server = MCPServer(self.store, tools=grok_tools, on_call=self._on_call)
+        server = MCPServer(self.store, tools=grok_tools,
+                           on_call=lambda name, args, result: self._on_call(name, args, result, client))
         # Stateless: each request says its protocol version (some clients forget; use the newest).
         version = hdrs.get("mcp-protocol-version")
         server.protocol_version = version if version in SUPPORTED_VERSIONS else SUPPORTED_VERSIONS[0]
@@ -294,9 +331,9 @@ class MCPHttpHandler:
             log.warning("Grok request failed: %s", type(e).__name__)
             return _err(msg.get("id") if isinstance(msg, dict) else None, -32603, "Internal error")
 
-    def _on_call(self, name: str, args: Dict[str, Any], result: Dict[str, Any]) -> None:
+    def _on_call(self, name: str, args: Dict[str, Any], result: Dict[str, Any], client: str = "") -> None:
         if self.activity:
-            self.activity.record(name, args, result)
+            self.activity.record(name, args, result, client)
 
 
 # --- the socket to the relay -------------------------------------------------------------
@@ -469,6 +506,13 @@ class GrokLink:
         self._client: Optional[RelayClient] = None
         self._conn_state, self._conn_message = "off", ""
         self._grants = 0
+        # Each sign-in the relay knows about (parse_grant), oldest first; None until a relay that
+        # sends lists says hello. Memory only, like everything keyed by gid below.
+        self._signins: Optional[List[Dict[str, Any]]] = None
+        self._seen_ms: Dict[str, int] = {}       # gid -> last request through it (finer than the relay's hourly)
+        self._refresh_logged: Dict[str, int] = {}  # gid -> when a renewal was last logged
+        self._revoking: Dict[str, str] = {}      # gid -> app name, revoked here and not yet confirmed
+        self._used_day: Dict[str, str] = {}      # app name -> the day its first request was logged
         self._approvals: Dict[str, Dict[str, Any]] = {}
         self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="grok-req")
 
@@ -541,6 +585,8 @@ class GrokLink:
             self.secrets.delete()
             self._ids(create=True)
             self._grants = 0
+            self._signins = [] if self._signins is not None else None
+            self._seen_ms, self._refresh_logged, self._revoking = {}, {}, {}
             if self.enabled:
                 self._start_client()
         self.permlog.record("link", "regenerated")
@@ -568,6 +614,25 @@ class GrokLink:
         if sent:
             self.permlog.record("connect", "approved" if ok else "denied", pending.get("client", ""))
         return sent
+
+    def revoke(self, gid: str) -> bool:
+        """Sign one app out: the relay deletes that sign-in's access and refresh tokens at once.
+        The app has to sign in again (and you approve it) to come back. The list updates right away;
+        the relay's `grants` reply then confirms it (an id the relay doesn't know just comes back)."""
+        if not isinstance(gid, str) or not 0 < len(gid) <= 64 or not self._client:
+            return False
+        with self._lock:
+            known = next((g for g in self._signins or [] if g["id"] == gid), None)
+        if known is None:
+            return False
+        if not self._client.send({"t": "revoke", "id": gid}):
+            return False
+        with self._lock:
+            self._revoking[gid] = known["client"]
+            if self._signins is not None:
+                self._signins = [g for g in self._signins if g["id"] != gid]
+            self._grants = max(0, self._grants - 1)
+        return True
 
     def shutdown(self) -> None:
         self._stop_client()
@@ -617,10 +682,32 @@ class GrokLink:
         if t in ("hello", "grants"):
             n = msg.get("grants", msg.get("n"))
             n = n if isinstance(n, int) and n >= 0 else 0
-            if t == "grants" and n != self._grants:
+            raw = msg.get("list")
+            if isinstance(raw, list):
+                # A relay with sign-in lists also sends grant_event, which the log records by app, so
+                # the bare count change isn't logged here.
+                signins = [g for g in (parse_grant(x) for x in raw) if g]
+                with self._lock:
+                    self._signins = signins
+                    self._grants = len(signins)
+                    live = {g["id"] for g in signins}
+                    for d in (self._seen_ms, self._refresh_logged):
+                        for k in [k for k in d if k not in live]:
+                            del d[k]
+                    if t == "grants":
+                        self._revoking.clear()  # the relay has answered every revoke sent before this
+                return
+            if t == "grants" and n != self._grants:  # an older relay: only the count
                 self.permlog.record("signins", note=f"{self._grants} → {n}")
             self._grants = n
+        elif t == "grant_event":
+            self._on_grant_event(msg)
         elif t == "http":
+            gid, who = msg.get("grant"), clean_client(msg.get("client"))
+            if isinstance(gid, str) and 0 < len(gid) <= 64:
+                with self._lock:
+                    self._seen_ms[gid] = _now_ms()
+            self._log_use(who)
             self._pool.submit(self._answer, msg)
         elif t == "approve" and isinstance(msg.get("id"), str):
             with self._lock:
@@ -634,10 +721,60 @@ class GrokLink:
             if gone:
                 self.permlog.record("connect", "cancelled", gone.get("client", ""))
 
+    def _on_grant_event(self, msg: Dict[str, Any]) -> None:
+        """Log a sign-in made, renewed, expired or revoked, by app. Renewals of one sign-in are logged at
+        most every REFRESH_LOG_GAP_MS (the gid is kept in memory for that, never written)."""
+        kind, gid = msg.get("kind"), msg.get("id")
+        if kind not in GRANT_EVENTS or not isinstance(gid, str):
+            return
+        who = clean_client(msg.get("client"))
+        with self._lock:
+            if kind == "refreshed":
+                last = self._refresh_logged.get(gid)
+                if last is not None and _now_ms() - last < REFRESH_LOG_GAP_MS:
+                    return
+                self._refresh_logged[gid] = _now_ms()
+            if kind == "revoked":
+                who = self._revoking.pop(gid, who) or who
+            if kind in ("expired", "revoked") and self._signins is not None:
+                gone = [g for g in self._signins if g["id"] == gid]
+                if gone:
+                    self._signins = [g for g in self._signins if g["id"] != gid]
+                    self._grants = len(self._signins)
+        self.permlog.record("signin", kind, who)
+
+    def _log_use(self, who: str) -> None:
+        """The first request from each app on each day goes in the permission log ("Grok used your
+        link"). Which app, never what it asked for. The check reads the log itself, so a restart
+        doesn't log the same day twice."""
+        if not who:
+            return  # link-only requests carry no app name; Activity still lists them
+        day = time.strftime("%Y-%m-%d")
+        if self._used_day.get(who) == day:
+            return
+        start = int(time.mktime(time.localtime()[:3] + (0, 0, 0, 0, 0, -1)) * 1000)
+        if not any(e.get("client") == who for e in self.permlog.since(start, "used")):
+            self.permlog.record("used", client=who)
+        self._used_day[who] = day
+
+    def signins(self) -> Optional[List[Dict[str, Any]]]:
+        """Sign-ins for the window, with last use from the relay or from requests seen here, whichever is
+        newer. None when the relay only sends a count."""
+        with self._lock:
+            if self._signins is None:
+                return None
+            out = []
+            for g in self._signins:
+                seen = self._seen_ms.get(g["id"])
+                last = max(x for x in (g["last_used_ms"], seen, 0) if x is not None) or None
+                out.append(dict(g, last_used_ms=last))
+            return out
+
     def _answer(self, msg: Dict[str, Any]) -> None:
         headers = msg.get("headers") if isinstance(msg.get("headers"), dict) else {}
         body = msg.get("body") if isinstance(msg.get("body"), str) else ""
-        status, out_headers, text = self.handler.handle(str(msg.get("method") or ""), headers, body)
+        status, out_headers, text = self.handler.handle(str(msg.get("method") or ""), headers, body,
+                                                        clean_client(msg.get("client")))
         client = self._client
         if client:
             client.send({"t": "http_result", "id": msg.get("id"), "status": status, "headers": out_headers,
@@ -662,7 +799,7 @@ class GrokLink:
             pending = next(iter(self._approvals.values()), None)
         return {"enabled": self.enabled, "state": state, "message": self._conn_message,
                 "url": self.connector_url() if self.enabled else None, "last_used_ms": last_used,
-                "grants": self._grants, "keep_awake": self.keep_awake, "keeping_awake": self._keep_awake.active,
+                "grants": self._grants, "signins": self.signins(), "keep_awake": self.keep_awake, "keeping_awake": self._keep_awake.active,
                 "link_only": self.link_only, "approval": pending, "oauth": self.oauth_urls() if self.enabled else {},
                 "activity": self.activity.entries(30), "connectors": dict(CONNECTOR_PAGES)}
 
@@ -670,38 +807,69 @@ class GrokLink:
 # --- demo ---------------------------------------------------------------------------------------
 
 class DemoRelayConnection:
-    """Stands in for the relay in demo mode: Grok asks to connect, then searches.
+    """Stands in for the relay in demo mode. Two apps are already signed in (Claude, used yesterday,
+    and an unnamed app nobody has used for weeks); then Grok asks to connect, signs in and searches,
+    and Claude renews its sign-in. Revoke works like the relay's: a `revoked` event, then the new list.
     Everything runs locally; nothing touches the network."""
 
-    def __init__(self, script: Optional[List[Tuple[float, Dict[str, Any]]]] = None) -> None:
+    def __init__(self, shared: Optional[Dict[str, Any]] = None) -> None:
+        """`shared`: the demo relay's memory across reconnects (so a revoke or Regenerate sticks)."""
         import queue
         self._q: "queue.Queue[Optional[str]]" = queue.Queue()
         self.sent: List[Dict[str, Any]] = []
         self._closed = threading.Event()
+        now, day = _now_ms(), 86_400_000
+        shared = shared if shared is not None else {}
+        self.grants: List[Dict[str, Any]] = shared.setdefault("grants", [
+            {"id": "demo-old", "client": "", "created_ms": now - 47 * day, "last_used_ms": now - 41 * day},
+            {"id": "demo-claude", "client": "Claude", "created_ms": now - int(6.2 * day),
+             "last_used_ms": now - day},
+        ])
+        grok = {"id": "demo-grok", "client": "Grok", "created_ms": now, "last_used_ms": None}
+
+        def http(i: int, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
+            return {"t": "http", "id": f"d{i}", "method": "POST", "headers": {}, "client": "Grok",
+                    "grant": "demo-grok", "body": json.dumps({"jsonrpc": "2.0", "id": i, "method": method,
+                                                              "params": params})}
+        self._grok = grok
         self._after_approve = [
-            {"t": "grants", "n": 1},
-            {"t": "http", "id": "d1", "method": "POST", "headers": {},
-             "body": json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
-                                 "params": {"protocolVersion": "2025-06-18"}})},
-            {"t": "http", "id": "d2", "method": "POST", "headers": {},
-             "body": json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                                 "params": {"name": "list_items", "arguments": {"source": "gcal", "limit": 5}}})},
-            {"t": "http", "id": "d3", "method": "POST", "headers": {},
-             "body": json.dumps({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-                                 "params": {"name": "search", "arguments": {"query": "dinner"}}})},
+            http(1, "initialize", {"protocolVersion": "2025-06-18"}),
+            http(2, "tools/call", {"name": "list_items", "arguments": {"source": "gcal", "limit": 5}}),
+            http(3, "tools/call", {"name": "search", "arguments": {"query": "dinner"}}),
         ]
-        self._q.put(json.dumps({"t": "hello", "grants": 0}))
-        timer = threading.Timer(2.5, lambda: self._q.put(json.dumps(
-            {"t": "approve", "id": "demo-approval", "client": "Grok", "code": "4821"})))
+        self._put({"t": "hello", "grants": len(self.grants), "list": self.grants})
+        timer = threading.Timer(2.5, lambda: self._put(
+            {"t": "approve", "id": "demo-approval", "client": "Grok", "code": "4821"}))
         timer.daemon = True
         timer.start()
+
+    def _put(self, msg: Dict[str, Any]) -> None:
+        self._q.put(json.dumps(msg))
+
+    def _list(self) -> None:
+        self._put({"t": "grants", "n": len(self.grants), "list": list(self.grants)})
 
     def send(self, text: str) -> None:
         msg = json.loads(text)
         self.sent.append(msg)
-        if msg.get("t") == "approve_result" and msg.get("ok"):
+        t = msg.get("t")
+        if t == "approve_result" and msg.get("ok"):
+            if self._grok not in self.grants:
+                self.grants.append(self._grok)
+                self._put({"t": "grant_event", "kind": "created", "id": "demo-grok", "client": "Grok"})
+                self._list()
             for m in self._after_approve:
-                self._q.put(json.dumps(m))
+                self._put(m)
+            if any(g["id"] == "demo-claude" for g in self.grants):
+                self._put({"t": "grant_event", "kind": "refreshed", "id": "demo-claude", "client": "Claude"})
+        elif t == "revoke":
+            gone = next((g for g in self.grants if g["id"] == msg.get("id")), None)
+            if gone:
+                self.grants.remove(gone)
+                self._put({"t": "grant_event", "kind": "revoked", "id": gone["id"], "client": gone["client"]})
+            self._list()
+        elif t == "revoke_all":
+            self.grants.clear()
 
     def close(self) -> None:
         self._closed.set()
@@ -716,6 +884,7 @@ class DemoRelayConnection:
 
 
 def demo_link(store: Store, data_dir: Path) -> GrokLink:
+    shared: Dict[str, Any] = {}
     return GrokLink(store, data_dir, secrets=MemorySecrets(),
-                    connect=lambda url, secret: (time.sleep(0.6), DemoRelayConnection())[1],
+                    connect=lambda url, secret: (time.sleep(0.6), DemoRelayConnection(shared))[1],
                     keep_awake_runner=lambda: None)
