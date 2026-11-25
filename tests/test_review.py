@@ -112,6 +112,93 @@ def test_report_is_self_contained_and_leaves_out_private_values(tmp_path):
     assert "x-apple" not in page
 
 
+def groups(r):
+    return {g["id"]: g for g in r["groups"]}
+
+
+def test_every_check_lands_in_its_app_group(tmp_path):
+    scan = review.scan_ai_configs(demo_ai_home(tmp_path))
+    imsg = {"id": "imessage", "available": True, "account": "This Mac"}
+    gcal = {"id": "gcal", "available": True, "account": "a@example.org"}
+    r = review.build_review([GMAIL, gcal, imsg], mcp(enabled=True, link_only=True, keep_awake=True,
+                                                     last_used_ms=NOW), {}, scan, NOW)
+    want = {
+        "grok": {"grok_connectors", "grok_data", "x_grok"},
+        "claude": {"claude_connectors", "claude_data", "claude_chrome", "lc_desktop", "lc_desktop_secrets",
+                   "lc_code_mode", "lc_code_allow", "lc_code_mcp"},
+        "google": {"google_connections", "sc_gmail", "sc_gcal"},
+        "github": {"github_apps"},
+        "safecontext": {"sc_link", "sc_link_only", "sc_awake"},
+        "mac": {"sc_fda", "mac_full_disk", "mac_accessibility", "mac_screen", "mac_automation"},
+    }
+    assert [g["id"] for g in r["groups"]] == list(want) == review.GROUP_IDS
+    assert {gid: {c["id"] for c in g["checks"]} for gid, g in groups(r).items()} == want
+    assert all(review.group_of(cid) in review.GROUP_IDS for cid in review.GUIDED_BY_ID)
+
+
+@pytest.mark.parametrize("status,colour", [("risk", "red"), ("warn", "yellow"), ("todo", "grey"),
+                                           ("info", "green"), ("ok", "green"), ("???", "grey")])
+def test_colour_mapping(status, colour):
+    assert review.colour_of(status) == colour
+
+
+def test_labels_pair_colour_with_words():
+    assert review.label_of("risk") == "Fix" and review.label_of("warn") == "Worth a look"
+    assert review.label_of("todo") == "Not checked yet" and review.label_of("ok") == "OK"
+    assert review.label_of("info", "skip") == "Not used"
+
+
+def test_worst_colour_ranks_unchecked_above_green():
+    assert review.worst_colour(["green", "grey"]) == "grey"
+    assert review.worst_colour(["grey", "yellow", "green"]) == "yellow"
+    assert review.worst_colour(["yellow", "red"]) == "red"
+    assert review.worst_colour([]) == "green"
+
+
+def test_rollup_counts_and_skipped_groups():
+    rows = [{"status": "risk", "answer": ""}, {"status": "todo", "answer": ""}, {"status": "ok", "answer": "ok"}]
+    g = review.rollup(rows)
+    assert g["colour"] == "red" and g["label"] == "Fix" and g["skipped"] is False
+    assert g["counts"] == {"red": 1, "yellow": 0, "grey": 1, "green": 1}
+    s = review.rollup([{"status": "info", "answer": "skip"}])
+    assert s["skipped"] and s["colour"] == "green" and s["label"] == "Not used"
+    assert review.rollup([])["skipped"] is False
+
+
+def test_counts_line():
+    assert review.counts_line({"red": 2, "yellow": 3, "green": 9, "grey": 4}) == \
+        "2 red · 3 yellow · 9 green · 4 not checked"
+    assert review.counts_line({"red": 0, "yellow": 0, "green": 1, "grey": 0}) == "1 green"
+    assert review.counts_line({}) == "nothing to check"
+
+
+def test_answers_change_colour_and_expired_answers_go_grey():
+    answers = {"grok_connectors": {"answer": "issue", "ts": NOW - DAY},
+               "grok_data": {"answer": "fixed", "ts": NOW - DAY},
+               "x_grok": {"answer": "ok", "ts": NOW - 91 * DAY},
+               "github_apps": {"answer": "skip", "ts": NOW - DAY}}
+    r = review.build_review([], mcp(), answers, None, NOW)
+    c, g = ids(r), groups(r)
+    assert (c["grok_connectors"]["colour"], c["grok_connectors"]["label"]) == ("red", "Fix")
+    assert c["grok_data"]["colour"] == "green"
+    assert (c["x_grok"]["colour"], c["x_grok"]["label"]) == ("grey", "Not checked yet")
+    assert g["grok"]["colour"] == "red" and g["grok"]["counts"] == {"red": 1, "yellow": 0, "grey": 1, "green": 1}
+    assert g["github"]["skipped"] and g["github"]["label"] == "Not used"
+    assert r["attention"] == ["Grok"]
+    assert r["colour"] == "red" and r["colours"]["red"] == 1
+    assert r["counts_line"].startswith("1 red · ")
+
+
+def test_report_uses_the_same_groups_and_colours(tmp_path):
+    r = review.build_review([GMAIL], mcp(enabled=True, link_only=True, last_used_ms=NOW), {}, None, NOW)
+    page = review.report_html(r)
+    order = [page.index(f"{t}<span class='n'>") for t in ("Grok", "Claude", "Google", "GitHub", "SafeContext",
+                                                         "This Mac")]
+    assert order == sorted(order)
+    assert "class='p red'" in page and "class='p grey'" in page and "Not checked yet" in page
+    assert r["counts_line"] in page and "Start with: SafeContext" in page
+
+
 @pytest.fixture
 def backend(tmp_path):
     b = Backend(tmp_path / "data", demo=True, auto_sync=False, review_home=demo_ai_home(tmp_path / "home"))

@@ -623,38 +623,103 @@ async function loadRemoved() {
 }
 
 // ---------- AI access review ----------
-const RV_PILLS = { risk: ["Fix", "risk"], warn: ["Worth a look", "warn"], todo: ["Not checked", "todo"], info: ["Note", ""], ok: ["OK", "ok"] };
+// review.py does the grouping and colours; this only draws them. Every colour comes with an icon
+// shape and a word, so nothing depends on telling red from green.
+const RV_ICON = { red: "circle-x", yellow: "triangle-alert", green: "circle-check", grey: "circle-help" };
+const RV_TALLY = [["red", "to fix"], ["yellow", "worth a look"], ["green", "OK"], ["grey", "not checked yet"]];
 const RV_ANSWERS = [["ok", "Looks fine"], ["fixed", "I fixed it"], ["issue", "Found a problem"], ["skip", "Don't use this"]];
+const rvOpenGroups = new Map();   // group id → open, once the user has toggled it (kept across redraws)
+const rvOpenRows = new Set();     // green rows whose details the user opened
+
+function rvBadge(colour, label, extra = "") {
+  return el("span", { class: `rv-badge ${colour} ${extra}`.trim() }, scIcon(RV_ICON[colour] || RV_ICON.grey), label);
+}
 
 async function loadReview(r) {
   r = r || await api().review();
   if (!r.ok) return toast(r.error);
-  const c = r.counts;
-  $("rv-verdict").textContent = r.verdict;
-  $("rv-verdict").className = `rv-verdict ${r.tone}`;
-  $("rv-counts").textContent = `${c.risk} to fix · ${c.warn} worth a look · ${c.todo} not checked · ${c.ok + c.info} fine`;
-  $("rv-scan").checked = r.scan_on;
-  $("rv-groups").replaceChildren(...r.groups.filter((g) => g.checks.length).map((g) =>
-    el("div", { class: "card rv-group" }, el("h3", {}, g.title), ...g.checks.map(reviewRow))));
+  $("rv-verdict").replaceChildren(rvBadge(r.colour, "", "lg"), el("span", {}, r.verdict));
+  $("rv-verdict").className = `rv-verdict ${r.colour}`;
+  $("rv-tally").replaceChildren(...RV_TALLY.map(([c, word]) =>
+    el("span", { class: `rv-count ${c}${r.colours[c] ? "" : " zero"}` }, scIcon(RV_ICON[c]), `${r.colours[c]} ${word}`)));
+  const start = $("rv-start");
+  start.replaceChildren();
+  if (r.attention.length) {
+    start.append("Start with ");
+    r.attention.forEach((t, i) => {
+      const g = r.groups.find((x) => x.title === t);
+      if (i) start.append(i === r.attention.length - 1 ? " and " : ", ");
+      start.append(el("a", { href: "#", onclick: (e) => { e.preventDefault(); rvJump(g.id); } }, t));
+    });
+    start.append(".");
+  } else if (r.colours.grey) {
+    start.textContent = "Nothing red or yellow so far. The grey checks are ones you haven't done yet.";
+  }
+  $("rv-groups").replaceChildren(...r.groups.filter((g) => g.checks.length || g.id === "claude").map((g) => reviewGroup(g, r)));
+}
+
+function rvJump(gid) {
+  const d = $(`rv-g-${gid}`);
+  if (!d) return;
+  d.open = true;
+  rvOpenGroups.set(gid, true);
+  d.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function reviewGroup(g, r) {
+  const open = rvOpenGroups.has(g.id) ? rvOpenGroups.get(g.id) : !g.skipped && g.colour !== "green";
+  const tally = RV_TALLY.filter(([c]) => g.counts[c]).map(([c, word]) =>
+    el("span", { class: `rv-mini ${c}` }, scIcon(RV_ICON[c]), `${g.counts[c]}`, el("span", { class: "sr" }, ` ${word}`)));
+  const d = el("details", { class: `card rv-group ${g.colour}${g.skipped ? " skipped" : ""}`, id: `rv-g-${g.id}` },
+    el("summary", {},
+      scIcon("chevron-right", "rv-chev"),
+      el("span", { class: "rv-gtitle" }, el("span", { class: "rv-gname" }, g.title),
+        el("small", {}, g.skipped ? "You said you don't use this." : g.blurb)),
+      el("span", { class: "rv-tallies" }, ...tally),
+      rvBadge(g.colour, g.label)));
+  d.open = open;
+  // Setting .open fires "toggle" too; only remember changes away from the default (the user's own).
+  d.addEventListener("toggle", () => { if (rvOpenGroups.has(g.id) || d.open !== open) rvOpenGroups.set(g.id, d.open); });
+  if (g.id === "claude") d.append(reviewScanRow(r.scan_on));
+  d.append(...g.checks.map(reviewRow));
+  return d;
+}
+
+function reviewScanRow(on) {
+  const box = el("input", { type: "checkbox", id: "rv-scan" });
+  box.checked = on;
+  box.addEventListener("change", reviewScan);
+  return el("label", { class: "rv-scan-row" }, box,
+    el("span", {}, el("b", {}, "Check Claude Desktop and Claude Code on this Mac"), el("br"),
+      el("small", { class: "muted" }, "Reads Claude Desktop's MCP config and Claude Code's settings to list MCP servers and \"always allow\" rules. Keys and other values in those files are never kept or shown. Nothing leaves this Mac.")));
 }
 
 function reviewRow(c) {
-  const [label, cls] = RV_PILLS[c.status] || RV_PILLS.info;
-  const row = el("div", { class: `rv-row ${c.status}` },
-    el("div", { class: "rv-head" }, el("span", { class: "rv-title" }, c.title), el("span", { class: `pill ${cls}` }, label)),
+  const head = el("div", { class: "rv-head" }, rvBadge(c.colour, c.label), el("span", { class: "rv-title" }, c.title));
+  if (c.link) head.append(el("button", { class: "btn small rv-open", onclick: () => reviewOpen(c.id) },
+    c.link.startsWith("x-apple") ? "Open System Settings" : "Open page", scIcon("external-link")));
+  const body = [
     c.detail ? el("p", { class: "rv-detail" }, c.detail) : null,
     c.items.length ? el("ul", { class: "rv-items" }, ...c.items.map((i) => el("li", {}, i))) : null,
-    c.fix && ["risk", "warn", "todo"].includes(c.status) ? el("p", { class: "rv-fix" }, el("b", {}, "What to do: "), c.fix) : null);
+    c.fix ? el("p", { class: "rv-fix" }, el("b", {}, "What to do: "), c.fix) : null].filter(Boolean);
   if (c.manual) {
-    const acts = el("div", { class: "rv-actions" });
-    if (c.link) acts.append(el("button", { class: "btn small primary", onclick: () => reviewOpen(c.id) },
-      c.link.startsWith("x-apple") ? "Open System Settings" : "Open page"));
+    const acts = el("div", { class: "rv-actions", role: "group", "aria-label": `What you found: ${c.title}` });
     for (const [a, text] of RV_ANSWERS) {
       acts.append(el("button", { class: `btn small${c.answer === a ? " chosen" : ""}`, "aria-pressed": String(c.answer === a),
         onclick: () => reviewAnswer(c.id, c.answer === a ? "" : a) }, text));
     }
     if (c.answered_ms) acts.append(el("span", { class: "muted rv-when" }, `Checked ${new Date(c.answered_ms).toLocaleDateString()}`));
-    row.append(acts);
+    body.push(acts);
+  }
+  const row = el("div", { class: `rv-row ${c.colour}`, "data-id": c.id }, head);
+  if (c.colour === "green") {
+    // Fine already: keep it short, with the details and answers one click away.
+    const more = el("details", { class: "rv-more" }, el("summary", {}, "Details"), ...body);
+    more.open = rvOpenRows.has(c.id);
+    more.addEventListener("toggle", () => (more.open ? rvOpenRows.add(c.id) : rvOpenRows.delete(c.id)));
+    row.append(more);
+  } else {
+    row.append(...body);
   }
   return row;
 }
@@ -665,9 +730,21 @@ async function reviewOpen(id) {
   else if (!r.opened) toast(state.status && state.status.demo ? "Demo mode doesn't open pages." : "Couldn't open it.");
 }
 
-async function reviewAnswer(id, answer) { loadReview(await api().review_answer(id, answer)); }
+async function reviewAnswer(id, answer) {
+  // If the row turns green, keep it and its group open instead of folding them away mid-answer.
+  rvOpenRows.add(id);
+  const group = document.querySelector(`.rv-row[data-id="${id}"]`)?.closest(".rv-group");
+  if (group) rvOpenGroups.set(group.id.replace(/^rv-g-/, ""), true);
+  const r = await api().review_answer(id, answer);
+  await loadReview(r);
+  // Keep focus on the answer the user just picked so keyboard users don't lose their place.
+  const btn = document.querySelector(`.rv-row[data-id="${id}"] .rv-actions .btn.chosen`)
+    || document.querySelector(`.rv-row[data-id="${id}"] .rv-actions .btn`);
+  if (btn) btn.focus({ preventScroll: true });
+}
 
 async function reviewScan(e) {
+  rvOpenGroups.set("claude", true);
   const r = await api().review_set_scan(e.target.checked);
   loadReview(r);
   if (r.ok && e.target.checked) toast("Checked Claude Desktop and Claude Code.");
@@ -844,7 +921,6 @@ function wire() {
   $("ga-ok").addEventListener("click", () => mcpAnswer(true));
   $("ga-deny").addEventListener("click", () => mcpAnswer(false));
   $("mcp-approve").addEventListener("cancel", (e) => e.preventDefault());
-  $("rv-scan").addEventListener("change", reviewScan);
   $("rv-save").addEventListener("click", reviewSave);
   $("u-check").addEventListener("click", updateCheck);
   $("u-install").addEventListener("click", updateInstall);
