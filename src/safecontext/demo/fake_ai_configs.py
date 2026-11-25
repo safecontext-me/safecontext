@@ -23,4 +23,7 @@ def demo_ai_home(root: Path) -> Path:
     (root / ".claude.json").write_text(json.dumps({
         "mcpServers": {"github": {"type": "http", "url": "https://example.invalid/mcp"}},
         "projects": {"/Users/alex/projects/site": {"mcpServers": {"postgres": {"command": "npx"}}}}}, indent=2))
+    # Installed AI apps: empty bundles, so the review sees ChatGPT and Claude but not Grok.
+    for app in ("ChatGPT.app", "Claude.app"):
+        (root / "Applications" / app).mkdir(parents=True, exist_ok=True)
     return root

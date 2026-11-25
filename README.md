@@ -24,6 +24,12 @@ other files keep only a name, type, and size. SafeContext cannot upload, edit, d
 or share anything in Dropbox. Set `SAFECONTEXT_DROPBOX_APP_KEY` to your Dropbox app key
 (`SAFECONTEXT_DROPBOX_APP_SECRET` only if the app has a secret).
 
+PDFs are separate from mail and calendar. On the Files screen you add folders and
+individual PDFs. Those are the only PDFs whose text SafeContext may read. A folder
+covers the PDFs inside it. A PDF you add on its own stays readable if you later
+remove the folder. A shortcut that points out of an added folder is skipped.
+Every other file stays unread.
+
 **Dropped entirely** (only the message id and a reason are kept, so sync doesn't refetch it):
 
 - Spam, trash, drafts, chats, and Promotions/Social/Forums categories

@@ -5,14 +5,13 @@
 
 const MAIL_ROW_H = 74;      // must match .mrow height in mail.css
 const MAIL_PAGE = 150;
-const MAILBOXES = [
-  ["all", "All mail", "✉︎"], ["synced", "Synced", "✓"], ["not_synced", "Not synced", "⊘"],
-];
 const mail = {
   inited: false, view: "all", source: "", query: "", reasons: [], order: "newest",
   rows: [], next: null, loading: false, gen: 0, sel: -1, openKey: null,
   folders: null, coverage: [], reasonList: [], timer: null, lastCovSig: "",
+  pages: new Map(),  // first page of each list already seen (source, view, filter, order): shown at once on a switch
 };
+const MAIL_PAGES_KEPT = 12;
 
 const mailKey = (r) => `${r.type}:${r.source}:${r.type === "dropped" ? r.id : r.thread_id}`;
 
@@ -26,40 +25,74 @@ function mailInit() {
     if (row) mailSelect(Number(row.dataset.i), { open: true });
   });
   window.addEventListener("resize", () => state.view === "mail" && mailRender());
-  let t;
-  $("mail-q").addEventListener("input", () => {
-    clearTimeout(t);
-    t = setTimeout(() => { mail.query = $("mail-q").value.trim(); mailReload(); }, 220);
-  });
   // Filter menu (components.js): skip reasons only apply to Not synced, so picking one switches to it.
   const filter = $("mail-filter-list");
   $("mail-filter").addEventListener("sc-open", () => { filter.reset(); mailLoadReasons(); });
   filter.addEventListener("sc-filter-change", (e) => {
-    const { value, checked } = e.detail;
-    mail.reasons = checked ? [...new Set([...mail.reasons, value])] : mail.reasons.filter((g) => g !== value);
-    if (mail.view !== "not_synced") mailSetView("not_synced"); else mailReload();
+    const { category, value, checked } = e.detail;
+    if (category === "status") {  // one status at a time; unticking it goes back to all mail
+      mailSetView(checked ? value : "all");
+    } else {  // skip reasons only exist for Not synced, so picking one switches to it
+      mail.reasons = checked ? [...new Set([...mail.reasons, value])] : mail.reasons.filter((g) => g !== value);
+      if (mail.view !== "not_synced") mailSetView("not_synced"); else mailReload();
+    }
     mailRenderFilter();
   });
-  filter.addEventListener("sc-filter-clear", () => { mail.reasons = []; mailReload(); mailRenderFilter(); });
+  filter.addEventListener("sc-filter-clear", () => { mail.reasons = []; mailSetView("all"); mailRenderFilter(); });
   // Display menu: ordering
   $("mail-order").addEventListener("change", (e) => { mail.order = e.target.value; mailReload(); });
-  $("mail-tabs").addEventListener("keydown", (e) => {  // arrow keys move between tabs
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    const ids = MAILBOXES.map(([id]) => id);
-    const i = ids.indexOf(mail.view) + (e.key === "ArrowRight" ? 1 : -1);
+  document.addEventListener("keydown", mailKeys);
+  $("mail-back").addEventListener("click", mailCloseReader);
+  mailResizerInit();
+}
+
+// The divider between the message list and the reader: drag it, or focus it and use ← →, to set the list's
+// width; double-click resets. The width is remembered for next time where the window allows storage.
+function mailResizerInit() {
+  const panes = document.querySelector(".mail-panes"), bar = $("mail-resizer");
+  const KEY = "safecontext.mailListWidth", MIN = 260, READER_MIN = 320;
+  const clamp = (w) => Math.round(Math.max(MIN, Math.min(w, panes.clientWidth - READER_MIN)));
+  const current = () => panes.querySelector(".mail-list-wrap").getBoundingClientRect().width;
+  const set = (w, save) => {
+    w = clamp(w);
+    panes.style.setProperty("--mail-list-width", `${w}px`);
+    bar.setAttribute("aria-valuenow", String(w));
+    if (save) { try { localStorage.setItem(KEY, String(w)); } catch (e) { /* storage unavailable: keep it for this session */ } }
+  };
+  try { const saved = Number(localStorage.getItem(KEY)); if (saved) panes.style.setProperty("--mail-list-width", `${saved}px`); } catch (e) { /* none saved */ }
+  bar.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    const left = panes.getBoundingClientRect().left;
+    bar.setPointerCapture(e.pointerId);
+    bar.classList.add("dragging");
+    const move = (ev) => set(ev.clientX - left, false);
+    const up = (ev) => {
+      bar.classList.remove("dragging");
+      bar.removeEventListener("pointermove", move);
+      bar.removeEventListener("pointerup", up);
+      set(ev.clientX - left, true);
+    };
+    bar.addEventListener("pointermove", move);
+    bar.addEventListener("pointerup", up);
+  });
+  bar.addEventListener("keydown", (e) => {
+    const step = { ArrowLeft: -16, ArrowRight: 16 }[e.key];
+    if (!step) return;
     e.preventDefault();
     e.stopPropagation();
-    mailSetView(ids[(i + ids.length) % ids.length]);
-    $("mail-tabs").querySelector('[aria-selected="true"]').focus();
+    set(current() + step * (e.shiftKey ? 4 : 1), true);
   });
-  document.addEventListener("keydown", mailKeys);
+  bar.addEventListener("dblclick", () => {
+    panes.style.removeProperty("--mail-list-width");
+    try { localStorage.removeItem(KEY); } catch (e) { /* nothing saved */ }
+  });
 }
 
 // Called by show("mail") in app.js.
 function mailShow() {
   mailInit();
   mailPlaceholder();
-  if (!mail.rows.length) mailReload();
+  if (!mail.rows.length && !mail.loading) mailReload();  // openSource / mailSetView may have started it already
   mailRefreshMeta(true, mail.rows.length > 0);  // coming back: catch up on what synced while away
   clearInterval(mail.timer);
   mail.timer = setInterval(() => {
@@ -75,13 +108,16 @@ async function mailRefreshMeta(force, returning = false) {
   const syncing = mail.coverage.some((c) => c.syncing);
   if (!force && !syncing && Date.now() - (mail.metaAt || 0) < 15000) return;
   mail.metaAt = Date.now();
-  const [f, c] = await Promise.all([api().mail_folders(), api().mail_coverage(mail.source)]);
+  const source = mail.source;
+  const [f, c] = await Promise.all([api().mail_folders(), api().mail_coverage(source)]);
   if (f.ok) { mail.folders = f; mailRenderFolders(); }
-  if (c.ok) mail.coverage = c.sources;  // shown in the sync modal now, not on this page
+  if (source !== mail.source) return;  // switched sources meanwhile: this coverage is for the old one
+  if (c.ok) mail.coverage = c.sources;  // shown on the Sync status page, not on this one
   // Keep the list fresh as the store changes: while a sync fills it (only if the reader is at the
-  // top, not mid-scroll or searching), and always on coming back to the page.
+  // top, not mid-scroll or searching), and always on coming back to the page. Right after a switch
+  // (lastCovSig null) there's nothing to compare with, and the list is being loaded anyway.
   const sig = c.ok ? mailCovSig(c.sources) : "";
-  const changed = sig !== mail.lastCovSig;
+  const changed = mail.lastCovSig !== null && sig !== mail.lastCovSig;
   if (changed && (returning || (!force && $("mail-list").scrollTop < MAIL_ROW_H && !mail.query))) mailReload(true);
   mail.lastCovSig = sig;
   if (mail.view === "not_synced") mailLoadReasons();
@@ -99,71 +135,49 @@ function mailCounts() {
   return s ? { all: s.kept + s.dropped, synced: s.kept, not_synced: s.dropped } : f.mailboxes;
 }
 
-function mailIsMail() {
-  const s = mail.source && ((state.status && state.status.sources) || []).find((x) => x.id === mail.source);
-  return !s || (s.kinds || []).includes("message");
-}
-
 function mailPlaceholder() {
-  const q = $("mail-q");
-  q.disabled = mail.view === "not_synced";
-  q.placeholder = mail.view === "not_synced" ? "Not-synced items have no stored text to search"
-    : `Search ${mail.source ? sourceName(mail.source) : "synced mail"}`;
+  $("mail-q").placeholder = "Search";  // it searches all synced mail, whatever page or tab is showing
 }
 
-function mailBoxLabel(id, label) {
-  return id === "all" && !mailIsMail() ? "Everything" : label;
-}
-
+// The list's title is the source's name; All / Synced / Not synced are a Status filter (mailRenderFilter).
 function mailRenderFolders() {
-  // Tabs above the list. The count for each lives in its hover tooltip, not on the tab.
-  const counts = mailCounts();
-  const tip = { all: "items in total", synced: "items synced and scrubbed",
-    not_synced: "items skipped entirely. Only the date and reason are kept." };
-  $("mail-tabs").replaceChildren(...MAILBOXES.map(([id, label]) => {
-    const on = mail.view === id;
-    return el("button", { class: "mtab" + (on ? " active" : ""), role: "tab", "aria-selected": String(on),
-      tabindex: on ? "0" : "-1", title: `${n(counts[id])} ${tip[id]}`, onclick: () => mailSetView(id) },
-    mailBoxLabel(id, label));
-  }));
+  $("mail-list-title").textContent = mail.source ? sourceName(mail.source) : "All sources";
+  mailRenderFilter();
 }
 
-// ---------- sync modal (opened from the sync card in the sidebar) ----------
-// Shows coverage for every source, refreshed every few seconds while it's open.
-async function syncModalRefresh() {
+// ---------- Sync status page (account menu, or the sidebar sync card) ----------
+// Per-source sync details, refreshed every few seconds while the page is open.
+async function syncRefresh() {
   const c = await api().mail_coverage("");
-  if (c.ok) { mail.modalCoverage = c.sources; mailRenderCoverage(); }
+  if (c.ok) { mail.syncCoverage = c.sources; mailRenderCoverage(); }
 }
 
-function syncModalOpen() {
-  const d = $("sync-modal");
-  if (d.open) return;
-  syncModalRefresh();
-  d.showModal();
-  clearInterval(mail.modalTimer);
-  mail.modalTimer = setInterval(syncModalRefresh, 3000);
+function syncPageShow() {
+  syncRefresh();
+  clearInterval(mail.syncPageTimer);
+  mail.syncPageTimer = setInterval(() => {
+    if (state.view !== "sync") { clearInterval(mail.syncPageTimer); mail.syncPageTimer = null; return; }
+    syncRefresh();
+  }, 3000);
 }
 
-function syncModalInit() {
-  const card = $("sync"), d = $("sync-modal");
-  card.addEventListener("click", (e) => { if (!e.target.closest("#sync-now")) syncModalOpen(); });
+// The sidebar sync card (shown while syncing or when something needs attention) opens the page.
+function syncCardInit() {
+  const card = $("sync");
+  card.addEventListener("click", (e) => { if (!e.target.closest("#sync-now")) show("sync"); });
   card.addEventListener("keydown", (e) => {
-    if ((e.key === "Enter" || e.key === " ") && e.target === card) { e.preventDefault(); syncModalOpen(); }
+    if ((e.key === "Enter" || e.key === " ") && e.target === card) { e.preventDefault(); show("sync"); }
   });
-  $("sync-modal-close").addEventListener("click", () => d.close());
-  d.addEventListener("click", (e) => { if (e.target === d) d.close(); });  // click on the backdrop
-  d.addEventListener("close", () => { clearInterval(mail.modalTimer); mail.modalTimer = null; });
 }
-syncModalInit();  // this script runs at the end of <body>, so the elements already exist
+syncCardInit();  // this script runs at the end of <body>, so the elements already exist
 
 function mailRenderCoverage() {
-  const wrap = $("mail-coverage");
-  const list = mail.modalCoverage || [];
-  if (!list.length) { wrap.replaceChildren(el("p", { class: "muted" }, "Nothing connected yet.")); return; }
-  wrap.replaceChildren(...list.map(mailCoverageCard));
+  const list = mail.syncCoverage || [];
+  $("sync-page-coverage").replaceChildren(...(list.length ? list.map(mailCoverageCard)
+    : [el("p", { class: "muted" }, "Nothing connected yet.")]));
 }
 
-// One source in the sync modal: who and when, the counts, progress while syncing, then why things
+// One source on the Sync status page: who and when, the counts, progress while syncing, then why things
 // were skipped (click a reason to see those items) and what the counts cover. Everything shows at once.
 function mailCoverageCard(c) {
   const range = c.oldest_ms ? `${monthYear(c.oldest_ms)} – ${monthYear(c.newest_ms)}` : "Nothing synced yet";
@@ -207,7 +221,6 @@ function mailCoverageCard(c) {
     row.title = `Show “${group}” in Not synced`;
     row.tabIndex = 0;
     const go = () => {  // jump to that source's Not synced list, filtered to this reason
-      $("sync-modal").close();
       mail.source = c.id;
       show("mail");
       mail.reasons = [group];
@@ -232,12 +245,18 @@ async function mailLoadReasons() {
 }
 
 // The filter menu's categories, what's picked, and the count badge on its button.
+// Filter menu: Status (Synced or Not synced; neither = all mail) and, for Not synced, the skip reasons.
 function mailRenderFilter() {
   const list = $("mail-filter-list");
-  list.categories = [{ id: "reason", label: "Skip reason", hint: "Not synced", icon: "ban",
-    options: (mail.reasonList || []).map((x) => ({ value: x.group, label: x.group, count: x.count })) }];
-  list.selected = { reason: mail.reasons };
-  $("mail-filter").count = mail.reasons.length;
+  const counts = mail.folders ? mailCounts() : {};
+  list.categories = [
+    { id: "status", label: "Status", icon: "check",
+      options: [{ value: "synced", label: "Synced", count: counts.synced },
+        { value: "not_synced", label: "Not synced", count: counts.not_synced }] },
+    { id: "reason", label: "Skip reason", hint: "Not synced", icon: "ban",
+      options: (mail.reasonList || []).map((x) => ({ value: x.group, label: x.group, count: x.count })) }];
+  list.selected = { status: mail.view === "all" ? [] : [mail.view], reason: mail.reasons };
+  $("mail-filter").count = (mail.view === "all" ? 0 : 1) + mail.reasons.length;
 }
 
 function mailSetView(view) {
@@ -251,23 +270,48 @@ function mailSetView(view) {
 }
 
 // ---------- the list (virtualized) ----------
+// Which list is showing. Searches aren't kept: they change with every keystroke.
+function mailPageKey() {
+  return mail.query ? null : JSON.stringify([mail.source, mail.view, mail.reasons, mail.order]);
+}
+
+function mailRemember(key, rows, next) {
+  if (!key) return;
+  mail.pages.delete(key);  // re-insert so the Map's order is least recently used first
+  mail.pages.set(key, { rows, next });
+  while (mail.pages.size > MAIL_PAGES_KEPT) mail.pages.delete(mail.pages.keys().next().value);
+}
+
+// Load the list's first page. A new list (another source, tab, filter or order) changes on screen right
+// away: the first page from last time if there is one, otherwise placeholder rows. The fresh page replaces
+// it when it comes. keepSelection: refreshing the same list in place (a sync stored something).
 async function mailReload(keepSelection = false) {
   const gen = ++mail.gen;
   const prevKey = keepSelection && mail.sel >= 0 && mail.rows[mail.sel] ? mailKey(mail.rows[mail.sel]) : null;
+  const key = mailPageKey();
   mail.loading = true;
+  if (!keepSelection) {
+    const seen = key && mail.pages.get(key);
+    mail.rows = seen ? seen.rows : [];
+    mail.next = seen ? seen.next : null;
+    mail.sel = -1;
+    mail.error = "";
+    $("mail-list").scrollTop = 0;
+    mailRender();
+  }
   const r = await api().mail_list(mail.view, mail.source, mail.query, mail.reasons, null, MAIL_PAGE, mail.order);
   if (gen !== mail.gen) return;  // a newer request superseded this one
   mail.loading = false;
   mail.rows = r.ok ? r.rows : [];
   mail.next = r.ok ? r.next : null;
   mail.error = r.ok ? "" : r.error;
+  if (r.ok) mailRemember(key, r.rows, r.next);
   mail.sel = prevKey ? mail.rows.findIndex((x) => mailKey(x) === prevKey) : -1;
-  if (!keepSelection) $("mail-list").scrollTop = 0;
   mailRender();
 }
 
 async function mailMore() {
-  if (mail.loading || !mail.next) return;
+  if (mail.loading || !mail.next) return;  // also waits while a remembered first page is being refreshed
   const gen = mail.gen;
   mail.loading = true;
   mailRender();
@@ -282,10 +326,17 @@ async function mailMore() {
 function mailRender() {
   const list = $("mail-list"), spacer = $("mail-spacer");
   const total = mail.rows.length;
-  spacer.style.height = `${total * MAIL_ROW_H + (mail.next || mail.loading ? 48 : 0)}px`;
+  spacer.style.height = `${total * MAIL_ROW_H + (mail.next ? 48 : 0)}px`;
+  if (!total && mail.loading) {  // placeholder rows until the first page arrives
+    const rows = Math.min(12, Math.ceil((list.clientHeight || 600) / MAIL_ROW_H));
+    spacer.style.height = `${rows * MAIL_ROW_H}px`;
+    spacer.replaceChildren(...Array.from({ length: rows }, (_, i) => el("div", { class: "mrow skel", style: `top:${i * MAIL_ROW_H}px`, "aria-hidden": "true" },
+      el("div", { class: "skel-bar w30" }), el("div", { class: "skel-bar w70" }), el("div", { class: "skel-bar w90" }))));
+    return;
+  }
   if (!total) {
     const syncingFirst = mail.coverage.some((c) => !c.first_sync_done);
-    spacer.replaceChildren(el("div", { class: "empty" }, mail.loading ? "Loading…" : mail.error ||
+    spacer.replaceChildren(el("div", { class: "empty" }, mail.error ||
       (mail.query ? "No synced mail matches." : mail.view === "not_synced" ? "Nothing was skipped." :
         syncingFirst ? "Your mail is still being downloaded and scrubbed…" : "Nothing here yet.")));
     return;
@@ -295,7 +346,7 @@ function mailRender() {
   const last = Math.min(total, Math.ceil((top + h) / MAIL_ROW_H) + 8);
   const nodes = [];
   for (let i = first; i < last; i++) nodes.push(mailRow(mail.rows[i], i));
-  if (mail.next || mail.loading) {
+  if (mail.next) {  // more to load (a remembered first page being refreshed has its own `next`)
     nodes.push(el("div", { class: "mrow-loading", style: `top:${total * MAIL_ROW_H}px` }, "Loading more…"));
   }
   spacer.replaceChildren(...nodes);
@@ -311,32 +362,50 @@ function mailRow(r, i) {
     return el("div", attrs,
       el("div", { class: "mrow-top" },
         el("span", { class: "mrow-from" }, "Not synced", mailManySources() ? el("span", { class: "cnt" }, `· ${sourceName(r.source)}`) : null),
-        mailWhen(r.date)),
-      el("div", { class: "mrow-subj" }, el("span", {}, ri.label), el("span", { class: "badge skip" }, "⊘ skipped")),
-      el("div", { class: "mrow-snip" }, r.thread_title ? ["In “", richText(r.thread_title), "”"] : ri.why));
+        mailWhen(r)),
+      el("div", { class: "mrow-subj" }, el("span", {}, ri.label)),
+      el("div", { class: "mrow-bottom" },
+        el("span", { class: "mrow-snip" }, r.thread_title ? ["In “", richText(r.thread_title), "”"] : ri.why),
+        el("span", { class: "badge skip" }, "⊘ skipped")));
   }
   const isEvent = r.kind === "event";
   const badges = [];
   if (r.redacted) badges.push(el("span", { class: "badge", title: "Sensitive values blanked out on this Mac" }, `${n(r.redacted)} redacted`));
   if (r.dropped_in_thread) badges.push(el("span", { class: "badge skip", title: "Messages in this thread that weren't synced" }, `${r.dropped_in_thread} not synced`));
-  if (r.has_attachments) badges.push(el("span", { class: "badge att", title: "Attachment names only; contents are never downloaded" }, "📎"));
+  // Attachment tag hidden for now (design round 2): r.has_attachments still comes from the backend.
   return el("div", attrs,
     el("div", { class: "mrow-top" },
       el("span", { class: "mrow-from" }, isEvent ? sourceName(r.source) : senderName(r.sender),
         r.count > 1 ? el("span", { class: "cnt" }, String(r.count)) : null),
-      isEvent ? el("span", { class: "mrow-date" }, fmtDate(r.date, true)) : mailWhen(r.date)),
-    el("div", { class: "mrow-subj" }, el("span", {}, richText(r.title || "(no subject)")), ...badges),
-    el("div", { class: "mrow-snip" }, richText((r.snippet || "").replace(/\s+/g, " "))));
+      mailWhen(r, isEvent)),
+    el("div", { class: "mrow-subj" }, el("span", {}, richText(r.title || "(no subject)"))),
+    el("div", { class: "mrow-bottom" },
+      el("span", { class: "mrow-snip" }, richText((r.snippet || "").replace(/\s+/g, " "))), ...badges));
 }
 
-// The list's date column. Both the date and the time are rendered, stacked in one grid cell
-// (so the column is as wide as the longer one and nothing shifts); mail.css shows the time
-// while the row is hovered. Events already show their time, so they don't use this.
-function mailWhen(iso) {
+// The list's date column, as in Gmail: the time for today's mail ("2:15 PM"), otherwise the
+// short date ("Nov 24"); events always show date and time. The full date and time is a native
+// tooltip in Gmail's hover format, e.g. "Wed, Mar 4, 2026, 3:42 PM", which WebKit shows after
+// its own hover delay. The Mac's locale decides 12- or 24-hour time. All-day events show
+// their day (read in UTC, as in the event view) and no time.
+function mailWhen(r, withTime = false) {
+  const iso = r.date;
   if (!iso) return el("span", { class: "mrow-date" }, "");
-  const time = new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  return el("span", { class: "mrow-date when" },
-    el("span", { class: "when-d" }, fmtDate(iso)), el("span", { class: "when-t" }, time));
+  if (r.all_day) return el("span", { class: "mrow-date", title: mailDateTitle(r) }, fmtAllDay(iso));
+  const d = new Date(iso);
+  const text = !withTime && d.toDateString() === new Date().toDateString()
+    ? d.toLocaleString(undefined, { hour: "numeric", minute: "2-digit" })
+    : fmtDate(iso, withTime);
+  return el("span", { class: "mrow-date", title: mailDateTitle(r) }, text);
+}
+
+function mailDateTitle(r) {
+  if (r.all_day) {
+    const last = allDayLast(r.date, r.end);
+    return fmtAllDay(r.date, true) + (last ? ` – ${fmtAllDay(last, true)}` : "");
+  }
+  return new Date(r.date).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short",
+    day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function mailManySources() {
@@ -348,7 +417,7 @@ function mailSelect(i, { open = false, scroll = true } = {}) {
   mail.sel = i;
   if (scroll) {
     const list = $("mail-list");
-    const y = i * MAIL_ROW_H;
+    const y = i * MAIL_ROW_H + ($("mail-spacer").offsetTop || 0);  // rows start below the list's top inset
     if (y < list.scrollTop) list.scrollTop = y;
     else if (y + MAIL_ROW_H > list.scrollTop + list.clientHeight) list.scrollTop = y + MAIL_ROW_H - list.clientHeight;
   }
@@ -358,9 +427,114 @@ function mailSelect(i, { open = false, scroll = true } = {}) {
   else mail.openTimer = setTimeout(() => mailOpen(mail.rows[i], false), 140);  // keyboard: don't fetch every row flown past
 }
 
+// ---------- header search ----------
+// Typing shows matching mail in a dropdown under the field; nothing changes page until a result is
+// chosen. "Show all results" filters the mail list instead. Works from any page.
+const search = { results: [], active: -1, gen: 0, timer: null, text: "" };
+const SEARCH_LIMIT = 8;
+
+function searchInit() {
+  const q = $("mail-q"), box = $("search-results");
+  q.addEventListener("input", () => {
+    clearTimeout(search.timer);
+    const text = q.value.trim();
+    if (!text) { searchClose(); return; }
+    search.timer = setTimeout(() => searchRun(text), 150);
+  });
+  q.addEventListener("keydown", searchKeys);
+  q.addEventListener("focus", () => { if (q.value.trim() && search.text === q.value.trim()) box.hidden = false; });
+  q.addEventListener("blur", () => setTimeout(searchClose, 150));  // let a click on a result land first
+  box.addEventListener("mousedown", (e) => e.preventDefault());    // keep focus in the field while clicking
+}
+searchInit();  // this script runs at the end of <body>, so the elements already exist
+
+async function searchRun(text) {
+  const gen = ++search.gen;
+  const r = await api().mail_list("all", "", text, null, null, SEARCH_LIMIT, "newest");
+  if (gen !== search.gen) return;  // a newer search started meanwhile
+  search.text = text;
+  search.results = r.ok ? r.rows : [];
+  search.active = search.results.length ? 0 : -1;
+  searchRender(r.ok ? null : r.error);
+}
+
+function searchRender(error) {
+  const box = $("search-results");
+  const items = search.results.map((r, i) => el("button", {
+    class: "sr-item" + (i === search.active ? " active" : ""), type: "button", role: "option",
+    "aria-selected": String(i === search.active), onclick: () => searchChoose(i) },
+  sourceIcon(r.source, "sr-ico"),
+  el("span", { class: "sr-main" },
+    el("span", { class: "sr-title" }, richText(r.title || "(no subject)")),
+    el("span", { class: "sr-meta" }, r.kind === "event" ? sourceName(r.source) : senderName(r.sender), " · ", r.all_day ? fmtAllDay(r.date) : fmtDate(r.date)))));
+  const all = search.results.length;
+  const footer = el("button", { class: "sr-item sr-all" + (search.active === all ? " active" : ""), type: "button",
+    role: "option", "aria-selected": String(search.active === all), onclick: () => searchChoose(all) },
+  el("span", { class: "sr-main" }, `Show all results for “${search.text}”`));
+  box.replaceChildren(...(error ? [el("div", { class: "sr-empty" }, error)]
+    : items.length ? items : [el("div", { class: "sr-empty" }, "No mail matches.")]), footer);
+  box.hidden = false;
+  const active = box.querySelector(".active");
+  if (active) active.scrollIntoView({ block: "nearest" });
+}
+
+function searchClose() {
+  $("search-results").hidden = true;
+}
+
+function searchKeys(e) {
+  const box = $("search-results"), q = $("mail-q");
+  const count = search.results.length + 1;  // results plus "Show all results"
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (box.hidden || !search.text) return;
+    e.preventDefault();
+    search.active = (search.active + (e.key === "ArrowDown" ? 1 : -1) + count) % count;
+    searchRender();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (!q.value.trim()) return;
+    if (search.text !== q.value.trim()) { clearTimeout(search.timer); searchRun(q.value.trim()).then(() => searchChoose(search.active)); return; }
+    searchChoose(search.active < 0 ? search.results.length : search.active);
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!box.hidden) { searchClose(); return; }
+    q.value = "";
+    if (mail.query) { mail.query = ""; mailReload(); }  // clear a "Show all results" filter too
+    q.blur();
+  }
+}
+
+// Open the chosen result (or the filtered list for "Show all results"): only now does the page change.
+function searchChoose(i) {
+  const q = $("mail-q");
+  searchClose();
+  if (i >= search.results.length) {  // Show all results: filter the mail list by the search
+    mailInit();
+    if (state.view !== "mail") show("mail");
+    mail.query = search.text;
+    if (mail.view === "not_synced") mailSetView("all"); else mailReload();
+    q.blur();
+    return;
+  }
+  const r = search.results[i];
+  q.value = "";
+  q.blur();
+  search.text = "";
+  if (mail.query) mail.query = "";
+  if (mail.source !== r.source) openSource(r.source); else { mailInit(); show("mail"); mailReload(); }
+  mailOpen(r, true);
+}
+
 // ---------- the reader ----------
-function mailBackButton() {
-  return el("button", { class: "btn small mail-back", onclick: mailCloseReader }, "← Back to list");
+// Its title sits in the bar above it (same height as the tab row), with "Open in Gmail" (or Calendar) on the
+// right; the body scrolls below. mailReaderBar() with no title clears both.
+function mailReaderBar(title, link = "", source = "") {
+  $("mail-reader-title").replaceChildren(...(title ? [].concat(title) : []));
+  const btn = $("mail-open-orig");
+  btn.hidden = !link;
+  btn.onclick = link ? () => openLink(link) : null;
+  btn.replaceChildren(...(link ? [sourceIcon(source, "btn-ico"), OPEN_LABELS[source] || "Open original"] : []));
 }
 
 function mailCloseReader() {
@@ -376,21 +550,15 @@ async function mailOpen(r, show = true) {
   mail.openKey = key;
   const reader = $("mail-reader");
   reader.scrollTop = 0;
-  if (r.type === "dropped") { reader.replaceChildren(mailBackButton(), mailDroppedDetail(r)); return; }
+  if (r.type === "dropped") { mailReaderBar(["Not synced: ", r.reason_info.label], r.link, r.source); reader.replaceChildren(mailDroppedDetail(r)); return; }
   const t = await api().mail_thread(r.source, r.thread_id);
   if (mail.openKey !== key) return;
-  if (!t.ok) { reader.replaceChildren(mailBackButton(), el("div", { class: "empty" }, t.error)); return; }
+  if (!t.ok) { mailReaderBar(); reader.replaceChildren(el("div", { class: "empty" }, t.error)); return; }
   const items = t.entries.filter((e) => e.type === "item");
-  const skipped = t.entries.length - items.length;
   const first = items[0] || {};
-  const reds = items.reduce((a, m) => a + Object.values(m.redactions || {}).reduce((x, y) => x + y, 0), 0);
-  const sub = [`${items.length} ${items.length === 1 ? "message" : "messages"}`];
-  if (skipped) sub.push(`${skipped} not synced`);
-  if (reds) sub.push(`${n(reds)} ${reds === 1 ? "value" : "values"} redacted`);
-  sub.push(sourceName(r.source));
-  reader.replaceChildren(mailBackButton(),
-    el("h2", { class: "mr-subj" }, richText(first.title || "(no subject)")),
-    el("p", { class: "mr-sub" }, sub.join(" · ")),
+  const link = (items.find((m) => m.link) || t.entries.find((e) => e.link) || {}).link || "";  // the thread in Gmail
+  mailReaderBar(richText(first.title || "(no subject)"), link, r.source);
+  reader.replaceChildren(
     ...t.entries.map((e) => e.type === "dropped" ? mailSkippedCard(e) : e.kind === "event" ? eventCard(e) : mailMessageCard(e)));
 }
 
@@ -417,8 +585,7 @@ function mailSkippedCard(d) {
     el("div", { class: "msg-head" },
       el("div", {},
         el("div", { class: "msg-from" }, "⊘ Not synced · ", ri.label),
-        el("div", { class: "msg-meta" }, d.date ? fmtDate(d.date, true) : "Date unknown")),
-      d.link ? el("button", { class: "btn small", onclick: () => openLink(d.link) }, "Open in Gmail") : null),
+        el("div", { class: "msg-meta" }, d.date ? fmtDate(d.date, true) : "Date unknown"))),
     el("p", { class: "skip-why" }, ri.why),
     el("p", { class: "skip-note" }, "Its sender, subject and text were never stored on this Mac."));
 }
@@ -426,8 +593,6 @@ function mailSkippedCard(d) {
 function mailDroppedDetail(d) {
   const ri = d.reason_info;
   return el("div", { class: "mr-dropped" },
-    el("h2", { class: "mr-subj" }, "Not synced: ", ri.label),
-    el("p", { class: "mr-sub" }, sourceName(d.source)),
     el("dl", { class: "details" },
       el("dt", {}, "Date"), el("dd", {}, d.date ? fmtDate(d.date, true) : "Unknown"),
       el("dt", {}, "Why"), el("dd", {}, ri.why || ri.label),
@@ -440,36 +605,17 @@ function mailDroppedDetail(d) {
 
 // ---------- keyboard ----------
 function mailKeys(e) {
-  const q = $("mail-q");
-  if (state.view === "mail" && e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "k"
-      && !document.querySelector("dialog[open]")) {  // ⌘K: jump to search
-    e.preventDefault();
-    if (!q.disabled) { q.focus(); q.select(); }
-    return;
-  }
+  const q = $("mail-q");  // ⌘K is handled app-wide in app.js (search is in the header)
   if (state.view !== "mail" || e.metaKey || e.ctrlKey || e.altKey) return;
   if (document.querySelector("dialog[open]")) return;
   if (document.activeElement && document.activeElement.closest && document.activeElement.closest("sc-menu")) return;  // a menu has the keys
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName);
+  if (typing) return;  // the search field's own keys are handled by searchKeys
   if (e.key === "Escape") {
-    if (document.activeElement === q) {
-      if (q.value) { q.value = ""; mail.query = ""; mailReload(); }
-      q.blur();
-      $("mail-list").focus();
-    } else if (document.querySelector(".mail-panes.reading")) {
-      mailCloseReader();
-    }
+    if (document.querySelector(".mail-panes.reading")) mailCloseReader();
     return;
   }
-  if (typing) {
-    if (document.activeElement === q && (e.key === "ArrowDown" || e.key === "Enter") && mail.rows.length) {
-      e.preventDefault();
-      $("mail-list").focus();
-      mailSelect(Math.max(0, mail.sel), { open: e.key === "Enter" });
-    }
-    return;
-  }
-  if (e.key === "/") { e.preventDefault(); if (!q.disabled) q.focus(); return; }
+  if (e.key === "/") { e.preventDefault(); q.focus(); return; }
   if (e.key === "f" || e.key === "F") { e.preventDefault(); $("mail-filter").show(); return; }
   const inReader = $("mail-reader").contains(document.activeElement);
   const step = { j: 1, k: -1, ...(inReader ? {} : { ArrowDown: 1, ArrowUp: -1 }) }[e.key];  // arrows scroll the reader

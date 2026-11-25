@@ -21,9 +21,11 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from .. import __version__, auth, env, migrate, review, updater as upd
+from .. import __version__, auth, env, migrate, permlog, review, updater as upd
+from ..scrub.controls import PatternError, add_pattern, builtin_rules, delete_pattern, load_patterns, preview, set_enabled
 from ..errors import NeedsPermission
 from ..grok_link import CONNECTOR_PAGES, GrokLink
+from ..pdf_selection import PdfSelection, PdfSelectionError
 from ..sources import Sources, default_sources
 from ..store import DEFAULT_DATA_DIR, GMAIL, Store
 from ..sync import SyncResult, read_heartbeat
@@ -79,6 +81,8 @@ def _safe(fn: Callable) -> Callable:
             return {"ok": False, "error": e.message, "needs_permission": True, "requirement": e.requirement}
         except auth.NotConfigured as e:
             return {"ok": False, "error": str(e)}
+        except PdfSelectionError as e:
+            return {"ok": False, "error": str(e)}
         except Exception as e:  # never leak a traceback (or mail content) into the UI
             log.exception("app call failed: %s", fn.__name__)
             return {"ok": False, "error": f"Something went wrong ({type(e).__name__})."}
@@ -87,6 +91,8 @@ def _safe(fn: Callable) -> Callable:
 
 _NOOP_REVOKE = lambda account, revoke=True: None  # noqa: E731  (demo mode: no Google to revoke at)
 
+
+META_SCAN_FACTS = "review_scan_facts"  # what the last opt-in scan saw (names and rules only)
 
 class Backend:
     """Public methods are callable from the window. Everything else is underscore-prefixed
@@ -101,14 +107,20 @@ class Backend:
                  imessage_options: Optional[Dict[str, Any]] = None,
                  updater: Optional[upd.Updater] = None,
                  review_home: Optional[Path] = None,
-                 auto_sync: bool = True) -> None:
+                 auto_sync: bool = True,
+                 pdf_chooser: Optional[Callable[[str], Any]] = None) -> None:
         self._demo = demo
         self._data_dir = Path(data_dir or DEFAULT_DATA_DIR)
         # Where the opt-in review scan looks for other AI tools' config. Demo mode never looks
         # in the real home folder: it gets a fixture (demo.py) or an empty folder.
         self._review_home = Path(review_home) if review_home else (
             self._data_dir / "demo-home" if demo else Path.home())
+        # Where the review looks for installed AI apps (existence of the .app only).
+        self._app_roots = [self._review_home / "Applications"] if (review_home or demo) else [
+            Path("/Applications"), Path.home() / "Applications"]
         self._store = Store(self._data_dir / "mail.db")
+        # Folders and PDFs the user opts in. Text may be read only from those PDFs.
+        self._pdfs = PdfSelection(self._store, chooser=pdf_chooser)
         self._connect_fn = connect_fn  # None: the real Google sign-in
         self._sources: Sources = default_sources(
             self._store, gmail_factory=gmail_factory,
@@ -235,6 +247,36 @@ class Backend:
         self._last_result.pop(source_id, None)
         return {"wiped": bool(wipe)}
 
+    # --- files: the only PDFs whose text may be read ---------------------------
+    def _pdf_payload(self) -> Dict[str, Any]:
+        return {"entries": self._pdfs.entries(), "pdfs": self._pdfs.readable_pdfs()}
+
+    @_safe
+    def pdf_selection(self) -> Dict[str, Any]:
+        """Folders and files the user added, and the PDFs whose text may be read."""
+        return self._pdf_payload()
+
+    @_safe
+    def pdf_add_folder(self, path: str) -> Dict[str, Any]:
+        return {"entry": self._pdfs.add_folder(path), **self._pdf_payload()}
+
+    @_safe
+    def pdf_add_file(self, path: str) -> Dict[str, Any]:
+        return {"entry": self._pdfs.add_file(path), **self._pdf_payload()}
+
+    @_safe
+    def pdf_remove(self, path: str) -> Dict[str, Any]:
+        self._pdfs.remove(path)
+        return self._pdf_payload()
+
+    @_safe
+    def pdf_pick(self, kind: str = "folder") -> Dict[str, Any]:
+        """Open the folder or PDF panel and opt in what the user picks."""
+        entries = self._pdfs.pick(kind)
+        if not entries:
+            return {"cancelled": True}
+        return {"entries": entries, **self._pdf_payload()}
+
     # --- Gmail (the v1 calls the onboarding screen and Settings use) -----------
     @_safe
     def connect(self, mode: str = "full", email: Optional[str] = None) -> Dict[str, Any]:
@@ -253,6 +295,8 @@ class Backend:
     @_safe
     def window_focused(self) -> Dict[str, Any]:
         """The window came forward: check any source not checked in the last couple of minutes."""
+        if self._updater is not None:
+            self._updater.on_focus()  # and for a new version, if the last check is 15+ min old
         return {"started": self._auto_sync(MIN_SYNC_GAP_SECONDS) if self._auto_sync_on else []}
 
     def _start_sync(self, source_id: str) -> bool:
@@ -407,6 +451,49 @@ class Backend:
                 "dropped": dict(sorted(dropped.items(), key=lambda kv: -kv[1])), "redacted": redacted,
                 "by_source": by_source}
 
+    # --- scrubber controls (file and PDF text extracted on this Mac) -------------
+    def _scrubber_view(self) -> Dict[str, Any]:
+        return {"builtin": builtin_rules(),
+                "patterns": [row.as_dict() for row in load_patterns(self._store)]}
+
+    @_safe
+    def scrubber_rules(self) -> Dict[str, Any]:
+        """Built-in rules, which always run, and the patterns the user added for files."""
+        return self._scrubber_view()
+
+    @_safe
+    def scrubber_add(self, name: str, pattern: str) -> Dict[str, Any]:
+        try:
+            add_pattern(self._store, name or "", pattern or "")
+        except PatternError as e:
+            return {"ok": False, "error": e.message}
+        return self._scrubber_view()
+
+    @_safe
+    def scrubber_set_enabled(self, pattern_id: str, enabled: bool) -> Dict[str, Any]:
+        try:
+            set_enabled(self._store, pattern_id or "", bool(enabled))
+        except PatternError as e:
+            return {"ok": False, "error": e.message}
+        return self._scrubber_view()
+
+    @_safe
+    def scrubber_delete(self, pattern_id: str) -> Dict[str, Any]:
+        try:
+            delete_pattern(self._store, pattern_id or "")
+        except PatternError as e:
+            return {"ok": False, "error": e.message}
+        return self._scrubber_view()
+
+    @_safe
+    def scrubber_preview(self, text: str) -> Dict[str, Any]:
+        """Show what a sample would look like after scrubbing. The sample is not saved."""
+        try:
+            cleaned, counts, truncated = preview(self._store, text if isinstance(text, str) else "")
+        except PatternError as e:
+            return {"ok": False, "error": e.message}
+        return {"text": cleaned, "redacted": counts, "truncated": truncated}
+
     # --- MCP link (shown as "MCP"; the grok_* names are kept from "Use in Grok") ----
     @_safe
     def grok_status(self) -> Dict[str, Any]:
@@ -480,13 +567,29 @@ class Backend:
 
     # --- AI access review (review.py) --------------------------------------------------
     def _review_data(self) -> Dict[str, Any]:
-        rows = self._source_statuses()
-        for x in rows:
-            if x["id"] == GMAIL:
-                x["mode"] = self._store.state(GMAIL).get("sync_mode") or "full"
         answers = review.load_answers(self._store.get_meta(review.META_ANSWERS))
         scan = review.scan_ai_configs(self._review_home) if self._store.get_meta(review.META_SCAN) == "1" else None
-        return review.build_review(rows, self._grok.status(), answers, scan)
+        if scan is not None:
+            self._log_scan_changes(scan)
+        status = self._grok.status()  # also logs connect requests that went unanswered
+        since = int(time.time() * 1000) - review.REQUEST_WINDOW_DAYS * review.DAY_MS
+        return review.build_review(status, answers, scan, events=self._grok.permlog.since(since, "connect"),
+                                   apps=review.installed_apps(self._app_roots))
+
+    def _log_scan_changes(self, scan: Dict[str, Any]) -> None:
+        """Compare with what the last scan saw and log what appeared or went. The first scan only
+        sets the baseline. Keeps names and rules only, like the scan itself."""
+        facts = permlog.scan_facts(scan)
+        raw = self._store.get_meta(META_SCAN_FACTS)
+        if raw is not None:
+            try:
+                before = set(json.loads(raw))
+            except (ValueError, TypeError):
+                before = set()
+            for note in permlog.scan_changes(before, facts)[:20]:
+                self._grok.permlog.record("scan_change", note=note)
+        if raw is None or set(json.loads(raw or "[]")) != facts:
+            self._store.set_meta(META_SCAN_FACTS, json.dumps(sorted(facts)))
 
     @_safe
     def review(self) -> Dict[str, Any]:
@@ -508,8 +611,23 @@ class Backend:
     @_safe
     def review_set_scan(self, on: bool) -> Dict[str, Any]:
         """Opt in or out of reading Claude Desktop's and Claude Code's config files."""
+        was = self._store.get_meta(review.META_SCAN) == "1"
         self._store.set_meta(review.META_SCAN, "1" if on else None)
+        if bool(on) != was:
+            self._grok.permlog.record("scan", "on" if on else "off")
+            self._store.set_meta(META_SCAN_FACTS, None)  # the next scan sets a fresh baseline
         return self._review_data()
+
+    @_safe
+    def permission_log(self) -> Dict[str, Any]:
+        """The permission log, newest first (permlog.py). Kept only on this Mac."""
+        self._grok.status()  # log any request that expired while nobody looked
+        return {"entries": self._grok.permlog.entries(200)}
+
+    @_safe
+    def permission_log_clear(self) -> Dict[str, Any]:
+        self._grok.permlog.clear()
+        return {"entries": []}
 
     @_safe
     def review_open(self, check_id: str) -> Dict[str, Any]:
@@ -569,7 +687,7 @@ class Backend:
 
     @_safe
     def update_check(self) -> Dict[str, Any]:
-        return self._need_updater().check()
+        return self._need_updater().check(manual=True)
 
     @_safe
     def update_set_auto(self, on: bool) -> Dict[str, Any]:
@@ -586,10 +704,50 @@ class Backend:
         except upd.UpdateError as e:
             return {"ok": False, "error": str(e)}
 
+    @_safe
+    def update_queue(self) -> Dict[str, Any]:
+        """Install when I quit: download and verify now, swap after the user quits (no reopen)."""
+        try:
+            return self._need_updater().queue_for_quit()
+        except upd.UpdateError as e:
+            return {"ok": False, "error": str(e)}
+
+    @_safe
+    def update_cancel_queue(self) -> Dict[str, Any]:
+        return self._need_updater().cancel_quit_install()
+
+    @_safe
+    def update_set_on_quit(self, on: bool) -> Dict[str, Any]:
+        return self._need_updater().set_install_on_quit(bool(on))
+
+    @_safe
+    def update_later(self) -> Dict[str, Any]:
+        return self._need_updater().later()
+
+    @_safe
+    def update_skip(self) -> Dict[str, Any]:
+        try:
+            return self._need_updater().skip()
+        except upd.UpdateError as e:
+            return {"ok": False, "error": str(e)}
+
+    @_safe
+    def update_unskip(self) -> Dict[str, Any]:
+        return self._need_updater().unskip()
+
+    def _on_window_closing(self) -> None:
+        """The window is closing (red button or ⌘Q): start an "install when I quit" swap, if one is staged.
+        Not exposed to the page (leading underscore)."""
+        if self._updater is not None:
+            try:
+                self._updater.on_quit()
+            except Exception:
+                logging.getLogger("safecontext.app").exception("install on quit failed")
+
     def _restart_into(self, plan: upd.SwapPlan) -> None:
         assert self._updater is not None
         self._updater.launch_helper(plan)
-        if self._quit_fn is not None:
+        if self._quit_fn is not None and not self._updater.is_demo:  # the demo stays open
             self._quit_fn()
 
     @_safe

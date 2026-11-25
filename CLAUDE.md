@@ -21,6 +21,7 @@ There are three coordinator sessions. Each one works only in its own area and ha
 - The area's coordinator reviews the work and merges it into `main`.
 - Push to GitHub, deploy, or create or change outside resources only when the user says so in that session.
 - Archive a session once its branch is merged and pushed.
+- Human contributors (James, Pouyan) merge their own pull requests straight into `main` for now, with no coordinator review. Before starting work, and again before pushing, fetch and merge `origin/main`, then run the tests. If their changes break something or touch your area in a way that matters (privacy wording, a release), tell the owning coordinator.
 
 ## Manual steps for the user
 

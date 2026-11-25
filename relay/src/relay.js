@@ -12,7 +12,9 @@
 //
 // Hard rules, kept by this file:
 //   * No request or response body is ever stored or logged. Storage holds auth metadata only:
-//     a hash of the Mac's secret, OAuth clients, hashes of tokens/codes, a pending approval, one setting.
+//     a hash of the Mac's secret, OAuth clients, hashes of tokens/codes, a pending approval, one setting,
+//     and one grant per sign-in (grant:<gid>: client name, app class, created and last-used times;
+//     last-used is written at most once an hour). Tokens carry their gid across refresh rotation.
 //   * No console logging at all (and Workers observability is off in wrangler.toml).
 //   * Read-only tools only, by allowlist; everything else is refused here and again on the Mac.
 //   * Per-link rate limits, size limits and timeouts.
@@ -30,9 +32,17 @@ const APPROVAL_TTL_MS = 5 * 60_000;
 const CODE_TTL_MS = 5 * 60_000;
 const ACCESS_TTL_S = 30 * 86_400;
 const REFRESH_TTL_S = 180 * 86_400;
+// After a refresh token is rotated, the old refresh token and access token keep working this long.
+// AI apps run several workers per connector: two of them refreshing with the same token at once, or
+// a retry after a lost response, must not end in invalid_grant (which makes the app sign in again).
+export const REFRESH_GRACE_S = 120;
+const LAST_USED_EVERY_MS = 3600_000;  // a grant's last_used_ms is written at most once an hour
+const CLIENT_IDLE_S = 3600;           // a registered client with no grants this old may be replaced
 const MAX_CLIENTS = 20;
 // [capacity, refill seconds for a full bucket] per link
-const LIMITS = { mcp: [120, 60], auth: [20, 60], connect: [10, 60], denied: [60, 60] };
+const LIMITS = { mcp: [120, 60], auth: [20, 60], token: [30, 60], connect: [10, 60], denied: [60, 60] };
+const GID_RE = /^[A-Za-z0-9_-]{22}$/;
+const APP_LABEL = { grok: "Grok", claude: "Claude" };
 export const TOOLS = new Set([
   "search", "read", "list_items", "list_sources",
   // Gmail-shaped aliases. The Mac lists them only while Gmail is connected;
@@ -118,7 +128,7 @@ export class LinkRelay extends DurableObject {
       }
     } catch {
       // Deliberately no logging: the error could carry request content.
-      return json({ error: "server_error" }, 500);
+      return json({ error: "server_error" }, 500, { "Cache-Control": "no-store" });
     }
   }
 
@@ -144,7 +154,10 @@ export class LinkRelay extends DurableObject {
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ since: Date.now() });
-    server.send(JSON.stringify({ t: "hello", grants: await this.grantCount() }));
+    await this.migrateLegacy();
+    await this.purgeExpired();
+    const list = await this.grantList();
+    server.send(JSON.stringify({ t: "hello", grants: list.length, list }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -181,6 +194,13 @@ export class LinkRelay extends DurableObject {
       case "settings":
         await this.ctx.storage.put("settings", { link_only: msg.link_only === true });
         return;
+      case "revoke": {
+        // Revoke one sign-in: its access and refresh tokens stop working at once.
+        const gone = typeof msg.id === "string" && GID_RE.test(msg.id) ? await this.revokeGrant(msg.id) : null;
+        if (gone) this.tell({ t: "grant_event", kind: "revoked", id: msg.id, client: gone.client || "" }, ws);
+        await this.pushGrants(ws);  // an unknown id just gets the current list
+        return;
+      }
       case "revoke_all":
         // The Mac regenerated its link: forget everything this link ever held.
         await this.ctx.storage.deleteAll();
@@ -206,6 +226,12 @@ export class LinkRelay extends DurableObject {
       this.pending.delete(id);
       p.resolve(null);
     }
+  }
+
+  // Sends a frame to the Mac if one is connected. Never throws.
+  tell(frame, ws = this.mac()) {
+    if (!ws) return;
+    try { ws.send(JSON.stringify(frame)); } catch {}
   }
 
   askMac(payload) {
@@ -279,7 +305,7 @@ export class LinkRelay extends DurableObject {
       if (v) headers[h] = v.slice(0, 200);
     }
     const started = Date.now();
-    const answer = await this.askMac({ t: "http", method: "POST", headers, body });
+    const answer = await this.askMac({ t: "http", method: "POST", headers, body, client: who.client, grant: who.gid });
     const latencyMs = Date.now() - started;
     if (answer === null || answer === "timeout") {
       await stat("mac_offline", answer === null ? "offline" : "timeout", { latencyMs });
@@ -302,16 +328,27 @@ export class LinkRelay extends DurableObject {
     return new Response([202, 204, 205, 304].includes(status) ? null : out, { status, headers: outHeaders });
   }
 
-  // null when the request may not use MCP; otherwise { app }, the app class for stats.
+  // null when the request may not use MCP; otherwise { app, client, gid }: the app class for stats,
+  // the sign-in's display name and its grant id (null for link-only requests and pre-grant tokens).
   async authorized(request) {
     const token = bearer(request);
     if (token) {
       const rec = await this.ctx.storage.get(`at:${await sha256(token)}`);
       if (!rec || rec.exp <= now()) return null;
-      return { app: rec.app || await this.appOfClient(rec.client_id) };
+      const app = rec.app || await this.appOfClient(rec.client_id);
+      if (rec.gid) {
+        const g = await this.ctx.storage.get(`grant:${rec.gid}`);
+        if (!g) return null;  // revoked
+        if (Date.now() - (g.last_used_ms || 0) >= LAST_USED_EVERY_MS) {
+          await this.ctx.storage.put(`grant:${rec.gid}`, { ...g, last_used_ms: Date.now() });
+        }
+        return { app, client: g.client || "", gid: rec.gid };
+      }
+      return { app, client: grantLabel(await this.client(rec.client_id), app), gid: null };
     }
     const settings = await this.ctx.storage.get("settings");
-    return settings && settings.link_only ? { app: "other" } : null;  // the user chose "connect with just the link"
+    // the user chose "connect with just the link"
+    return settings && settings.link_only ? { app: "other", client: "", gid: null } : null;
   }
 
   async appOfClient(clientId) {
@@ -383,9 +420,18 @@ export class LinkRelay extends DurableObject {
     }
     const existing = await this.ctx.storage.list({ prefix: "client:" });
     if (existing.size >= MAX_CLIENTS) {
-      // Never evict a working client. Regenerating the link in the app clears them all.
-      return json({ error: "invalid_client_metadata",
-        error_description: "Too many connectors for this link. Regenerate the link in SafeContext." }, 400);
+      // Apps may register again on every sign-in. Replace the oldest client that holds no sign-in
+      // and is over an hour old (so one mid-sign-in is safe); never evict a working client.
+      const inUse = new Set();
+      const t = now();
+      for (const v of (await this.ctx.storage.list({ prefix: "rt:" })).values()) if (v.exp > t) inUse.add(v.client_id);
+      const idle = [...existing.values()].filter((c) => !inUse.has(c.client_id) && c.created < t - CLIENT_IDLE_S)
+        .sort((a, b) => a.created - b.created);
+      if (!idle.length) {
+        return json({ error: "invalid_client_metadata",
+          error_description: "Too many connectors for this link. Regenerate the link in SafeContext." }, 400);
+      }
+      await this.ctx.storage.delete(`client:${idle[0].client_id}`);
     }
     const client = {
       client_id: `c_${randomId(16)}`,
@@ -415,8 +461,7 @@ export class LinkRelay extends DurableObject {
     if (q.get("response_type") !== "code") return fail("unsupported_response_type");
     const challenge = q.get("code_challenge") || "";
     if (q.get("code_challenge_method") !== "S256" || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge)) return fail("invalid_request");
-    const resource = q.get("resource");
-    if (resource && resource !== ctx.resource) return fail("invalid_target");
+    if (!sameResource(q.get("resource"), ctx)) return fail("invalid_target");
 
     if (!this.mac()) {
       return page("Open SafeContext on your Mac",
@@ -476,7 +521,7 @@ export class LinkRelay extends DurableObject {
 
   async token(request, ctx) {
     if (request.method !== "POST") return json({ error: "invalid_request" }, 405, { Allow: "POST" });
-    if (!this.take("auth")) return json({ error: "slow_down" }, 429);
+    if (!this.take("token")) return json({ error: "slow_down" }, 429, { "Cache-Control": "no-store", "Retry-After": "10" });
     const text = await request.text();
     if (text.length > 8192) return tokenError("invalid_request");
     let p;
@@ -485,11 +530,18 @@ export class LinkRelay extends DurableObject {
     } else {
       p = Object.fromEntries(new URLSearchParams(text));
     }
-    const client = await this.client(p.client_id);
-    if (!client) return tokenError("invalid_client", 401);
-    if (p.resource && p.resource !== ctx.resource) return tokenError("invalid_target");
+    if (!p || typeof p !== "object") return tokenError("invalid_request");
+    // A public client names itself in the body; some send it as HTTP Basic (id, empty secret) instead.
+    const given = typeof p.client_id === "string" ? p.client_id : basicClientId(request);
+    let client = null;
+    if (given !== null) {
+      client = await this.client(given);
+      if (!client) return tokenError("invalid_client", 401);
+    }
+    if (!sameResource(p.resource, ctx)) return tokenError("invalid_target");
 
     if (p.grant_type === "authorization_code") {
+      if (!client) return tokenError("invalid_client", 401);
       if (typeof p.code !== "string" || typeof p.code_verifier !== "string") return tokenError("invalid_request");
       const key = `code:${await sha256(p.code)}`;
       const rec = await this.ctx.storage.get(key);
@@ -500,7 +552,12 @@ export class LinkRelay extends DurableObject {
         return tokenError("invalid_grant");
       }
       const app = appOf(rec.redirect, client.client_name);
-      const issued = await this.issue(client.client_id, app);
+      const gid = randomId(16);
+      const grant = { client_id: client.client_id, client: grantLabel(client, app), app,
+        created_ms: Date.now(), last_used_ms: null };
+      const issued = await this.issue(client.client_id, app, gid, grant);
+      this.tell({ t: "grant_event", kind: "created", id: gid, client: grant.client });
+      await this.pushGrants();
       await this.stat(ctx.link, { event: "oauth_connect", outcome: "ok", app });
       return json(issued, 200, { "Cache-Control": "no-store" });
     }
@@ -508,44 +565,128 @@ export class LinkRelay extends DurableObject {
       if (typeof p.refresh_token !== "string") return tokenError("invalid_request");
       const key = `rt:${await sha256(p.refresh_token)}`;
       const rec = await this.ctx.storage.get(key);
-      if (!rec || rec.exp < now() || rec.client_id !== client.client_id) return tokenError("invalid_grant");
-      await this.ctx.storage.delete([key, `at:${rec.at}`]);  // rotate
+      const t = now();
+      if (!rec || rec.exp < t || (client && rec.client_id !== client.client_id)) return tokenError("invalid_grant");
+      if (!client) {
+        client = await this.client(rec.client_id);
+        if (!client) return tokenError("invalid_grant");
+      }
       const app = rec.app || await this.appOfClient(client.client_id);
-      return json(await this.issue(client.client_id, app), 200, { "Cache-Control": "no-store" });
+      let gid = rec.gid, grant = null;
+      if (gid) {
+        grant = await this.ctx.storage.get(`grant:${gid}`);
+        if (!grant) return tokenError("invalid_grant");  // revoked
+      } else {
+        // A token from before grant ids: give its sign-in one now.
+        gid = randomId(16);
+        grant = { client_id: client.client_id, client: grantLabel(client, app), app,
+          created_ms: (rec.exp - REFRESH_TTL_S) * 1000, last_used_ms: null };
+      }
+      if (rec.used === undefined) {
+        // Rotate, but let the old pair live for REFRESH_GRACE_S. Within that window the same refresh
+        // token is accepted again (concurrent refresh, or a retry after a lost response) and gets its
+        // own fresh pair in the same grant; after it, the old token is gone.
+        const until = Math.min(rec.exp, t + REFRESH_GRACE_S);
+        const writes = { [key]: { ...rec, gid, used: t, exp: until } };
+        const at = rec.at ? await this.ctx.storage.get(`at:${rec.at}`) : null;
+        if (at) writes[`at:${rec.at}`] = { ...at, gid, exp: Math.min(at.exp, until) };
+        await this.ctx.storage.put(writes);
+      }
+      const issued = await this.issue(client.client_id, app, gid, rec.gid ? null : grant);
+      this.tell({ t: "grant_event", kind: "refreshed", id: gid, client: grant.client || "" });
+      if (!rec.gid) await this.pushGrants();
+      return json(issued, 200, { "Cache-Control": "no-store" });
     }
     return tokenError("unsupported_grant_type");
   }
 
-  // `app` is "grok", "claude" or "other" (for stats), kept with the token hashes.
-  async issue(clientId, app) {
-    await this.purgeExpired();
+  // `app` is "grok", "claude" or "other" (for stats), kept with the token hashes. `gid` is the
+  // sign-in (grant) the tokens belong to; `grant` is its record when it is new.
+  async issue(clientId, app, gid, grant = null) {
+    const expired = await this.purgeExpired();
     const access = randomId(32), refresh = randomId(32);
     const atHash = await sha256(access);
-    await this.ctx.storage.put({
-      [`at:${atHash}`]: { client_id: clientId, app, exp: now() + ACCESS_TTL_S },
-      [`rt:${await sha256(refresh)}`]: { client_id: clientId, app, at: atHash, exp: now() + REFRESH_TTL_S },
-    });
-    const ws = this.mac();
-    if (ws) { try { ws.send(JSON.stringify({ t: "grants", n: await this.grantCount() })); } catch {} }
+    const writes = {
+      [`at:${atHash}`]: { client_id: clientId, app, gid, exp: now() + ACCESS_TTL_S },
+      [`rt:${await sha256(refresh)}`]: { client_id: clientId, app, gid, at: atHash, exp: now() + REFRESH_TTL_S },
+    };
+    if (grant) writes[`grant:${gid}`] = grant;
+    await this.ctx.storage.put(writes);
+    if (expired.length) {
+      for (const g of expired) this.tell({ t: "grant_event", kind: "expired", id: g.id, client: g.client });
+      await this.pushGrants();
+    }
     return { access_token: access, token_type: "Bearer", expires_in: ACCESS_TTL_S, refresh_token: refresh, scope: SCOPE };
   }
 
-  async grantCount() {
-    const t = now();
-    let n = 0;
-    for (const v of (await this.ctx.storage.list({ prefix: "rt:" })).values()) if (v.exp > t) n++;
-    return n;
+  // --- grants (one per sign-in; tokens rotate, the grant id stays) ----------------------------
+  // [{id, client, created_ms, last_used_ms}], oldest first: grants that still hold a live refresh token.
+  async grantList() {
+    const t = now(), live = new Set();
+    for (const v of (await this.ctx.storage.list({ prefix: "rt:" })).values()) if (v.exp > t && v.gid) live.add(v.gid);
+    const out = [];
+    for (const [k, g] of await this.ctx.storage.list({ prefix: "grant:" })) {
+      const id = k.slice("grant:".length);
+      if (live.has(id)) out.push({ id, client: g.client || "", created_ms: g.created_ms, last_used_ms: g.last_used_ms ?? null });
+    }
+    return out.sort((a, b) => a.created_ms - b.created_ms);
   }
 
+  async pushGrants(ws = this.mac()) {
+    if (!ws) return;
+    const list = await this.grantList();
+    this.tell({ t: "grants", n: list.length, list }, ws);
+  }
+
+  // Deletes the grant and every token that belongs to it. Returns the grant record, or null.
+  async revokeGrant(gid) {
+    const g = await this.ctx.storage.get(`grant:${gid}`);
+    const dead = [];
+    for (const prefix of ["at:", "rt:"]) {
+      for (const [k, v] of await this.ctx.storage.list({ prefix })) if (v.gid === gid) dead.push(k);
+    }
+    if (g) dead.push(`grant:${gid}`);
+    for (let i = 0; i < dead.length; i += 128) await this.ctx.storage.delete(dead.slice(i, i + 128));
+    return g || null;
+  }
+
+  // Tokens issued before grant ids: give each live refresh token (and its access token) a grant.
+  async migrateLegacy() {
+    const t = now(), writes = {};
+    for (const [k, v] of await this.ctx.storage.list({ prefix: "rt:" })) {
+      if (v.gid || v.exp <= t) continue;
+      const gid = randomId(16);
+      const app = v.app || await this.appOfClient(v.client_id);
+      writes[k] = { ...v, gid };
+      writes[`grant:${gid}`] = { client_id: v.client_id, client: grantLabel(await this.client(v.client_id), app), app,
+        created_ms: (v.exp - REFRESH_TTL_S) * 1000, last_used_ms: null };
+      const at = v.at ? await this.ctx.storage.get(`at:${v.at}`) : null;
+      if (at) writes[`at:${v.at}`] = { ...at, gid };
+    }
+    const keys = Object.keys(writes);
+    for (let i = 0; i < keys.length; i += 128) {
+      await this.ctx.storage.put(Object.fromEntries(keys.slice(i, i + 128).map((k) => [k, writes[k]])));
+    }
+  }
+
+  // Deletes expired tokens, codes and approvals, and grants left with no refresh token.
+  // Returns the grants that expired: [{id, client}].
   async purgeExpired() {
-    const t = now(), ms = Date.now(), dead = [];
+    const t = now(), ms = Date.now(), dead = [], live = new Set();
     for (const prefix of ["at:", "rt:", "code:", "ap:"]) {
       for (const [k, v] of await this.ctx.storage.list({ prefix })) {
         const exp = prefix === "code:" || prefix === "ap:" ? v.exp < ms : v.exp < t;
         if (exp) dead.push(k);
+        else if (prefix === "rt:" && v.gid) live.add(v.gid);
       }
     }
+    const expired = [];
+    for (const [k, g] of await this.ctx.storage.list({ prefix: "grant:" })) {
+      const id = k.slice("grant:".length);
+      if (!live.has(id)) { dead.push(k); expired.push({ id, client: g.client || "" }); }
+    }
     for (let i = 0; i < dead.length; i += 128) await this.ctx.storage.delete(dead.slice(i, i + 128));
+    return expired;
   }
 
   // --- limits -----------------------------------------------------------------------------------
@@ -610,6 +751,26 @@ function offlineReply(msgs, batch, text) {
 
 function rpcError(id, code, message) {
   return { jsonrpc: "2.0", id, error: { code, message } };
+}
+
+// The sign-in's display name: the app's registered name, else "Grok"/"Claude" from its callback, else "".
+function grantLabel(client, app) {
+  return cleanName(client && client.client_name) || APP_LABEL[app] || "";
+}
+
+// RFC 8707 resource: absent, or this link's MCP address (a trailing slash is tolerated).
+function sameResource(r, ctx) {
+  return r === undefined || r === null || r === "" || (typeof r === "string" && r.replace(/\/+$/, "") === ctx.resource);
+}
+
+// client_id from `Authorization: Basic base64(client_id:secret)`, or null.
+function basicClientId(request) {
+  const m = (request.headers.get("Authorization") || "").match(/^Basic\s+([A-Za-z0-9+/=]+)$/i);
+  if (!m) return null;
+  let raw;
+  try { raw = atob(m[1]); } catch { return null; }
+  const id = raw.split(":")[0];
+  try { return decodeURIComponent(id) || null; } catch { return null; }
 }
 
 function tokenError(error, status = 400) {

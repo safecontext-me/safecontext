@@ -154,6 +154,8 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     p = argparse.ArgumentParser(prog="safecontext")
     p.add_argument("--data-dir", help=f"defaults to {DEFAULT_DATA_DIR}")
+    # Run by the update helper after "Install when I quit" (see updater.run_self_test). Not for people.
+    p.add_argument("--update-self-test", action="store_true", help=argparse.SUPPRESS)
     sub = p.add_subparsers(dest="cmd")
     source_ids = ["gmail", "gcal", "imessage", "dropbox"]
     c = sub.add_parser("connect")
@@ -179,6 +181,9 @@ def main(argv=None) -> int:
     ap.add_argument("--demo", action="store_true", help="synthetic mailbox, no Google account or network needed")
     ap.add_argument("--debug", action="store_true", help="enable the web inspector")
     args = p.parse_args(argv)
+    if args.update_self_test:
+        from .updater import run_self_test
+        return run_self_test()
     if args.cmd is None:  # double-clicking the packaged .app runs with no arguments
         args = p.parse_args(([] if argv is None else list(argv)) + ["app"])
     # Moving the old MyContext folder touches the real data location, so only do it when this

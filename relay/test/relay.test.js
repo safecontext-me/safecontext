@@ -1,7 +1,7 @@
 // Run with `npm test` (Miniflare via @cloudflare/vitest-pool-workers). Nothing is deployed.
 import { SELF, env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { OFFLINE_MESSAGE, callbackAllowed, cleanName, hostAllowed, route, s256 } from "../src/relay.js";
+import { OFFLINE_MESSAGE, REFRESH_GRACE_S, callbackAllowed, cleanName, hostAllowed, route, s256 } from "../src/relay.js";
 import { APPS, EVENTS, OUTCOMES, dataPoint, linkToken, sizeBucket, toolAllowed } from "../src/stats.js";
 
 const ORIGIN = "https://relay.safecontext.me";
@@ -44,7 +44,16 @@ async function connectMac(link, secret = rand(), { answer = true } = {}) {
     }
     throw new Error(`mac never got ${t}`);
   };
-  return { status: 101, ws, inbox, next, secret, send: (m) => ws.send(JSON.stringify(m)) };
+  // The newest frame of type t (waiting for one), dropping the older ones of that type.
+  const last = async (t) => {
+    await next(t).then((m) => inbox.unshift(m));
+    await new Promise((r) => setTimeout(r, 50));
+    const all = inbox.filter((x) => x.t === t);
+    for (const m of all) inbox.splice(inbox.indexOf(m), 1);
+    return all[all.length - 1];
+  };
+  const drop = (t) => { for (const m of inbox.filter((x) => x.t === t)) inbox.splice(inbox.indexOf(m), 1); };
+  return { status: 101, ws, inbox, next, last, drop, secret, send: (m) => ws.send(JSON.stringify(m)) };
 }
 
 async function signIn(link, mac, { name = "Grok", redirect: REDIRECT_ = REDIRECT, clientId = null } = {}) {
@@ -97,6 +106,31 @@ const call = (link, token, msg, extra = {}) => SELF.fetch(`${ORIGIN}/g/${link}/m
   body: typeof msg === "string" ? msg : JSON.stringify(msg),
 });
 const toolCall = (name, args = {}, id = 1) => ({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+
+const refresh = async (link, token, clientId) => (await SELF.fetch(`${ORIGIN}/g/${link}/token`, { method: "POST",
+  body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: token, ...(clientId ? { client_id: clientId } : {}) }) })).json();
+
+const linkStub = (link) => env.LINKS.get(env.LINKS.idFromName(link));
+const storageOf = (link) => runInDurableObject(linkStub(link), async (_, state) => new Map(await state.storage.list()));
+
+// Moves every stored time `seconds` into the past, as if that much time had passed.
+async function age(link, seconds) {
+  await runInDurableObject(linkStub(link), async (_, state) => {
+    const out = {};
+    for (const [k, v] of await state.storage.list()) {
+      if (!v || typeof v !== "object") continue;
+      const n = { ...v };
+      const ms = k.startsWith("code:") || k.startsWith("ap:");
+      if (typeof n.exp === "number") n.exp -= ms ? seconds * 1000 : seconds;
+      if (typeof n.used === "number") n.used -= seconds;
+      if (typeof n.created === "number") n.created -= seconds;
+      if (typeof n.created_ms === "number") n.created_ms -= seconds * 1000;
+      if (typeof n.last_used_ms === "number") n.last_used_ms -= seconds * 1000;
+      out[k] = n;
+    }
+    if (Object.keys(out).length) await state.storage.put(out);
+  });
+}
 
 describe("routing", () => {
   it("knows only link paths", async () => {
@@ -171,17 +205,54 @@ describe("OAuth", () => {
     expect((await again.json()).error).toBe("invalid_grant");
   });
 
-  it("rotates refresh tokens", async () => {
+  it("rotates refresh tokens, with a short grace window for the old pair", async () => {
     const l = rand();
     const mac = await connectMac(l);
     const t = await signIn(l, mac);
-    const r1 = await (await SELF.fetch(`${ORIGIN}/g/${l}/token`, { method: "POST",
-      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: t.client_id }) })).json();
+    const r1 = await refresh(l, t.refresh_token, t.client_id);
     expect(r1.access_token).toBeTruthy();
-    expect((await call(l, t.access_token, toolCall("search", { query: "x" }))).status).toBe(401);  // old one is gone
+    expect(r1.refresh_token).not.toBe(t.refresh_token);
+    // In the grace window the old access token still works and the old refresh token can be used again.
+    expect((await call(l, t.access_token, toolCall("search", { query: "x" }))).status).toBe(200);
+    const again = await refresh(l, t.refresh_token, t.client_id);
+    expect(again.access_token).toBeTruthy();
+    // After it, both are gone; the new pairs keep working.
+    await age(l, REFRESH_GRACE_S + 1);
+    expect((await call(l, t.access_token, toolCall("search", { query: "x" }))).status).toBe(401);
+    expect((await refresh(l, t.refresh_token, t.client_id)).error).toBe("invalid_grant");
+    expect((await call(l, r1.access_token, toolCall("search", { query: "x" }))).status).toBe(200);
+    expect((await call(l, again.access_token, toolCall("search", { query: "x" }))).status).toBe(200);
+    expect((await refresh(l, r1.refresh_token, t.client_id)).access_token).toBeTruthy();
+  });
+
+  it("survives two refreshes with the same token at once", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    const t = await signIn(l, mac);
+    const [a, b] = await Promise.all([refresh(l, t.refresh_token, t.client_id), refresh(l, t.refresh_token, t.client_id)]);
+    expect(a.access_token).toBeTruthy();
+    expect(b.access_token).toBeTruthy();
+    expect((await call(l, a.access_token, toolCall("search", { query: "x" }))).status).toBe(200);
+    expect((await call(l, b.access_token, toolCall("search", { query: "x" }))).status).toBe(200);
+  });
+
+  it("refreshes without client_id, with HTTP Basic client auth, and with a trailing-slash resource", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    const t = await signIn(l, mac);
+    const r1 = await refresh(l, t.refresh_token, null);
+    expect(r1.access_token).toBeTruthy();
     const r2 = await (await SELF.fetch(`${ORIGIN}/g/${l}/token`, { method: "POST",
-      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: t.client_id }) })).json();
-    expect(r2.error).toBe("invalid_grant");
+      headers: { Authorization: `Basic ${btoa(`${t.client_id}:`)}` },
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: r1.refresh_token,
+        resource: `${ORIGIN}/g/${l}/mcp/` }) })).json();
+    expect(r2.access_token).toBeTruthy();
+    // A different client still can't use someone else's refresh token.
+    expect((await refresh(l, r2.refresh_token, "grok")).error).toBe("invalid_grant");
+    const res = await SELF.fetch(`${ORIGIN}/g/${l}/token`, { method: "POST",
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: r2.refresh_token, client_id: "c_nope" }) });
+    expect(res.status).toBe(401);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("denied approval goes back to the app as access_denied", async () => {
@@ -332,6 +403,175 @@ describe("OAuth", () => {
     const res = await SELF.fetch(`${ORIGIN}/g/${rand()}/authorize?${q}`);
     expect(res.status).toBe(503);
     expect(await res.text()).toContain("Open SafeContext");
+  });
+});
+
+describe("grants (one per sign-in)", () => {
+  const ok = (l, token) => call(l, token, toolCall("search", { query: "x" })).then((r) => r.status);
+
+  it("lists sign-ins in hello and in a grants frame, and tells the Mac when one is created", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    expect(await mac.next("hello")).toEqual({ t: "hello", grants: 0, list: [] });
+    const before = Date.now();
+    await signIn(l, mac);
+    const ev = await mac.next("grant_event");
+    expect(ev).toEqual({ t: "grant_event", kind: "created", id: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/), client: "Grok" });
+    const g = await mac.last("grants");
+    expect(g.n).toBe(1);
+    expect(g.list).toEqual([{ id: ev.id, client: "Grok", created_ms: expect.any(Number), last_used_ms: null }]);
+    expect(g.list[0].created_ms).toBeGreaterThanOrEqual(before - 1000);
+    // A reconnecting Mac gets the same list in hello, with `grants` kept for older apps.
+    const again = await connectMac(l, mac.secret);
+    expect(await again.next("hello")).toEqual({ t: "hello", grants: 1, list: g.list });
+  });
+
+  it("names the app and the grant on every http frame, and records when it was last used", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    const t = await signIn(l, mac, { name: "Claude", redirect: CLAUDE_REDIRECT });
+    const { id } = await mac.next("grant_event");
+    expect(await ok(l, t.access_token)).toBe(200);
+    const fwd = await mac.next("http");
+    expect(fwd.client).toBe("Claude");
+    expect(fwd.grant).toBe(id);
+    // An unknown revoke id just answers with the current list.
+    mac.drop("grants");
+    mac.send({ t: "revoke", id: "A".repeat(22) });
+    const g = await mac.last("grants");
+    expect(g.list).toHaveLength(1);
+    expect(g.list[0].last_used_ms).toBeGreaterThan(0);
+    expect(await ok(l, t.access_token)).toBe(200);
+  });
+
+  it("falls back to the app's name from its callback, and to no grant for link-only requests", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    const t = await signIn(l, mac, { name: null, redirect: CLAUDE_REDIRECT });
+    expect((await mac.next("grant_event")).client).toBe("Claude");
+    await ok(l, t.access_token);
+    expect((await mac.next("http")).client).toBe("Claude");
+    mac.send({ t: "settings", link_only: true });
+    await new Promise((r) => setTimeout(r, 50));
+    await ok(l, null);
+    const fwd = await mac.next("http");
+    expect(fwd.client).toBe("");
+    expect(fwd.grant).toBeNull();
+  });
+
+  it("keeps the same grant id across refresh rotation", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    const t = await signIn(l, mac);
+    const { id } = await mac.next("grant_event");
+    let rt = t.refresh_token;
+    for (let i = 0; i < 3; i++) {
+      const r = await refresh(l, rt, t.client_id);
+      const ev = await mac.next("grant_event");
+      expect(ev).toEqual({ t: "grant_event", kind: "refreshed", id, client: "Grok" });
+      await ok(l, r.access_token);
+      expect((await mac.next("http")).grant).toBe(id);
+      rt = r.refresh_token;
+    }
+    await age(l, REFRESH_GRACE_S + 1);
+    mac.drop("grants");
+    mac.send({ t: "revoke", id: "B".repeat(22) });
+    const g = await mac.last("grants");
+    expect(g.list.map((x) => x.id)).toEqual([id]);  // still one sign-in, not four
+  });
+
+  it("revokes one sign-in at once, access and refresh tokens alike, and leaves the others", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    const a = await signIn(l, mac);
+    const { id: ida } = await mac.next("grant_event");
+    const b = await signIn(l, mac, { name: "Claude", redirect: CLAUDE_REDIRECT });
+    const { id: idb } = await mac.next("grant_event");
+    const a2 = await refresh(l, a.refresh_token, a.client_id);  // the old pair is in its grace window
+    await mac.next("grant_event");
+    expect((await mac.last("grants")).n).toBe(2);
+    mac.send({ t: "revoke", id: ida });
+    expect(await mac.next("grant_event")).toEqual({ t: "grant_event", kind: "revoked", id: ida, client: "Grok" });
+    const g = await mac.last("grants");
+    expect(g).toEqual({ t: "grants", n: 1, list: [expect.objectContaining({ id: idb, client: "Claude" })] });
+    for (const token of [a.access_token, a2.access_token]) expect(await ok(l, token)).toBe(401);
+    for (const token of [a.refresh_token, a2.refresh_token]) expect((await refresh(l, token, a.client_id)).error).toBe("invalid_grant");
+    expect(await ok(l, b.access_token)).toBe(200);
+    const keys = [...(await storageOf(l)).entries()];
+    expect(keys.some(([k, v]) => k.includes(ida) || (v && v.gid === ida))).toBe(false);
+  });
+
+  it("drops expired sign-ins and tells the Mac", { timeout: 20_000 }, async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    await signIn(l, mac);
+    const { id } = await mac.next("grant_event");
+    await age(l, 181 * 86_400);
+    mac.drop("grants");
+    await signIn(l, mac, { name: "Claude", redirect: CLAUDE_REDIRECT });  // any token issue cleans up
+    const events = [await mac.next("grant_event"), await mac.next("grant_event")];
+    expect(events).toContainEqual({ t: "grant_event", kind: "expired", id, client: "Grok" });
+    const g = await mac.last("grants");
+    expect(g.n).toBe(1);
+    expect(g.list[0].client).toBe("Claude");
+    expect([...(await storageOf(l)).keys()]).not.toContain(`grant:${id}`);
+  });
+
+  it("gives tokens from before grant ids a grant, and keeps it across refresh", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    await mac.next("hello");
+    // Tokens as the previous relay stored them: no gid, no grant record.
+    const access = rand(), refreshTok = rand();
+    const hash = async (s) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))]
+      .map((b) => b.toString(16).padStart(2, "0")).join("");
+    const atH = await hash(access), rtH = await hash(refreshTok);
+    const t = Math.floor(Date.now() / 1000);
+    await runInDurableObject(linkStub(l), async (_, state) => state.storage.put({
+      [`at:${atH}`]: { client_id: "grok", app: "grok", exp: t + 86_400 },
+      [`rt:${rtH}`]: { client_id: "grok", app: "grok", at: atH, exp: t + 170 * 86_400 },
+    }));
+    const again = await connectMac(l, mac.secret);
+    const hello = await again.next("hello");
+    expect(hello.grants).toBe(1);
+    expect(hello.list).toEqual([{ id: expect.any(String), client: "Grok", created_ms: (t - 10 * 86_400) * 1000, last_used_ms: null }]);
+    const id = hello.list[0].id;
+    expect(await ok(l, access)).toBe(200);
+    expect((await again.next("http")).grant).toBe(id);
+    const r = await refresh(l, refreshTok, "grok");
+    expect((await again.next("grant_event")).id).toBe(id);
+    await ok(l, r.access_token);
+    expect((await again.next("http")).grant).toBe(id);
+  });
+
+  it("still counts sign-ins for older apps", async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    await signIn(l, mac);
+    await signIn(l, mac, { clientId: "grok" });
+    expect((await mac.last("grants")).n).toBe(2);
+  });
+});
+
+describe("client registration", () => {
+  it("replaces an idle registered client when the link is full, never one with a sign-in", { timeout: 30_000 }, async () => {
+    const l = rand();
+    const mac = await connectMac(l);
+    const t = await signIn(l, mac, { name: "Claude", redirect: CLAUDE_REDIRECT });  // client 1 holds a sign-in
+    const reg = () => SELF.fetch(`${ORIGIN}/g/${l}/register`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_name: "Grok", redirect_uris: [REDIRECT] }) });
+    const unlimit = () => runInDurableObject(linkStub(l), async (instance) => instance.buckets.clear());
+    await unlimit();
+    for (let i = 0; i < 19; i++) expect((await reg()).status).toBe(201);
+    expect((await reg()).status).toBe(400);  // full, and every client is new
+    await age(l, 3601);
+    await unlimit();
+    for (let i = 0; i < 19; i++) expect((await reg()).status).toBe(201);  // replaces the 19 idle ones
+    expect((await reg()).status).toBe(400);
+    const clients = [...(await storageOf(l)).keys()].filter((k) => k.startsWith("client:"));
+    expect(clients).toHaveLength(20);
+    expect(clients).toContain(`client:${t.client_id}`);
+    expect((await refresh(l, t.refresh_token, t.client_id)).access_token).toBeTruthy();
   });
 });
 

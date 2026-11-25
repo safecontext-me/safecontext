@@ -103,9 +103,11 @@ def test_client_config_from_env(tmp_path, monkeypatch):
 
 # --- the loopback redirect server ------------------------------------------------
 
-def _sign_in_through_real_loopback_server(monkeypatch, run):
+def _sign_in_through_real_loopback_server(monkeypatch, run, reply=None, pages=None):
     """Run a sign-in with oauthlib's real 127.0.0.1 server. A fake browser follows the
-    redirect straight back with a code; the token exchange and Google calls are faked."""
+    redirect straight back with a code (or `reply`, e.g. Google's error=access_denied);
+    the token exchange and Google calls are faked. What the browser got back is
+    appended to `pages` as (status, headers, body)."""
     import http.client
     import socket
     import threading
@@ -125,23 +127,33 @@ def _sign_in_through_real_loopback_server(monkeypatch, run):
             opened.append(url)
             q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
             redirect = urllib.parse.urlparse(q["redirect_uri"][0])
-            path = "/?" + urllib.parse.urlencode({"code": "4/test-code", "state": q["state"][0]})
+            path = "/?" + urllib.parse.urlencode({**(reply or {"code": "4/test-code"}), "state": q["state"][0]})
 
             def follow():  # http.client, not urllib: no proxy lookups
                 conn = http.client.HTTPConnection(redirect.hostname, redirect.port, timeout=10)
                 conn.request("GET", path)
-                conn.getresponse().read()
+                resp = conn.getresponse()
+                got = (resp.status, dict(resp.getheaders()), resp.read().decode("utf-8"))
                 conn.close()
-            threading.Thread(target=follow, daemon=True).start()
+                if pages is not None:
+                    pages.append(got)
+            followers.append(threading.Thread(target=follow, daemon=True))
+            followers[-1].start()
             return True
 
+    followers = []
     monkeypatch.setattr(webbrowser, "get", lambda browser=None: FakeBrowser())
     tokens_fetched = []
-    monkeypatch.setattr(InstalledAppFlow, "fetch_token", lambda self, **kw: tokens_fetched.append(kw))
+    if reply is None:  # with an error reply, the real fetch_token must see it (it raises before any network)
+        monkeypatch.setattr(InstalledAppFlow, "fetch_token", lambda self, **kw: tokens_fetched.append(kw))
     monkeypatch.setattr(Flow, "credentials", property(
         lambda self: creds(auth.SCOPE_CALENDAR if auth.SCOPE_CALENDAR in self.oauth2session.scope
                            else auth.SCOPE_READONLY)))
-    result = run()
+    try:
+        result = run()
+    finally:
+        for t in followers:
+            t.join(timeout=10)
     assert len(opened) == 1 and urllib.parse.urlparse(opened[0]).hostname == "accounts.google.com"
     assert "code_challenge" in urllib.parse.parse_qs(urllib.parse.urlparse(opened[0]).query)  # PKCE kept
     assert "code=4%2Ftest-code" in tokens_fetched[0]["authorization_response"]
@@ -163,6 +175,68 @@ def test_sign_in_server_does_no_reverse_dns_lookup(monkeypatch, which):
     assert account == "a@example.org"
     assert lookups == []
     assert http.server.HTTPServer.server_bind is auth._ORIGINAL_SERVER_BIND  # patch is gone afterwards
+
+
+def _sign_in_run(monkeypatch, which):
+    if which == "gmail":
+        monkeypatch.setattr(auth, "fetch_account_email", lambda c: "a@example.org")
+        return lambda: auth.connect("full", "a@example.org", client_config=CLIENT)
+    monkeypatch.setattr(auth, "fetch_calendar_account", lambda c: "a@example.org")
+    return lambda: auth.connect_calendar("a@example.org", client_config=CLIENT)
+
+
+def _assert_safe_page(headers, body, *secrets):
+    assert headers["Content-Type"].startswith("text/html")
+    assert "default-src 'none'" in headers["Content-Security-Policy"]
+    assert headers["Cache-Control"] == "no-store"
+    assert body.lstrip().lower().startswith("<!doctype html>")
+    for s in secrets:  # nothing from the query string is echoed back
+        assert s not in body
+    for remote in ("http://", "https://", "<script", "<link", "@import", "url("):
+        assert remote not in body  # self-contained: nothing fetched from anywhere
+
+
+@pytest.mark.parametrize("which,title", [("gmail", "Gmail connected"), ("calendar", "Google Calendar connected")])
+def test_browser_gets_a_branded_finish_page(monkeypatch, which, title):
+    import http.server
+    from google_auth_oauthlib import flow as oauthlib_flow
+
+    original_app = oauthlib_flow._RedirectWSGIApp
+    pages = []
+    _sign_in_through_real_loopback_server(monkeypatch, _sign_in_run(monkeypatch, which), pages=pages)
+    [(status, headers, body)] = pages
+    assert status == 200
+    _assert_safe_page(headers, body, "4/test-code", "test-code", "state=")
+    assert f"<h1>{title}</h1>" in body and "SafeContext" in body and "close this tab" in body
+    assert oauthlib_flow._RedirectWSGIApp is original_app  # both patches are gone afterwards
+    assert http.server.HTTPServer.server_bind is auth._ORIGINAL_SERVER_BIND
+
+
+@pytest.mark.parametrize("which", ["gmail", "calendar"])
+def test_cancel_on_consent_screen_shows_cancelled_page_and_app_error(monkeypatch, which):
+    pages = []
+    with pytest.raises(NotConfigured) as e:
+        _sign_in_through_real_loopback_server(monkeypatch, _sign_in_run(monkeypatch, which),
+                                              reply={"error": "access_denied"}, pages=pages)
+    assert e.value.args[0] == auth.CANCELLED_MESSAGE  # the app shows its own error, not a crash
+    [(status, headers, body)] = pages
+    _assert_safe_page(headers, body, "access_denied")
+    assert "<h1>Sign-in was cancelled</h1>" in body and "Return to SafeContext to try again." in body
+    assert "connected" not in body
+
+
+def test_finish_page_variants_never_echo_the_query():
+    secret_code, secret_state = "4/0AUn6Hd84e-SECRET", "5xzGAPZN2siMKKAt"
+    ok = auth.finish_page(f"state={secret_state}&code={urllib.parse.quote(secret_code)}&scope=x", "Gmail")
+    assert "<h1>Gmail connected</h1>" in ok and 'class="ok"' in ok
+    other = auth.finish_page("state=s&error=%3Cscript%3Ealert(1)%3C/script%3E", "Gmail")
+    assert "<h1>Sign-in didn’t finish</h1>" in other and "<script" not in other and "alert" not in other
+    empty = auth.finish_page("", "Google Calendar")
+    assert 'class="bad"' in empty and "connected" not in empty
+    for page in (ok, other, empty):
+        assert secret_code not in page and secret_state not in page
+        assert "prefers-color-scheme:dark" in page  # follows the Mac's light/dark setting
+    assert "&lt;b&gt;" in auth.finish_page("code=c", "<b>")  # the source name is escaped
 
 
 def test_only_loopback_addresses_skip_the_lookup():
@@ -447,3 +521,41 @@ def test_pace_recovers_slowly_after_clean_minutes_but_never_exceeds_the_cap():
         clock.t += 61
         c._execute(_Req([{"ok": 1}]), 5)
     assert c.rate == pytest.approx(80)
+
+
+# --- Google Calendar API switched off in the Cloud project ---------------------------
+
+_DISABLED = (b'{"error":{"code":403,"message":"Google Calendar API has not been used in project 123 before or it '
+             b'is disabled. Enable it by visiting https://console.developers.google.com/apis/api/'
+             b'calendar-json.googleapis.com/overview?project=123 then retry.","errors":[{"reason":'
+             b'"accessNotConfigured"}],"status":"PERMISSION_DENIED","details":[{"reason":"SERVICE_DISABLED"}]}}')
+
+
+def test_calendar_api_disabled_is_a_clear_error_not_a_crash_or_retry_loop():
+    from safecontext.calendar_api import GoogleCalendarAPI
+    c = GoogleCalendarAPI(creds(), sleep=lambda s: pytest.fail("must not retry"))
+    with pytest.raises(auth.NotConfigured, match="Calendar API isn't switched on"):
+        c._execute(_Req([_http_error(403, _DISABLED)]))
+
+
+def test_calendar_insufficient_scope_still_means_reconnect():
+    from safecontext.calendar_api import GoogleCalendarAPI
+    c = GoogleCalendarAPI(creds(), sleep=lambda s: None)
+    with pytest.raises(NeedsReconnect):
+        c._execute(_Req([_http_error(403, b'{"error":{"message":"Request had insufficient authentication '
+                                          b'scopes.","errors":[{"reason":"insufficientPermissions"}]}}')]))
+
+
+def test_calendar_connect_with_api_disabled_says_so(monkeypatch):
+    import googleapiclient.discovery as discovery
+
+    class _Svc:
+        def calendars(self):
+            return self
+
+        def get(self, calendarId):
+            return _Req([_http_error(403, _DISABLED)])
+
+    monkeypatch.setattr(discovery, "build", lambda *a, **k: _Svc())
+    with pytest.raises(auth.NotConfigured, match="Calendar API"):
+        auth.fetch_calendar_account(creds())

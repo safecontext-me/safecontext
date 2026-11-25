@@ -86,7 +86,7 @@ def env_(tmp_path):
     return {"app": app, "new": new, "store": store, "folder": tmp_path / "updates"}
 
 
-def make_updater(e, *, fetch=lambda url: manifest(), download=None, run=None, verify=None, **kw):
+def make_updater(e, *, fetch=lambda url, etag=None: manifest(), download=None, run=None, verify=None, **kw):
     run = run or FakeMac(e["new"])
     return upd.Updater(e["store"], current="1.0.0", fetch=fetch, download=download or fake_download(),
                        run=run, app=e["app"], folder=e["folder"], verify=verify, **kw)
@@ -130,7 +130,7 @@ def test_parse_manifest_rejects_garbage():
 
 def test_check_finds_update_and_sends_nothing_but_a_get(env_):
     urls = []
-    u = make_updater(env_, fetch=lambda url: urls.append(url) or manifest())
+    u = make_updater(env_, fetch=lambda url, etag=None: urls.append(url) or manifest())
     s = u.check()
     assert urls == [upd.MANIFEST_URL + "?v=" + u.current]
     assert s["available"] and s["version"] == "9.0.0" and s["notes"] == "Faster sync."
@@ -142,10 +142,10 @@ def test_check_finds_update_and_sends_nothing_but_a_get(env_):
 
 
 def test_check_up_to_date_and_offline(env_):
-    u = make_updater(env_, fetch=lambda url: manifest(version="1.0.0"))
+    u = make_updater(env_, fetch=lambda url, etag=None: manifest(version="1.0.0"))
     assert u.check()["available"] is False
 
-    def offline(url):
+    def offline(url, etag=None):
         raise OSError("no route to host")
     u = make_updater(env_, fetch=offline)
     s = u.check()
@@ -252,7 +252,7 @@ def fake_open(tmp_path: Path, launches: bool) -> Path:
     the new app would write as it starts."""
     script = tmp_path / "fake-open.sh"
     script.write_text("#!/bin/sh\n"
-                      f'echo "$1" >> "{tmp_path}/opened.txt"\n'
+                      f'echo "$*" >> "{tmp_path}/opened.txt"\n'
                       + (f'touch "{tmp_path}/updates/launched-9.0.0"\n' if launches else ""))
     script.chmod(0o755)
     return script
@@ -347,7 +347,7 @@ def test_backend_check_and_install(env_, backend_with):
 
 
 def test_backend_install_errors(env_, backend_with):
-    u = make_updater(env_, fetch=lambda url: manifest(version="1.0.0"))
+    u = make_updater(env_, fetch=lambda url, etag=None: manifest(version="1.0.0"))
     b = backend_with(u)
     b.update_check()
     assert b.update_install() == {"ok": False, "error": "There's no newer version to install."}
@@ -417,3 +417,465 @@ def test_manifest_url_sends_only_a_plain_version():
     assert upd.manifest_url("0.1.6") == "https://safecontext.me/update.json?v=0.1.6"
     for bad in ("", "0.1.6&id=abc", "dev", "0.1.6-rc1"):
         assert upd.manifest_url(bad) == upd.MANIFEST_URL
+
+
+# --- faster checks, user's choice (schedule, ETag, Later, Skip, install when I quit) ------------------
+
+class Clock:
+    """Fake wall and monotonic clocks. advance() moves both; sleep() moves only the wall clock,
+    as a Mac's sleep does to time.monotonic()."""
+
+    def __init__(self, t=1_800_000_000.0):
+        self.wall, self.mono = t, 1000.0
+
+    def now(self):
+        return self.wall
+
+    def mon(self):
+        return self.mono
+
+    def advance(self, s):
+        self.wall += s
+        self.mono += s
+
+    def sleep(self, s):
+        self.wall += s
+        self.mono += 1
+
+
+class Server:
+    """A fake safecontext.me: serves `body` with an ETag and answers 304 when it still matches."""
+
+    def __init__(self, body=None):
+        self.body = body or manifest()
+        self.calls = []
+        self.down = False
+
+    @property
+    def etag(self):
+        return '"' + hashlib.sha256(self.body).hexdigest()[:16] + '"'
+
+    def __call__(self, url, etag=None):
+        self.calls.append((url, etag))
+        if self.down:
+            raise OSError("offline")
+        if etag == self.etag:
+            return None, self.etag
+        return self.body, self.etag
+
+
+def wait_for(cond, timeout=10):
+    end = time.time() + timeout
+    while not cond() and time.time() < end:
+        time.sleep(0.02)
+    assert cond()
+
+
+def timed_updater(env_, server=None, clock=None, **kw):
+    clock = clock or Clock()
+    server = server or Server()
+    u = make_updater(env_, fetch=server, now=clock.now, mono=clock.mon, auto_default=True, **kw)
+    return u, server, clock
+
+
+def test_etag_makes_repeat_checks_a_304(env_):
+    u, server, _ = timed_updater(env_)
+    assert u.check()["version"] == "9.0.0"
+    assert server.calls[0] == ("https://safecontext.me/update.json?v=1.0.0", None)
+    s = u.check()
+    assert server.calls[1][1] == server.etag  # asked "changed since?"
+    assert s["available"] and s["version"] == "9.0.0" and s["phase"] == "idle"  # 304 kept what we had
+    server.body = manifest(version="9.1.0")
+    assert u.check()["version"] == "9.1.0"
+
+
+def test_a_304_without_a_manifest_asks_again_in_full(env_):
+    answers = [(None, '"x"'), (manifest(), '"y"')]
+    seen = []
+
+    def fetch(url, etag=None):
+        seen.append(etag)
+        return answers.pop(0)
+    u = make_updater(env_, fetch=fetch)
+    u._etag = '"x"'
+    assert u.check()["version"] == "9.0.0" and seen == ['"x"', None]
+
+
+def test_http_fetch_manifest_sends_only_the_version_and_the_etag(monkeypatch):
+    import email.message
+    import urllib.error
+    sent = []
+
+    class Resp:
+        headers = {"ETag": '"abc"'}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, n):
+            return manifest()
+
+    def urlopen(req, timeout):
+        sent.append(req)
+        if req.get_header("If-none-match") == '"abc"':
+            h = email.message.Message()
+            h["ETag"] = '"abc"'
+            raise urllib.error.HTTPError(req.full_url, 304, "Not Modified", h, None)
+        return Resp()
+    monkeypatch.setattr(upd.urllib.request, "urlopen", urlopen)
+    body, etag = upd.http_fetch_manifest("https://safecontext.me/update.json?v=1.0.0")
+    assert body == manifest() and etag == '"abc"'
+    assert upd.http_fetch_manifest("https://safecontext.me/update.json?v=1.0.0", '"abc"') == (None, '"abc"')
+    first, second = sent
+    assert first.full_url == "https://safecontext.me/update.json?v=1.0.0"
+    assert dict(first.header_items()) == {"User-agent": "SafeContext-Updater", "Cache-control": "no-cache"}
+    assert dict(second.header_items()) == {"User-agent": "SafeContext-Updater", "Cache-control": "no-cache",
+                                           "If-none-match": '"abc"'}
+
+
+def test_checks_every_two_hours(env_):
+    u, server, clock = timed_updater(env_)
+    assert u.tick() is True  # first tick: never checked
+    clock.advance(upd.TICK_SECONDS)
+    assert u.tick() is False
+    clock.advance(upd.CHECK_EVERY_SECONDS - 2 * upd.TICK_SECONDS)
+    assert u.tick() is False
+    clock.advance(2 * upd.TICK_SECONDS)
+    assert u.tick() is True
+    assert len(server.calls) == 2
+
+
+def test_failed_checks_back_off(env_):
+    u, server, clock = timed_updater(env_)
+    server.down = True
+    assert u.tick() and u.status()["phase"] == "error"
+    for gap in upd.RETRY_SECONDS + (upd.RETRY_SECONDS[-1],):
+        clock.advance(gap - 1)
+        assert u.tick() is False
+        clock.advance(1)
+        assert u.tick() is True
+    server.down = False
+    clock.advance(upd.RETRY_SECONDS[-1])
+    assert u.tick() and u.status()["phase"] == "idle"
+    assert u.next_check_at() == clock.now() + upd.CHECK_EVERY_SECONDS  # back to every two hours
+
+
+def test_focus_checks_after_fifteen_minutes(env_):
+    u, server, clock = timed_updater(env_)
+    assert u.on_focus() is True  # never checked
+    assert u.tick(kicked=u._kick.is_set())
+    u._kick.clear()
+    clock.advance(upd.FOCUS_MIN_GAP - 1)
+    assert u.on_focus() is False and not u._kick.is_set()
+    clock.advance(1)
+    assert u.on_focus() is True and u._kick.is_set()
+    u.set_auto_check(False)
+    u._kick.clear()
+    assert u.on_focus() is False
+
+
+def test_focus_respects_the_failure_backoff(env_):
+    u, server, clock = timed_updater(env_)
+    server.down = True
+    u.check()
+    clock.advance(upd.FOCUS_MIN_GAP)  # == RETRY_SECONDS[0]: due again
+    assert u.on_focus() is True
+    u.check()  # second failure: next try in 30 min
+    clock.advance(upd.FOCUS_MIN_GAP)
+    assert u.on_focus() is False
+
+
+def test_checks_shortly_after_the_mac_wakes(env_):
+    u, server, clock = timed_updater(env_)
+    u.tick()
+    clock.advance(20 * 60)
+    assert u.tick() is False
+    clock.sleep(40 * 60)  # an hour since the check: not due on the clock, but the Mac slept
+    assert u.tick() is False  # gives the network WAKE_DELAY
+    clock.advance(upd.WAKE_DELAY)
+    assert u.tick() is True
+    clock.advance(upd.TICK_SECONDS)
+    assert u.tick() is False
+
+
+def test_nothing_checks_on_its_own_with_auto_check_off(env_):
+    u, server, clock = timed_updater(env_)
+    u.set_auto_check(False)
+    assert u.tick() is False and u.tick(kicked=True) is False and server.calls == []
+    assert u.check(manual=True)["available"]  # the button still works
+
+
+def test_background_loop_wakes_on_focus(env_):
+    u, server, clock = timed_updater(env_)
+    u.start_background(first_delay=0)
+    try:
+        wait_for(lambda: len(server.calls) == 1)
+        clock.advance(upd.FOCUS_MIN_GAP)
+        assert u.on_focus()
+        wait_for(lambda: len(server.calls) == 2)
+    finally:
+        u.stop()
+
+
+def test_later_hides_until_tomorrow_or_a_newer_version(env_):
+    u, server, clock = timed_updater(env_)
+    u.check()
+    assert u.later()["later"] is True
+    clock.advance(upd.LATER_SECONDS - 1)
+    assert u.status()["later"] is True
+    clock.advance(1)
+    assert u.status()["later"] is False
+    u.later()
+    server.body = manifest(version="9.1.0")
+    u.check()
+    assert u.status()["later"] is False  # a newer release shows again
+    u.later()
+    assert u.check(manual=True)["later"] is False  # so does clicking Check for updates
+    # and a relaunch: Later lives in memory only
+    u.later()
+    assert make_updater(env_).check()["later"] is False
+
+
+def test_skip_and_undo(env_):
+    u, server, _ = timed_updater(env_)
+    u.check()
+    s = u.skip()
+    assert s["skipped"] and s["skipped_version"] == "9.0.0"
+    assert make_updater(env_).check()["skipped"] is True  # saved
+    s = u.unskip()
+    assert not s["skipped"] and s["skipped_version"] is None
+    server.body = manifest(version="1.0.0")
+    u.check()
+    with pytest.raises(upd.UpdateError):
+        u.skip()
+
+
+def queue_and_wait(u):
+    u.queue_for_quit()
+    wait_for(lambda: u.status()["phase"] in ("ready", "error"))
+    return u.status()
+
+
+def test_install_when_i_quit(env_):
+    spawned = []
+    u, server, _ = timed_updater(env_, spawn=lambda plan, pid, folder, **kw: spawned.append((plan, pid, kw)))
+    u.check()
+    s = queue_and_wait(u)
+    assert s["phase"] == "ready" and s["on_quit"] is True
+    staged = u._staged.staged
+    assert staged.exists()
+    assert (env_["app"] / "Contents" / "MacOS" / "SafeContext").read_text() == "app 1.0.0"  # not yet
+    assert u.on_quit(pid=4242) is True
+    assert spawned == [(u._staged, 4242, {"mode": "quit"})]
+    assert u.on_quit() is False  # closing + finally both call it: one helper
+    u.launch_helper(u._staged)
+    assert len(spawned) == 1
+
+
+def test_on_quit_does_nothing_unless_queued(env_):
+    spawned = []
+    u, _, _ = timed_updater(env_, spawn=lambda *a, **k: spawned.append(a))
+    u.check()
+    assert u.status()["phase"] == "idle" and u.on_quit() is False and spawned == []
+
+
+def test_cancel_install_when_i_quit(env_):
+    u, _, _ = timed_updater(env_, spawn=lambda *a, **k: pytest.fail("must not install"))
+    u.check()
+    queue_and_wait(u)
+    staged = u._staged.staged
+    s = u.cancel_quit_install()
+    assert s["phase"] == "idle" and not s["on_quit"] and not staged.exists()
+    assert u.on_quit() is False
+
+
+def test_skip_drops_a_staged_update(env_):
+    u, _, _ = timed_updater(env_, spawn=lambda *a, **k: pytest.fail("must not install"))
+    u.check()
+    queue_and_wait(u)
+    staged = u._staged.staged
+    u.skip()
+    assert not staged.exists() and u.status()["phase"] == "idle" and u.on_quit() is False
+
+
+def test_update_and_restart_reuses_the_staged_copy(env_):
+    downloads = []
+    dl = fake_download()
+    u, _, _ = timed_updater(env_, download=lambda *a: (downloads.append(1), dl(*a)))
+    u.check()
+    queue_and_wait(u)
+    ready = []
+    u.start_install(ready.append)
+    wait_for(lambda: ready)
+    assert len(downloads) == 1 and ready[0].version == "9.0.0" and u.status()["phase"] == "installing"
+
+
+def test_setting_off_by_default_then_stages_in_the_background(env_):
+    u, server, _ = timed_updater(env_)
+    assert u.status()["install_on_quit"] is False
+    u.check()
+    assert u.status()["phase"] == "idle"  # off: nothing downloads on its own
+    u.set_install_on_quit(True)
+    wait_for(lambda: u.status()["phase"] == "ready")
+    assert u.status()["on_quit"] is True
+    staged = u._staged.staged
+    u.set_install_on_quit(False)
+    assert u.status()["phase"] == "idle" and not staged.exists()
+    # On at launch: the first check stages it.
+    u2, _, _ = timed_updater(env_)
+    u2.set_install_on_quit(True)
+    u2.check()
+    wait_for(lambda: u2.status()["phase"] == "ready")
+
+
+def test_setting_skips_skipped_and_declined_versions(env_):
+    u, _, _ = timed_updater(env_)
+    u.set_install_on_quit(True)
+    u.check()
+    wait_for(lambda: u.status()["phase"] == "ready")
+    u.cancel_quit_install()
+    u.check()
+    assert u.status()["phase"] == "idle"  # declined this one for this session
+    u.skip()
+    u2, _, _ = timed_updater(env_)
+    u2.check()
+    assert u2.status()["phase"] == "idle"
+
+
+def test_a_newer_release_replaces_the_staged_one(env_):
+    u, server, _ = timed_updater(env_)
+    u.check()
+    queue_and_wait(u)
+    old = u._staged.staged
+    server.body = manifest(version="9.1.0")
+    s = u.check()  # checks still run while an update is staged
+    assert s["version"] == "9.1.0" and not old.exists()
+    assert s["phase"] == "idle" and u.on_quit() is False  # the user chose 9.0.0, not 9.1.0: ask again
+
+
+def test_a_failed_check_keeps_the_staged_update(env_):
+    u, server, _ = timed_updater(env_)
+    u.check()
+    queue_and_wait(u)
+    server.down = True
+    s = u.check()
+    assert s["phase"] == "ready" and s["on_quit"]
+
+
+def test_leftover_staged_copies_are_removed_at_launch(env_):
+    leftover = env_["app"].parent / ".SafeContext-8.0.0.update.app"
+    leftover.mkdir()
+    make_updater(env_)
+    assert not leftover.exists()
+
+
+def test_leftover_kept_while_a_helper_may_be_running(env_):
+    leftover = env_["app"].parent / ".SafeContext-8.0.0.update.app"
+    leftover.mkdir()
+    env_["folder"].mkdir(parents=True)
+    (env_["folder"] / "install.log").write_text("waiting\n")
+    make_updater(env_)
+    assert leftover.exists()
+
+
+def run_quit_helper(env_, tmp_path, launches, timeout=3):
+    u = make_updater(env_)
+    u.check()
+    plan = u.stage(u.manifest)
+    quitting = subprocess.Popen(["/bin/sleep", "0.5"])
+    helper = upd.spawn_helper(plan, quitting.pid, env_["folder"], timeout=timeout, mode="quit",
+                              extra_env={"SAFECONTEXT_OPEN": str(fake_open(tmp_path, launches))})
+    quitting.wait()
+    assert helper.wait(timeout=30) == (0 if launches else 1)
+    return plan
+
+
+def test_quit_helper_swaps_and_only_self_tests(env_, tmp_path):
+    plan = run_quit_helper(env_, tmp_path, launches=True)
+    app = env_["app"]
+    assert (app / "Contents" / "MacOS" / "SafeContext").read_text() == "app 9.0.0"
+    assert not plan.backup.exists()
+    assert (tmp_path / "opened.txt").read_text().splitlines() == [f"-g -j {app} --args --update-self-test"]
+    assert "(quit, 9.0.0)" in (env_["folder"] / "install.log").read_text()
+
+
+def test_quit_helper_rolls_back_without_reopening(env_, tmp_path):
+    plan = run_quit_helper(env_, tmp_path, launches=False, timeout=2)
+    app = env_["app"]
+    assert (app / "Contents" / "MacOS" / "SafeContext").read_text() == "app 1.0.0"
+    assert (tmp_path / "opened.txt").read_text().splitlines() == [f"-g -j {app} --args --update-self-test"]
+    assert (env_["folder"] / "rolled-back").read_text().strip() == "9.0.0"
+
+
+def test_spawn_helper_rejects_unknown_modes(env_, tmp_path):
+    plan = upd.plan_swap(env_["app"], "9.0.0", env_["folder"])
+    with pytest.raises(ValueError):
+        upd.spawn_helper(plan, 1, env_["folder"], mode="later")
+
+
+def test_self_test_flag_marks_launched_and_exits(monkeypatch):
+    from safecontext import cli
+    marked = []
+    monkeypatch.setattr(upd, "mark_launched", lambda *a, **k: marked.append(True))
+    monkeypatch.setattr(cli, "cmd_app", lambda args: pytest.fail("must not open the window"))
+    assert cli.main([upd.SELF_TEST_ARG]) == 0
+    assert marked == [True]
+
+
+def test_backend_update_choices(env_, backend_with):
+    spawned = []
+    u, server, clock = timed_updater(env_, spawn=lambda plan, pid, folder, **kw: spawned.append(kw))
+    b = backend_with(u)
+    b._quit_fn = lambda: pytest.fail("must not quit")
+    assert b.update_check()["available"]
+    assert b.update_later()["later"] is True
+    assert b.update_check()["later"] is False
+    assert b.update_skip()["skipped"] is True
+    assert b.update_unskip()["skipped"] is False
+    b.update_queue()
+    wait_for(lambda: b.update_status()["phase"] == "ready")
+    b._on_window_closing()
+    b._on_window_closing()
+    assert spawned == [{"mode": "quit"}]
+    assert b.update_set_on_quit(True)["install_on_quit"] is True
+
+
+def test_backend_cancel_and_errors(env_, backend_with):
+    u, server, _ = timed_updater(env_)
+    b = backend_with(u)
+    b.update_check()
+    b.update_queue()
+    wait_for(lambda: b.update_status()["phase"] == "ready")
+    assert b.update_cancel_queue()["on_quit"] is False
+    server.body = manifest(version="1.0.0")
+    b.update_check()
+    assert b.update_queue() == {"ok": False, "error": "There's no newer version to install."}
+    assert b.update_skip() == {"ok": False, "error": "There's no newer version to skip."}
+
+
+def test_backend_window_focus_asks_for_a_check(env_, backend_with):
+    u, server, clock = timed_updater(env_)
+    b = backend_with(u)
+    b.window_focused()
+    assert u._kick.is_set()
+
+
+def test_demo_update_flow(tmp_path):
+    from safecontext.app.demo import demo_backend_kwargs
+    from safecontext.demo.fake_update import next_version
+    b = Backend(**demo_backend_kwargs(tmp_path / "demo"), auto_sync=False)
+    b._quit_fn = lambda: pytest.fail("the demo must not quit")
+    try:
+        s = b.update_check()
+        assert s["available"] and s["version"] == next_version() and s["can_install"] and s["notes"]
+        assert b.update_check()["version"] == next_version()  # second check is a fake 304
+        b.update_queue()
+        wait_for(lambda: b.update_status()["phase"] == "ready", timeout=20)
+        b.update_install()
+        wait_for(lambda: b.update_status()["phase"] == "installing", timeout=20)
+        b._on_window_closing()
+    finally:
+        b._shutdown()

@@ -29,7 +29,7 @@
 <main id="main" class="doc">
 <div class="wrap prose">
 <h1>SafeContext Privacy Policy</h1>
-<p class="muted">Effective November 24, 2026</p>
+<p class="muted">Effective November 25, 2026</p>
 
 <p>SafeContext is a Mac app, developed by Cyrus Karbassiyoon (“we”, “the developer”), that copies your Gmail and, if you add them, your Google Calendar and your Messages history (iMessage, SMS and RCS) to your
 own computer, removes sensitive information from it on your computer, and lets you and AI assistants you choose search the result.
@@ -41,7 +41,7 @@ to this website, <a href="https://safecontext.me/">safecontext.me</a>.</p>
   <li>Your email, events and text messages are processed and stored <b>only on your Mac</b>. The developer never stores or keeps a copy of them.</li>
   <li>Sensitive data is removed <b>before</b> anything is saved.</li>
   <li>None of your data leaves your Mac unless <b>you</b> turn on <b>MCP</b> or connect an AI app, and then only scrubbed results for that AI's searches are shared.</li>
-  <li>Once a day SafeContext checks safecontext.me for a new version. The check sends none of your data, and you can turn it off.</li>
+  <li>SafeContext checks safecontext.me for a new version when it opens and every few hours. The check sends none of your data, and you can turn it off.</li>
   <li>With MCP on, those scrubbed results pass through SafeContext's relay on their way to the AI app you connected, such as Grok or Claude. The relay <b>does not store or log</b> them.</li>
   <li>SafeContext only reads. It cannot send, delete or change email, events or messages.</li>
   <li>Your Google data is never sold, never used for advertising, and never used to train AI models.</li>
@@ -63,6 +63,8 @@ It never downloads the contents of attachments; it records only each attachment'
 <h2>Messages data SafeContext accesses</h2>
 <p>If you choose to add iMessage, SafeContext reads the Messages history that macOS keeps on your Mac (iMessage, SMS and RCS), read-only. This needs <b>Full Disk Access</b>, which you turn on yourself in System Settings; SafeContext cannot turn it on for you. With that access, SafeContext also reads the Contacts data on your Mac so it can show names instead of phone numbers. It never sends, changes or deletes a message, and it records only each attachment's file name and type, never its contents. Messages data never goes to Google or to the developer.</p>
 <p>If you turn on <b>Check AI apps on this Mac</b> in the AI access review, SafeContext reads Claude Desktop's MCP config file and Claude Code's settings files in your home folder, on your Mac only. It uses them to list the MCP servers and “always allow” rules those apps have. It doesn't keep or show the values in those files, such as API keys, and it doesn't open your project folders. It's off until you turn it on, and you can turn it off at any time.</p>
+<p>The AI access review checks whether ChatGPT, Claude or Grok is installed, by looking for the app in your Applications folders. It doesn't open the apps or read their data.</p>
+<p>If you add folders or PDFs on the <b>Files</b> screen, SafeContext saves the folders and files you chose in its database and lists the names of the PDFs in them, on your Mac only. It doesn't read their contents yet and doesn't share them with AI apps. If you add a folder in Documents, Desktop or Downloads, macOS may ask you to let SafeContext access it.</p>
 
 <h2>How SafeContext uses your Google data</h2>
 <p>SafeContext uses Gmail, Google Calendar and Messages data only to provide the features you see in the app:</p>
@@ -80,6 +82,7 @@ It never downloads the contents of attachments; it records only each attachment'
   <li><b>Your Google sign-in token</b> and the private MCP link are stored in your Mac's Keychain, not in a plain file.</li>
   <li>A short <b>activity list</b> of what connected AI apps asked for through the MCP link (time, request and number of results, never the results) is kept on your Mac so you can see it in the app. You can clear it at any time.</li>
   <li>Your answers in the <b>AI access review</b> (which checks you've done, and when) and any report you save are kept on your Mac, in SafeContext's folder. A saved report contains no email addresses, no MCP link and no values from other apps' files.</li>
+  <li>SafeContext keeps a <b>history of your AI connections</b> on your Mac: each time an AI app asks to connect through your link and what you answered, changes to your link and its settings, and, if you turned on the AI apps check, which MCP servers and rules were added or removed. It holds no codes, links, searches or values from other apps' files. It keeps up to a year (at most the last 500 entries), and you can clear it in <b>AI access review → History</b>.</li>
   <li>The SafeContext app has <b>no analytics, tracking or telemetry</b>, and this website sets no cookies. SafeContext's relay keeps anonymous usage counts, described below.</li>
 </ul>
 
@@ -109,7 +112,7 @@ It never downloads the contents of attachments; it records only each attachment'
   </li>
   <li><b>AI apps you connect on your Mac.</b> If you connect another AI app to SafeContext on your Mac (through the Model Context Protocol), that app can search and read your scrubbed copy when you use it. You choose whether to connect an app, and you can disconnect it at any time. The app handles that data under its own terms.</li>
   <li><b>Opening a message in Gmail</b> opens it in your web browser at Google.</li>
-  <li><b>Update checks.</b> Once a day, and when you click <b>Check for updates</b>, SafeContext downloads a small file from safecontext.me that lists the latest version. The request sends none of your data: no account, email address, device identifier or usage information, only what any web request carries (your IP address, which Cloudflare handles to deliver the site). The check includes the app version, so the right update can be offered. If you choose <b>Update and restart</b>, SafeContext downloads the new version from safecontext.me, checks that it is signed by SafeContext's developer, and replaces the app. Your data folder and Keychain items are not touched. You can turn automatic checks off in Settings.</li>
+  <li><b>Update checks.</b> When SafeContext opens, when you come back to its window (at most every 15 minutes), after your Mac wakes, every two hours while it runs, and when you click <b>Check for updates</b>, SafeContext asks safecontext.me whether a newer version exists. The request sends none of your data: no account, email address, device identifier or usage information, only the app version (so the right update can be offered), a fingerprint of the update file it last saw (so an unchanged file isn't downloaded again), and what any web request carries (your IP address, which Cloudflare handles to deliver the site). Nothing is installed until you choose to: <b>Update and restart</b> installs now, and <b>Install when I quit</b> (or the <b>Install updates when I quit</b> setting) installs after you quit SafeContext and does not reopen it. Before installing, SafeContext checks that the new version is signed by SafeContext's developer. Your data folder and Keychain items are not touched. You can turn automatic checks off in Settings.</li>
 </ul>
 <p>The developer never keeps your Google or Messages data. With MCP on, scrubbed results pass through the developer's relay only in transit, as described above.</p>
 
