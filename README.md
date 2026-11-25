@@ -165,7 +165,8 @@ https://relay.safecontext.me/g/<256-bit random id>/mcp
 1. The link is copied and grok.com/connectors opens. Click **New connector → Custom**, paste, add.
 2. Grok signs in with OAuth (authorization code + PKCE). Its sign-in page shows a 4-digit code and
    SafeContext asks you to **Approve**; check the numbers match.
-3. Done. Grok calls `search`, `read`, `list_items` and `list_sources`; the relay passes each request
+3. Done. Grok calls `search`, `read`, `list_items` and `list_sources`, plus `search_email` and
+   `read_email_thread` while Gmail is connected. The relay passes each request
    down the socket, the app answers from the scrubbed store, and the answer goes back the same way.
 
 It works only while your Mac is awake and SafeContext is open; otherwise Grok gets "SafeContext isn't
@@ -182,7 +183,9 @@ Set `SAFECONTEXT_RELAY_URL` to point the app at another relay (for example `wran
 
 `safecontext mcp` serves read-only tools over stdio (newline-delimited JSON-RPC, no extra
 dependencies): `search`, `read`, `list_items` and `list_sources`, across every connected source with an
-optional `source` filter. The v1 Gmail tools `search_mail`, `read_thread` and `list_messages` still work.
+optional `source` filter. Descriptions name the connected sources and how many items each holds.
+`search_email` and `read_email_thread` are listed while Gmail is connected. The v1 Gmail tools
+`search_mail`, `read_thread` and `list_messages` still work.
 Results come only from the scrubbed store and include date, sender, source and a link to the original.
 
 Add it to an MCP client's config, using absolute paths:

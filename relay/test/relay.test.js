@@ -346,6 +346,10 @@ describe("MCP forwarding rules", () => {
     const r = await (await call(l, t.access_token, { jsonrpc: "2.0", id: 2, method: "resources/read", params: {} })).json();
     expect(r.error.code).toBe(-32601);
     expect(mac.inbox.filter((m) => m.t === "http")).toEqual([]);  // none of these reached the Mac
+    for (const name of ["search_email", "read_email_thread"]) {
+      const ok = await (await call(l, t.access_token, toolCall(name, { query: "rent", thread_id: "t1" }))).json();
+      expect(ok.result.content[0].text).toBe(`ran ${name}`);
+    }
   });
 
   it("returns a clean error when SafeContext isn't running", { timeout: 40_000 }, async () => {

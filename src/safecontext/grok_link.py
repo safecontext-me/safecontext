@@ -15,7 +15,12 @@ and only works while the Mac is awake and the app is open.
 
 Pieces:
   * MCPHttpHandler: the MCP Streamable HTTP endpoint, reusing mcp_server/tools.
-    Only the read-only primary tools are served (no aliases, nothing else).
+    Read-only tools only. Descriptions are rebuilt on every request from the
+    sources connected right now. search_email and read_email_thread are listed
+    when Gmail is connected. The v1 aliases (search_mail, read_thread,
+    list_messages) are not served here. The endpoint is POST-only, so a
+    tools/list_changed push (GET/SSE) is a follow-up; clients see updates the
+    next time they call initialize or tools/list.
   * ActivityLog: what AI apps asked for (time, tool, query, number of results),
     shown in the app. Results themselves are never kept.
   * RelayClient: the outbound socket, with reconnect and backoff.
@@ -52,7 +57,7 @@ from .env import keychain_service
 from .mcp_server import SUPPORTED_VERSIONS, MCPServer, _err
 from .migrate import getenv
 from .store import Store
-from .tools import PRIMARY_TOOLS
+from .tools import grok_tools
 
 log = logging.getLogger("safecontext.grok")
 
@@ -67,8 +72,6 @@ CONNECTOR_PAGES = {
 KEYRING_SERVICE = keychain_service("SafeContext Grok")  # "SafeContext Grok (Dev)" in a checkout
 KEYRING_USER = "relay-link"
 
-GROK_TOOLS = PRIMARY_TOOLS  # search, read, list_items, list_sources (all read-only)
-GROK_TOOL_NAMES = frozenset(t["name"] for t in GROK_TOOLS)
 ALLOWED_METHODS = frozenset({"initialize", "ping", "tools/list", "tools/call", "notifications/initialized",
                              "notifications/cancelled"})
 MAX_REQUEST_BYTES = 64 * 1024
@@ -151,10 +154,13 @@ def describe_query(tool: str, args: Dict[str, Any]) -> str:
         return v if isinstance(v, str) and v else ""
     filters = [f"{label} {s(k)}" for k, label in (("source", "in"), ("sender", "from"), ("after", "after"),
                                                     ("before", "before")) if s(k)]
-    if tool == "search":
+    if tool in ("search", "search_email", "search_mail"):
         text = f"“{s('query')}”" + (" · " + ", ".join(filters) if filters else "")
-    elif tool == "read":
-        text = "Opened a thread" + (f" in {s('source')}" if s("source") else "")
+        if tool == "search_email" and "in gmail" not in text:
+            text += " · in gmail"
+    elif tool in ("read", "read_thread", "read_email_thread"):
+        where = s("source") or ("gmail" if tool == "read_email_thread" else "")
+        text = "Opened a thread" + (f" in {where}" if where else "")
     elif tool == "list_items":
         text = "Listed items" + (" · " + ", ".join(filters) if filters else "")
     elif tool == "list_sources":
@@ -236,8 +242,9 @@ class MCPHttpHandler:
     """The MCP Streamable HTTP endpoint (spec 2025-06-18), stateless, JSON responses only.
 
     The relay passes on Grok's request (method, a few headers, body) and returns
-    whatever this produces. Only ALLOWED_METHODS and GROK_TOOLS get through, even
-    though the relay checks the same allowlist first."""
+    whatever this produces. Only ALLOWED_METHODS and grok_tools(store) get through,
+    even though the relay checks the same allowlist first. Tools are recomputed
+    for every request."""
 
     def __init__(self, store: Store, activity: Optional[ActivityLog] = None) -> None:
         self.store = store
@@ -260,7 +267,7 @@ class MCPHttpHandler:
             return _json(400, _err(None, -32600, "Invalid Request"))
 
         hdrs = {k.lower(): v for k, v in (headers or {}).items()}
-        server = MCPServer(self.store, tools=GROK_TOOLS, on_call=self._on_call)
+        server = MCPServer(self.store, tools=grok_tools, on_call=self._on_call)
         # Stateless: each request says its protocol version (some clients forget; use the newest).
         version = hdrs.get("mcp-protocol-version")
         server.protocol_version = version if version in SUPPORTED_VERSIONS else SUPPORTED_VERSIONS[0]
