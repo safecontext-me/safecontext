@@ -79,6 +79,23 @@ function fmtDate(iso, withTime = false) {
   return d.toLocaleString(undefined, opts);
 }
 
+// All-day dates are stored as UTC midnight (with an exclusive end): read them in UTC, or anyone
+// west of Greenwich sees the day before. No time; `long` is the tooltip form ("Wed, Mar 4, 2026").
+function fmtAllDay(iso, long = false) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const opts = long ? { weekday: "short", year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }
+    : { month: "short", day: "numeric", timeZone: "UTC" };
+  if (!long && d.getUTCFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+  return d.toLocaleDateString(undefined, opts);
+}
+
+// The last day of an all-day event (its end is exclusive), or null for a one-day event.
+function allDayLast(start, end) {
+  const last = end ? new Date(end).getTime() - 86400000 : 0;
+  return last > new Date(start).getTime() ? new Date(last).toISOString() : null;
+}
+
 function fmtSize(n) {
   if (!n) return "";
   if (n < 1024) return `${n} B`;
@@ -127,13 +144,8 @@ function sourceName(id) {
 function fmtRange(start, end, allDay) {
   if (!start) return "";
   if (allDay) {
-    // All-day dates are stored as UTC midnight with an exclusive end: read them in UTC,
-    // or anyone west of Greenwich sees the day before.
-    const day = (ms) => { const d = new Date(ms), o = { month: "short", day: "numeric", timeZone: "UTC" };
-      if (d.getUTCFullYear() !== new Date().getFullYear()) o.year = "numeric";
-      return d.toLocaleDateString(undefined, o); };
-    const last = end ? new Date(end).getTime() - 86400000 : 0;
-    return day(start) + (last > new Date(start).getTime() ? ` – ${day(last)}` : "") + " · all day";
+    const last = allDayLast(start, end);
+    return fmtAllDay(start) + (last ? ` – ${fmtAllDay(last)}` : "") + " · all day";
   }
   const s = fmtDate(start, true);
   if (!end) return s;

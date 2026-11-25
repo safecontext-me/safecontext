@@ -686,7 +686,7 @@ class Store:
     _SNIPPET_CHARS = 240
     _THREAD_COLS = (
         "m.rowid AS rid, m.source, m.id, m.thread_id, m.kind, m.date_ms, m.end_ms, m.sender, m.title, "
-        "m.redactions, m.attachment_names, "
+        "m.redactions, m.attachment_names, coalesce(json_extract(m.extra, '$.When') = 'All day', 0) AS all_day, "
         "(SELECT count(*) FROM items c WHERE c.source = m.source AND c.thread_id = m.thread_id) AS n_items, "
         "(SELECT count(*) FROM dropped d WHERE d.source = m.source AND d.thread_id = m.thread_id) AS n_dropped, "
         "(SELECT coalesce(sum(j.value), 0) FROM items c, json_each(c.redactions) j "
@@ -729,6 +729,7 @@ class Store:
     def _thread_row(self, r: sqlite3.Row, snippet: Optional[str] = None) -> Dict[str, object]:
         return {"type": "thread", "source": r["source"], "id": r["id"], "thread_id": r["thread_id"],
                 "kind": r["kind"], "date": _iso(r["date_ms"]), "end": _iso_or_none(r["end_ms"]),
+                "all_day": bool(r["all_day"]),  # stored at UTC midnight: the UI shows its date in UTC
                 "sender": r["sender"], "title": r["title"],
                 "snippet": snippet if snippet is not None else r["snip"],
                 "count": r["n_items"], "dropped_in_thread": r["n_dropped"], "redacted": r["n_redacted"],

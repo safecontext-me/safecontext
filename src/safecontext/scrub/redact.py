@@ -197,12 +197,14 @@ PASSWORD = RegexRule("PASSWORD", re.compile(
     r"(?:\s*[:=]\s*|[ \t]+-[ \t]+|\s+(?:is|was)\s*:?\s*)"  # not "password-protected"
     r"(?!\[REDACTED)(\S+)", _I), group=1)
 
-# Meeting dial-in secrets. With the dial-in number, a PIN, conference ID or host
-# key lets anyone join (or take over) the call. They are often written in groups
+# Meeting dial-in secrets. With the dial-in number, a PIN, conference ID, access
+# code (Webex: the meeting number, typed after dialling in) or host key lets
+# anyone join (or take over) the call. They are often written in groups
 # ("PIN: 123 456 789#"), which PASSWORD would only half-eat, so this runs first.
 DIAL_IN_PIN = RegexRule("PASSWORD", re.compile(
     r"\b(?:pin|passcode|password|host[ \t]+(?:key|pin)|moderator[ \t]+pin|participant[ \t]+(?:code|pin)|"
-    r"attendee[ \t]+(?:id|pin)|(?:phone[ \t]+)?conference[ \t]+id)\b"
+    r"attendee[ \t]+(?:id|pin)|(?:phone[ \t]+)?conference[ \t]+(?:id|code|pin)|"
+    r"access[ \t]+code|dial[ \t-]?in[ \t]+(?:code|pin))\b"
     r"[ \t]*[:=#]?[ \t]*(\d{3,}(?:[ \t.-]\d{2,}){0,4})#?(?!\d)", _I), group=1)
 # One-tap dial strings ("+16699006833,,81234567890#,,,,*482913#"): the digits
 # after the pauses are the meeting ID and passcode or conference PIN.
