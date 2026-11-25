@@ -55,7 +55,7 @@ to this website, <a href="https://safecontext.me/">safecontext.me</a>.</p>
 </ul>
 <p>If you also choose to connect Google Calendar, SafeContext asks separately, at that moment, for one more read-only permission:</p>
 <ul>
-  <li><code>https://www.googleapis.com/auth/calendar.readonly</code>: to read your calendars and events (title, time, organizer, attendees, description, location and video-call link) so they can be scrubbed and searched on your Mac. SafeContext cannot create, change or delete events, and it never reads dial-in PINs or meeting passcodes.</li>
+  <li><code>https://www.googleapis.com/auth/calendar.readonly</code>: to read your calendars and events (title, time, organizer, attendees, description, location and video-call link) so they can be scrubbed and searched on your Mac. SafeContext cannot create, change or delete events, and it removes dial-in PINs, meeting passcodes, conference IDs and Webex access codes before anything is saved.</li>
 </ul>
 <p>SafeContext also learns the email address of the Google account you connect, so it can show which account is connected.
 It never downloads the contents of attachments; it records only each attachment's file name, type and size.</p>
