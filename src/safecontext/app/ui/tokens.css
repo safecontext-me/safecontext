@@ -106,7 +106,6 @@
   --space-16: 64px;
 
   /* ---------- radius ---------- */
-  --radius-2xs: 2px;    /* the tooltip arrow (shadcn rounded-[2px]) */
   --radius-xs: 4px;     /* kbd keys, tiny chips */
   --radius-sm: 6px;     /* small buttons, tags */
   --radius-md: 8px;     /* buttons, inputs, menu items */
@@ -120,7 +119,6 @@
   --control-sm: 28px;
   --control: 32px;
   --control-lg: 36px;
-  --tooltip-arrow-x: 50%;  /* where the Tooltip arrow sits; components.js points it at the element */
   --card-spacing: var(--space-4);  /* Card padding and gap (shadcn --card-spacing); .card-sm sets --space-3 */
 
   /* ---------- elevation ---------- */

@@ -198,7 +198,7 @@ customElements.define("sc-filter-list", ScFilterList);
 const scTooltip = (() => {
   const tip = scEl("div", { class: "tooltip", role: "tooltip", hidden: "" });
   let owner = null;
-  const GAP = 4 + 5;  // shadcn's sideOffset (4px) plus the arrow
+  const GAP = 4;  // shadcn's sideOffset
   function textOf(el) {
     if (el.hasAttribute("title")) {
       const t = el.getAttribute("title");
@@ -221,7 +221,6 @@ const scTooltip = (() => {
     tip.dataset.side = side;
     tip.style.left = `${left}px`;
     tip.style.top = `${side === "top" ? r.top - t.height - GAP : r.bottom + GAP}px`;
-    tip.style.setProperty("--tooltip-arrow-x", `${r.left + r.width / 2 - left}px`);
   }
   function hide() { owner = null; tip.hidden = true; }
   const target = (e) => e.target instanceof Element ? e.target.closest("[title], [data-tooltip]") : null;

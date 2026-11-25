@@ -330,22 +330,19 @@ a.badge-destructive:hover { background-color: color-mix(in srgb, var(--destructi
 
 /* ---------- Tooltip ----------
    Any element with a title="…" gets this instead of the browser's tooltip (components.js moves the title into
-   data-tooltip on hover or keyboard focus and draws one .tooltip at a time). It opens above, or below if there's no room. */
+   data-tooltip on hover or keyboard focus and draws one .tooltip at a time). It opens above, or below if there's no room.
+   SafeContext changes: no arrow, and it uses the popover colors (light in light mode, dark in dark mode)
+   with the Dropdown Menu's ring and shadow, instead of shadcn's inverted dark label. */
 .tooltip {
   position: fixed; z-index: 60; width: fit-content; max-width: 320px; pointer-events: none;
   display: inline-flex; align-items: center; gap: var(--space-1-5);
   padding: var(--space-1-5) var(--space-3); border-radius: var(--radius-md);
-  background-color: var(--foreground); color: var(--background);
+  background-color: var(--popover); color: var(--popover-foreground);
+  box-shadow: var(--shadow-menu), 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);
   font-size: var(--text-sm); line-height: 16px; white-space: normal; text-align: left;
   animation: sc-pop-in var(--duration-fast) var(--ease-out);
 }
 .tooltip[hidden] { display: none; }
-.tooltip::after {  /* the arrow: a 10px square turned 45°, half showing */
-  content: ""; position: absolute; left: var(--tooltip-arrow-x); width: 10px; height: 10px; z-index: -1;
-  border-radius: var(--radius-2xs); background-color: var(--foreground); transform: translateX(-50%) rotate(45deg);
-}
-.tooltip[data-side="top"]::after { bottom: -3px; }
-.tooltip[data-side="bottom"]::after { top: -3px; }
 
 /* shadcn's open animation (fade-in-0 zoom-in-95) */
 @keyframes sc-pop-in { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: none; } }
