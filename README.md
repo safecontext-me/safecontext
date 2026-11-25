@@ -19,6 +19,12 @@ fetches no message bodies). Google Calendar, if you connect it, is read with the
 events go through the same scrubber (dial-in PINs and meeting passcodes are never read);
 email-only rules such as `List-Unsubscribe` don't apply to them.
 
+PDFs are separate from mail and calendar. On the Files screen you add folders and
+individual PDFs. Those are the only PDFs whose text SafeContext may read. A folder
+covers the PDFs inside it. A PDF you add on its own stays readable if you later
+remove the folder. A shortcut that points out of an added folder is skipped.
+Every other file stays unread.
+
 **Dropped entirely** (only the message id and a reason are kept, so sync doesn't refetch it):
 
 - Spam, trash, drafts, chats, and Promotions/Social/Forums categories

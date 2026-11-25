@@ -231,7 +231,7 @@ function show(view) {
   if (view === "mail" && !pickSource()) view = "sources";  // nothing to browse yet
   state.view = view;
   markNav();
-  for (const v of ["mail", "sources", "source", "mcp", "removed", "review", "sync", "settings"]) $(`view-${v}`).hidden = v !== view;
+  for (const v of ["mail", "sources", "source", "mcp", "removed", "review", "sync", "settings", "files"]) $(`view-${v}`).hidden = v !== view;
   if (view === "mail") mailShow();
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "source") renderSourcePage();
@@ -239,7 +239,60 @@ function show(view) {
   if (view === "sync") syncPageShow();
   if (view === "review") loadReview();
   if (view === "mcp") loadMcp();
+  if (view === "files") loadFiles();
   navRecord();
+}
+
+// ---------- files: folders and PDFs the user opts in ----------
+function fileRow(entry) {
+  const kind = entry.kind === "folder" ? "Folder" : "PDF";
+  return el("div", { class: "file-row" },
+    el("div", {}, el("span", { class: "file-kind" }, kind), el("code", {}, entry.path)),
+    el("button", { class: "btn small", onclick: () => removeFile(entry.path) }, "Remove"));
+}
+
+async function loadFiles(keepError) {
+  const r = await api().pdf_selection();
+  const err = $("files-error");
+  if (!r.ok) {
+    err.hidden = false;
+    err.textContent = r.error;
+    return;
+  }
+  if (!keepError) err.hidden = true;
+  const entries = r.entries || [];
+  $("files-entries").replaceChildren(entries.length
+    ? el("div", { class: "file-list" }, entries.map(fileRow))
+    : el("p", { class: "muted" }, "Nothing added yet. No PDF text can be read."));
+  const pdfs = r.pdfs || [];
+  $("files-pdfs").replaceChildren(pdfs.length
+    ? el("div", { class: "file-list" }, pdfs.map((p) => el("div", { class: "file-row" }, el("code", {}, p))))
+    : el("p", { class: "muted" }, "No PDFs in the folders and files you added."));
+}
+
+async function addFiles(kind) {
+  const r = await api().pdf_pick(kind);
+  const err = $("files-error");
+  if (!r.ok) {
+    err.hidden = false;
+    err.textContent = r.error;
+    loadFiles(true);  // a later file can fail after an earlier one was saved
+    return;
+  }
+  err.hidden = true;
+  if (!r.cancelled) loadFiles();
+}
+
+async function removeFile(path) {
+  const r = await api().pdf_remove(path);
+  const err = $("files-error");
+  if (!r.ok) {
+    err.hidden = false;
+    err.textContent = r.error;
+    return;
+  }
+  err.hidden = true;
+  loadFiles();
 }
 
 // ---------- header: hide the sidebar, back / forward ----------
@@ -727,42 +780,157 @@ async function loadRemoved() {
   for (const x of r.by_source || []) by[`${x.name} · kept`] = x.kept;
   for (const x of r.by_source || []) if (x.dropped) by[`${x.name} · skipped`] = x.dropped;
   bars($("by-source"), by);
+  loadScrubber();
+}
+
+function renderScrubber(r) {
+  $("scrub-builtin").replaceChildren(...r.builtin.map((rule) =>
+    el("li", {}, el("b", {}, rule.label), el("span", { class: "muted" }, " · always on. " + rule.detail))));
+  const rows = r.patterns.length
+    ? r.patterns.map((p) => {
+        const box = el("input", { type: "checkbox", onchange: (e) => scrubberSet(p.id, e.target.checked) });
+        box.checked = !!p.enabled;
+        return el("div", { class: "scrub-row" },
+          el("label", { class: "check" }, box, el("span", {}, el("b", {}, p.name), " ", el("code", {}, p.pattern))),
+          el("button", { class: "btn small", type: "button", onclick: () => scrubberDelete(p.id) }, "Remove"));
+      })
+    : [el("p", { class: "muted" }, "No extra patterns yet.")];
+  $("scrub-patterns").replaceChildren(...rows);
+}
+
+async function loadScrubber() {
+  const r = await api().scrubber_rules();
+  if (!r.ok) return toast(r.error);
+  renderScrubber(r);
+}
+
+async function scrubberSet(id, enabled) {
+  const r = await api().scrubber_set_enabled(id, enabled);
+  if (!r.ok) return toast(r.error);
+  renderScrubber(r);
+}
+
+async function scrubberDelete(id) {
+  const ok = await confirmDialog("Remove this pattern? Files read after this won't use it.", "Remove");
+  if (!ok) return;
+  const r = await api().scrubber_delete(id);
+  if (!r.ok) return toast(r.error);
+  renderScrubber(r);
+}
+
+async function scrubberPreview() {
+  const r = await api().scrubber_preview($("scrub-sample").value);
+  const box = $("scrub-preview");
+  box.hidden = false;
+  if (!r.ok) {
+    box.replaceChildren(el("p", { class: "error" }, r.error));
+    return;
+  }
+  box.replaceChildren(richText(r.text));
 }
 
 // ---------- AI access review ----------
-const RV_PILLS = { risk: ["Fix", "risk"], warn: ["Worth a look", "warn"], todo: ["Not checked", "todo"], info: ["Note", ""], ok: ["OK", "ok"] };
+// review.py does the grouping and colours; this draws one tab per app or account. Every colour
+// comes with an icon shape and a word, so nothing depends on telling red from green.
+const RV_ICON = { red: "circle-x", yellow: "triangle-alert", green: "circle-check", grey: "circle-help" };
+const RV_TALLY = [["red", "to fix"], ["yellow", "worth a look"], ["green", "OK"], ["grey", "not checked"]];
 const RV_ANSWERS = [["ok", "Looks fine"], ["fixed", "I fixed it"], ["issue", "Found a problem"], ["skip", "Don't use this"]];
+const RV_RANK = ["red", "yellow", "grey", "green"];
+let rvTab = null;               // selected group id; first visit opens the worst one
+const rvOpenRows = new Set();   // checks the user expanded (kept across redraws)
+let rvLast = null;
+
+function rvIcon(colour) {
+  const i = scIcon(RV_ICON[colour] || RV_ICON.grey, `rv-ic ${colour}`);
+  return i;
+}
 
 async function loadReview(r) {
   r = r || await api().review();
   if (!r.ok) return toast(r.error);
-  const c = r.counts;
-  $("rv-verdict").textContent = r.verdict;
-  $("rv-verdict").className = `rv-verdict ${r.tone}`;
-  $("rv-counts").textContent = `${c.risk} to fix · ${c.warn} worth a look · ${c.todo} not checked · ${c.ok + c.info} fine`;
-  $("rv-scan").checked = r.scan_on;
-  $("rv-groups").replaceChildren(...r.groups.filter((g) => g.checks.length).map((g) =>
-    el("div", { class: "card rv-group" }, el("h3", {}, g.title), ...g.checks.map(reviewRow))));
+  rvLast = r;
+  const groups = r.groups.filter((g) => g.checks.length || g.id === "claude");
+  if (!groups.some((g) => g.id === rvTab)) {
+    const worst = [...groups].sort((a, b) => RV_RANK.indexOf(a.colour) - RV_RANK.indexOf(b.colour))[0];
+    rvTab = worst && worst.colour !== "green" ? worst.id : groups[0]?.id;
+  }
+  $("rv-tally").replaceChildren(...RV_TALLY.filter(([c]) => r.colours[c]).map(([c, word]) =>
+    el("span", { class: `rv-t ${c}` }, rvIcon(c), el("b", {}, r.colours[c]), ` ${word}`)));
+  $("rv-tabs").replaceChildren(...groups.map((g) => reviewTab(g)));
+  const g = groups.find((x) => x.id === rvTab);
+  $("rv-panel").setAttribute("aria-labelledby", `rv-tab-${rvTab}`);
+  $("rv-panel").replaceChildren(...(g ? reviewPanel(g, r) : []));
+}
+
+function reviewTab(g) {
+  const open = g.counts.red + g.counts.yellow + g.counts.grey;
+  const sel = g.id === rvTab;
+  return el("button", { class: `rv-tab${sel ? " on" : ""}${g.skipped ? " skipped" : ""}`, role: "tab", id: `rv-tab-${g.id}`,
+      "aria-selected": String(sel), "aria-controls": "rv-panel", tabindex: sel ? "0" : "-1",
+      title: `${g.title}: ${g.label}`, onclick: () => rvSelect(g.id), onkeydown: rvTabKey },
+    rvIcon(g.colour), g.title,
+    open && !g.skipped ? el("span", { class: "rv-n" }, open) : null,
+    el("span", { class: "sr" }, ` (${g.label})`));
+}
+
+function rvSelect(id, focus = false) {
+  rvTab = id;
+  loadReview(rvLast);
+  if (focus) $(`rv-tab-${id}`)?.focus();
+}
+
+function rvTabKey(e) {
+  const tabs = [...document.querySelectorAll(".rv-tab")];
+  const i = tabs.indexOf(e.currentTarget);
+  const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+  if (j == null) return;
+  e.preventDefault();
+  rvSelect(tabs[(j + tabs.length) % tabs.length].id.replace(/^rv-tab-/, ""), true);
+}
+
+function reviewPanel(g, r) {
+  const out = [el("p", { class: "rv-blurb" }, g.skipped ? "You said you don't use this." : g.blurb)];
+  if (g.id === "claude") out.push(reviewScanRow(r.scan_on));
+  out.push(el("div", { class: "rv-list" }, ...g.checks.map(reviewRow)));
+  return out;
+}
+
+function reviewScanRow(on) {
+  const box = el("input", { type: "checkbox", id: "rv-scan" });
+  box.checked = on;
+  box.addEventListener("change", reviewScan);
+  return el("label", { class: "rv-scan-row" }, box,
+    el("span", {}, "Also check Claude Desktop and Claude Code on this Mac ",
+      el("small", { class: "muted" }, "(names and rules only, never keys or values; nothing leaves this Mac)")));
 }
 
 function reviewRow(c) {
-  const [label, cls] = RV_PILLS[c.status] || RV_PILLS.info;
-  const row = el("div", { class: `rv-row ${c.status}` },
-    el("div", { class: "rv-head" }, el("span", { class: "rv-title" }, c.title), el("span", { class: `pill ${cls}` }, label)),
+  const open = rvOpenRows.has(c.id);
+  const bodyId = `rv-b-${c.id}`;
+  const toggle = el("button", { class: "rv-line", "aria-expanded": String(open), "aria-controls": bodyId,
+      onclick: () => { open ? rvOpenRows.delete(c.id) : rvOpenRows.add(c.id); loadReview(rvLast); } },
+    rvIcon(c.colour), el("span", { class: "rv-title" }, c.title),
+    el("span", { class: `rv-word ${c.colour}` }, c.label), scIcon("chevron-right", "rv-chev"));
+  const row = el("div", { class: `rv-row ${c.colour}${open ? " open" : ""}`, "data-id": c.id },
+    el("div", { class: "rv-head" }, toggle,
+      c.link ? el("button", { class: "btn small rv-open", title: c.link.startsWith("x-apple") ? "Open System Settings" : "Open page",
+        onclick: () => reviewOpen(c.id) }, c.link.startsWith("x-apple") ? "Settings" : "Open", scIcon("external-link"))
+        : el("span", { class: "rv-open-gap" })));  // keeps the status words lined up
+  if (!open) return row;
+  const body = el("div", { class: "rv-body", id: bodyId },
     c.detail ? el("p", { class: "rv-detail" }, c.detail) : null,
     c.items.length ? el("ul", { class: "rv-items" }, ...c.items.map((i) => el("li", {}, i))) : null,
-    c.fix && ["risk", "warn", "todo"].includes(c.status) ? el("p", { class: "rv-fix" }, el("b", {}, "What to do: "), c.fix) : null);
+    c.fix ? el("p", { class: "rv-fix" }, el("b", {}, "What to do: "), c.fix) : null);
   if (c.manual) {
-    const acts = el("div", { class: "rv-actions" });
-    if (c.link) acts.append(el("button", { class: "btn small primary", onclick: () => reviewOpen(c.id) },
-      c.link.startsWith("x-apple") ? "Open System Settings" : "Open page"));
+    const acts = el("div", { class: "rv-actions", role: "group", "aria-label": `What you found: ${c.title}` });
     for (const [a, text] of RV_ANSWERS) {
       acts.append(el("button", { class: `btn small${c.answer === a ? " chosen" : ""}`, "aria-pressed": String(c.answer === a),
         onclick: () => reviewAnswer(c.id, c.answer === a ? "" : a) }, text));
     }
     if (c.answered_ms) acts.append(el("span", { class: "muted rv-when" }, `Checked ${new Date(c.answered_ms).toLocaleDateString()}`));
-    row.append(acts);
+    body.append(acts);
   }
+  row.append(body);
   return row;
 }
 
@@ -772,7 +940,11 @@ async function reviewOpen(id) {
   else if (!r.opened) toast(state.status && state.status.demo ? "Demo mode doesn't open pages." : "Couldn't open it.");
 }
 
-async function reviewAnswer(id, answer) { loadReview(await api().review_answer(id, answer)); }
+async function reviewAnswer(id, answer) {
+  rvOpenRows.add(id);  // keep the row open so the new colour and the chosen answer show together
+  await loadReview(await api().review_answer(id, answer));
+  document.querySelector(`.rv-row[data-id="${id}"] .rv-actions .btn.chosen`)?.focus({ preventScroll: true });
+}
 
 async function reviewScan(e) {
   const r = await api().review_set_scan(e.target.checked);
@@ -968,8 +1140,19 @@ function wire() {
   const focused = async () => { if (document.visibilityState === "visible") { await api().window_focused(); refreshStatus(); } };
   window.addEventListener("focus", focused);
   document.addEventListener("visibilitychange", focused);
+  $("files-add-folder").addEventListener("click", () => addFiles("folder"));
+  $("files-add-file").addEventListener("click", () => addFiles("file"));
   $("ob-connect").addEventListener("click", () => connect($("ob-connect"), $("ob-error")));
   $("reconnect").addEventListener("click", () => connect($("reconnect"), null));
+  $("scrub-add").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const r = await api().scrubber_add($("scrub-name").value, $("scrub-pattern").value);
+    if (!r.ok) return toast(r.error);
+    $("scrub-name").value = "";
+    $("scrub-pattern").value = "";
+    renderScrubber(r);
+  });
+  $("scrub-try").addEventListener("click", scrubberPreview);
   $("s-disconnect").addEventListener("click", () => disconnect(false));
   $("s-wipe").addEventListener("click", () => disconnect(true));
   $("mcp-toggle").addEventListener("change", mcpToggle);
@@ -988,7 +1171,6 @@ function wire() {
   $("ga-ok").addEventListener("click", () => mcpAnswer(true));
   $("ga-deny").addEventListener("click", () => mcpAnswer(false));
   $("mcp-approve").addEventListener("cancel", (e) => e.preventDefault());
-  $("rv-scan").addEventListener("change", reviewScan);
   $("rv-save").addEventListener("click", reviewSave);
   $("u-check").addEventListener("click", updateCheck);
   $("u-install").addEventListener("click", updateInstall);
