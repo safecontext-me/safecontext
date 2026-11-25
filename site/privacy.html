@@ -63,6 +63,7 @@ It never downloads the contents of attachments; it records only each attachment'
 <h2>Messages data SafeContext accesses</h2>
 <p>If you choose to add iMessage, SafeContext reads the Messages history that macOS keeps on your Mac (iMessage, SMS and RCS), read-only. This needs <b>Full Disk Access</b>, which you turn on yourself in System Settings; SafeContext cannot turn it on for you. With that access, SafeContext also reads the Contacts data on your Mac so it can show names instead of phone numbers. It never sends, changes or deletes a message, and it records only each attachment's file name and type, never its contents. Messages data never goes to Google or to the developer.</p>
 <p>If you turn on <b>Check AI apps on this Mac</b> in the AI access review, SafeContext reads Claude Desktop's MCP config file and Claude Code's settings files in your home folder, on your Mac only. It uses them to list the MCP servers and “always allow” rules those apps have. It doesn't keep or show the values in those files, such as API keys, and it doesn't open your project folders. It's off until you turn it on, and you can turn it off at any time.</p>
+<p>The AI access review checks whether ChatGPT, Claude or Grok is installed, by looking for the app in your Applications folders. It doesn't open the apps or read their data.</p>
 <p>If you add folders or PDFs on the <b>Files</b> screen, SafeContext saves the folders and files you chose in its database and lists the names of the PDFs in them, on your Mac only. It doesn't read their contents yet and doesn't share them with AI apps. If you add a folder in Documents, Desktop or Downloads, macOS may ask you to let SafeContext access it.</p>
 
 <h2>How SafeContext uses your Google data</h2>
@@ -81,6 +82,7 @@ It never downloads the contents of attachments; it records only each attachment'
   <li><b>Your Google sign-in token</b> and the private MCP link are stored in your Mac's Keychain, not in a plain file.</li>
   <li>A short <b>activity list</b> of what connected AI apps asked for through the MCP link (time, request and number of results, never the results) is kept on your Mac so you can see it in the app. You can clear it at any time.</li>
   <li>Your answers in the <b>AI access review</b> (which checks you've done, and when) and any report you save are kept on your Mac, in SafeContext's folder. A saved report contains no email addresses, no MCP link and no values from other apps' files.</li>
+  <li>SafeContext keeps a <b>history of your AI connections</b> on your Mac: each time an AI app asks to connect through your link and what you answered, changes to your link and its settings, and, if you turned on the AI apps check, which MCP servers and rules were added or removed. It holds no codes, links, searches or values from other apps' files. It keeps up to a year (at most the last 500 entries), and you can clear it in <b>AI access review → History</b>.</li>
   <li>The SafeContext app has <b>no analytics, tracking or telemetry</b>, and this website sets no cookies. SafeContext's relay keeps anonymous usage counts, described below.</li>
 </ul>
 
