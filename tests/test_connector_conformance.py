@@ -60,10 +60,10 @@ class ChatExportFixture(ConnectorFixture):
         os.chmod(self.path, 0o600)
 
 
-# Gmail and Google Calendar predate the kit and sync through their own API syncers;
-# tests/test_sync.py and tests/test_gcal.py cover them.
+# Gmail, Google Calendar, and Dropbox sync through their own API syncers.
+# tests/test_sync.py, tests/test_gcal.py, and tests/test_dropbox.py cover them.
 FIXTURES = {"imessage": IMessageFixture, "chat_export": ChatExportFixture}
-API_SOURCES = {"gmail", "gcal"}
+API_SOURCES = {"gmail", "gcal", "dropbox"}
 
 
 @pytest.mark.parametrize("check", CHECKS, ids=lambda c: c.__name__)
