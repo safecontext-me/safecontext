@@ -9,7 +9,9 @@ const mail = {
   inited: false, view: "all", source: "", query: "", reasons: [], order: "newest",
   rows: [], next: null, loading: false, gen: 0, sel: -1, openKey: null,
   folders: null, coverage: [], reasonList: [], timer: null, lastCovSig: "",
+  pages: new Map(),  // first page of each list already seen (source, view, filter, order): shown at once on a switch
 };
+const MAIL_PAGES_KEPT = 12;
 
 const mailKey = (r) => `${r.type}:${r.source}:${r.type === "dropped" ? r.id : r.thread_id}`;
 
@@ -90,7 +92,7 @@ function mailResizerInit() {
 function mailShow() {
   mailInit();
   mailPlaceholder();
-  if (!mail.rows.length) mailReload();
+  if (!mail.rows.length && !mail.loading) mailReload();  // openSource / mailSetView may have started it already
   mailRefreshMeta(true, mail.rows.length > 0);  // coming back: catch up on what synced while away
   clearInterval(mail.timer);
   mail.timer = setInterval(() => {
@@ -106,13 +108,16 @@ async function mailRefreshMeta(force, returning = false) {
   const syncing = mail.coverage.some((c) => c.syncing);
   if (!force && !syncing && Date.now() - (mail.metaAt || 0) < 15000) return;
   mail.metaAt = Date.now();
-  const [f, c] = await Promise.all([api().mail_folders(), api().mail_coverage(mail.source)]);
+  const source = mail.source;
+  const [f, c] = await Promise.all([api().mail_folders(), api().mail_coverage(source)]);
   if (f.ok) { mail.folders = f; mailRenderFolders(); }
+  if (source !== mail.source) return;  // switched sources meanwhile: this coverage is for the old one
   if (c.ok) mail.coverage = c.sources;  // shown on the Sync status page, not on this one
   // Keep the list fresh as the store changes: while a sync fills it (only if the reader is at the
-  // top, not mid-scroll or searching), and always on coming back to the page.
+  // top, not mid-scroll or searching), and always on coming back to the page. Right after a switch
+  // (lastCovSig null) there's nothing to compare with, and the list is being loaded anyway.
   const sig = c.ok ? mailCovSig(c.sources) : "";
-  const changed = sig !== mail.lastCovSig;
+  const changed = mail.lastCovSig !== null && sig !== mail.lastCovSig;
   if (changed && (returning || (!force && $("mail-list").scrollTop < MAIL_ROW_H && !mail.query))) mailReload(true);
   mail.lastCovSig = sig;
   if (mail.view === "not_synced") mailLoadReasons();
@@ -265,23 +270,48 @@ function mailSetView(view) {
 }
 
 // ---------- the list (virtualized) ----------
+// Which list is showing. Searches aren't kept: they change with every keystroke.
+function mailPageKey() {
+  return mail.query ? null : JSON.stringify([mail.source, mail.view, mail.reasons, mail.order]);
+}
+
+function mailRemember(key, rows, next) {
+  if (!key) return;
+  mail.pages.delete(key);  // re-insert so the Map's order is least recently used first
+  mail.pages.set(key, { rows, next });
+  while (mail.pages.size > MAIL_PAGES_KEPT) mail.pages.delete(mail.pages.keys().next().value);
+}
+
+// Load the list's first page. A new list (another source, tab, filter or order) changes on screen right
+// away: the first page from last time if there is one, otherwise placeholder rows. The fresh page replaces
+// it when it comes. keepSelection: refreshing the same list in place (a sync stored something).
 async function mailReload(keepSelection = false) {
   const gen = ++mail.gen;
   const prevKey = keepSelection && mail.sel >= 0 && mail.rows[mail.sel] ? mailKey(mail.rows[mail.sel]) : null;
+  const key = mailPageKey();
   mail.loading = true;
+  if (!keepSelection) {
+    const seen = key && mail.pages.get(key);
+    mail.rows = seen ? seen.rows : [];
+    mail.next = seen ? seen.next : null;
+    mail.sel = -1;
+    mail.error = "";
+    $("mail-list").scrollTop = 0;
+    mailRender();
+  }
   const r = await api().mail_list(mail.view, mail.source, mail.query, mail.reasons, null, MAIL_PAGE, mail.order);
   if (gen !== mail.gen) return;  // a newer request superseded this one
   mail.loading = false;
   mail.rows = r.ok ? r.rows : [];
   mail.next = r.ok ? r.next : null;
   mail.error = r.ok ? "" : r.error;
+  if (r.ok) mailRemember(key, r.rows, r.next);
   mail.sel = prevKey ? mail.rows.findIndex((x) => mailKey(x) === prevKey) : -1;
-  if (!keepSelection) $("mail-list").scrollTop = 0;
   mailRender();
 }
 
 async function mailMore() {
-  if (mail.loading || !mail.next) return;
+  if (mail.loading || !mail.next) return;  // also waits while a remembered first page is being refreshed
   const gen = mail.gen;
   mail.loading = true;
   mailRender();
@@ -296,10 +326,17 @@ async function mailMore() {
 function mailRender() {
   const list = $("mail-list"), spacer = $("mail-spacer");
   const total = mail.rows.length;
-  spacer.style.height = `${total * MAIL_ROW_H + (mail.next || mail.loading ? 48 : 0)}px`;
+  spacer.style.height = `${total * MAIL_ROW_H + (mail.next ? 48 : 0)}px`;
+  if (!total && mail.loading) {  // placeholder rows until the first page arrives
+    const rows = Math.min(12, Math.ceil((list.clientHeight || 600) / MAIL_ROW_H));
+    spacer.style.height = `${rows * MAIL_ROW_H}px`;
+    spacer.replaceChildren(...Array.from({ length: rows }, (_, i) => el("div", { class: "mrow skel", style: `top:${i * MAIL_ROW_H}px`, "aria-hidden": "true" },
+      el("div", { class: "skel-bar w30" }), el("div", { class: "skel-bar w70" }), el("div", { class: "skel-bar w90" }))));
+    return;
+  }
   if (!total) {
     const syncingFirst = mail.coverage.some((c) => !c.first_sync_done);
-    spacer.replaceChildren(el("div", { class: "empty" }, mail.loading ? "Loading…" : mail.error ||
+    spacer.replaceChildren(el("div", { class: "empty" }, mail.error ||
       (mail.query ? "No synced mail matches." : mail.view === "not_synced" ? "Nothing was skipped." :
         syncingFirst ? "Your mail is still being downloaded and scrubbed…" : "Nothing here yet.")));
     return;
@@ -309,7 +346,7 @@ function mailRender() {
   const last = Math.min(total, Math.ceil((top + h) / MAIL_ROW_H) + 8);
   const nodes = [];
   for (let i = first; i < last; i++) nodes.push(mailRow(mail.rows[i], i));
-  if (mail.next || mail.loading) {
+  if (mail.next) {  // more to load (a remembered first page being refreshed has its own `next`)
     nodes.push(el("div", { class: "mrow-loading", style: `top:${total * MAIL_ROW_H}px` }, "Loading more…"));
   }
   spacer.replaceChildren(...nodes);

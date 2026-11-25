@@ -411,7 +411,7 @@ function markNav() {
 function openSource(id) {
   mailInit();  // the mail list may not have been shown yet (the app opens on the Security Dashboard)
   if (mail.source !== id) {
-    Object.assign(mail, { source: id, rows: [], next: null, sel: -1, openKey: null, query: "", reasons: [] });
+    Object.assign(mail, { source: id, rows: [], next: null, sel: -1, openKey: null, query: "", reasons: [], lastCovSig: null });
     $("mail-q").value = "";
     $("mail-reader").replaceChildren(el("div", { class: "empty" }, "Select an item to read it."));
     mailReaderBar();

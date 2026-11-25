@@ -10,6 +10,7 @@ Privacy settings:
 """
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
 import os
@@ -117,6 +118,16 @@ CREATE INDEX IF NOT EXISTS ix_dropped_date   ON dropped(date_ms);
 CREATE INDEX IF NOT EXISTS ix_dropped_source ON dropped(source, date_ms);
 CREATE INDEX IF NOT EXISTS ix_dropped_thread ON dropped(source, thread_id);
 CREATE INDEX IF NOT EXISTS ix_dropped_reason ON dropped(reason, date_ms);
+"""
+
+# Indexes for switching sources quickly, added in place (still schema v3, created on open if missing):
+# a source's re-scrub count and reason counts without reading every row, and the redaction total
+# of a thread from only the rows that have redactions.
+_SWITCH_INDEXES = """
+CREATE INDEX IF NOT EXISTS ix_items_version   ON items(source, scrubber_version);
+CREATE INDEX IF NOT EXISTS ix_dropped_version ON dropped(source, scrubber_version);
+CREATE INDEX IF NOT EXISTS ix_dropped_sreason ON dropped(source, reason);
+CREATE INDEX IF NOT EXISTS ix_items_redacted  ON items(source, thread_id, redactions) WHERE redactions != '{}';
 """
 
 GMAIL = "gmail"
@@ -272,11 +283,7 @@ class Store:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(self.path.parent, 0o700)
-        old_umask = os.umask(0o077)  # also covers -wal / -shm files
-        try:
-            self._db = sqlite3.connect(str(self.path), check_same_thread=False, isolation_level=None)
-        finally:
-            os.umask(old_umask)
+        self._db = self._connect()
         self._lock = threading.RLock()
         self._db.row_factory = sqlite3.Row
         for pragma in ("journal_mode=WAL", "secure_delete=ON", "synchronous=NORMAL", "foreign_keys=ON"):
@@ -285,13 +292,50 @@ class Store:
         self._db.executescript(_SCHEMA + _FTS_TRIGGERS)
         if self._has_table("messages"):
             self._migrate_v1()
-        self._db.executescript(_BROWSE_INDEXES)  # v2 -> v3: indexes only, idempotent
+        self._db.executescript(_BROWSE_INDEXES + _SWITCH_INDEXES)  # v2 -> v3: indexes only, idempotent
         self._requeue_retired_drops()
         version = self.get_meta("schema_version")
         if version is None or (version.isdigit() and int(version) < SCHEMA_VERSION):
             self.set_meta("schema_version", str(SCHEMA_VERSION))
         os.chmod(self.path, 0o600)
         self._account = account
+        # A second connection for the app's reads. WAL lets it read while a sync writes on the
+        # main connection, so browsing never waits behind a sync batch or a sync's own scans.
+        self._rdb = self._connect()
+        self._rdb.row_factory = sqlite3.Row
+        for pragma in ("query_only=ON", "cache_size=-32768"):  # 32 MB of pages: switching back stays warm
+            self._rdb.execute(f"PRAGMA {pragma}")
+        self._rlock = threading.Lock()
+        self._cache: Dict[tuple, object] = {}
+        self._cache_version: Optional[int] = None
+
+    def _connect(self) -> sqlite3.Connection:
+        old_umask = os.umask(0o077)  # also covers -wal / -shm files
+        try:
+            return sqlite3.connect(str(self.path), check_same_thread=False, isolation_level=None)
+        finally:
+            os.umask(old_umask)
+
+    def _read(self, sql: str, args: Sequence = ()) -> List[sqlite3.Row]:
+        """Run a read on the reader connection. Always fetches every row, so no statement is
+        left open holding an old snapshot."""
+        with self._rlock:
+            return self._rdb.execute(sql, args).fetchall()
+
+    def _cached(self, key: tuple, compute):
+        """Counts and summaries, reused until anything commits a change to the database
+        (data_version moves on every commit by another connection, this process's writer included)."""
+        with self._rlock:
+            v = self._rdb.execute("PRAGMA data_version").fetchone()[0]
+            if v != self._cache_version:
+                self._cache, self._cache_version = {}, v
+            if key in self._cache:
+                return self._cache[key]
+        value = compute()
+        with self._rlock:
+            if self._cache_version == v:
+                self._cache[key] = value
+        return value
 
     @property
     def account(self) -> str:
@@ -307,7 +351,8 @@ class Store:
         return cls(DEFAULT_DATA_DIR / "mail.db")
 
     def close(self) -> None:
-        with self._lock:
+        with self._lock, self._rlock:
+            self._rdb.close()
             self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             self._db.close()
 
@@ -384,9 +429,12 @@ class Store:
     # meta / sync state ------------------------------------------------------
 
     def get_meta(self, key: str) -> Optional[str]:
-        with self._lock:
-            row = self._db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
-        return row[0] if row else None
+        if not hasattr(self, "_rdb"):  # still opening
+            with self._lock:
+                row = self._db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+            return row[0] if row else None
+        rows = self._read("SELECT value FROM meta WHERE key=?", (key,))
+        return rows[0][0] if rows else None
 
     def set_meta(self, key: str, value: Optional[str]) -> None:
         with self._lock:
@@ -397,10 +445,8 @@ class Store:
                                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
 
     def get_state(self, source: str, key: str) -> Optional[str]:
-        with self._lock:
-            row = self._db.execute("SELECT value FROM source_state WHERE source=? AND key=?",
-                                   (source, key)).fetchone()
-        return row[0] if row else None
+        rows = self._read("SELECT value FROM source_state WHERE source=? AND key=?", (source, key))
+        return rows[0][0] if rows else None
 
     def set_state(self, source: str, key: str, value: Optional[str]) -> None:
         with self._lock:
@@ -462,7 +508,7 @@ class Store:
                 db.execute("DELETE FROM dropped WHERE source=? AND id=?", (source, i))
 
     def _compact(self) -> None:
-        with self._lock:
+        with self._lock, self._rlock:  # no read in flight while VACUUM rewrites the file
             self._db.execute("VACUUM")
             self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
@@ -529,11 +575,12 @@ class Store:
         return n
 
     def stale_ids(self, version: str = SCRUBBER_VERSION, source: str = GMAIL) -> List[str]:
-        """Ids scrubbed under an older version; sync re-fetches these."""
+        """Ids scrubbed under an older version; sync re-fetches these. Reads only the
+        (source, scrubber_version) indexes, so it's quick even with nothing stale."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT id FROM items WHERE source=? AND scrubber_version != ? "
-                "UNION SELECT id FROM dropped WHERE source=? AND scrubber_version != ?",
+                "SELECT id FROM items INDEXED BY ix_items_version WHERE source=? AND scrubber_version != ? "
+                "UNION SELECT id FROM dropped INDEXED BY ix_dropped_version WHERE source=? AND scrubber_version != ?",
                 (source, version, source, version))
             return [r[0] for r in rows]
 
@@ -542,38 +589,38 @@ class Store:
         return ("WHERE source=?", [source]) if source else ("", [])
 
     def stats(self, source: Optional[str] = None) -> Dict[str, object]:
+        return copy.deepcopy(self._cached(("stats", source), lambda: self._stats(source)))
+
+    def _stats(self, source: Optional[str]) -> Dict[str, object]:
         where, args = self._source_where(source)
-        with self._lock:
-            kept = self._db.execute(f"SELECT count(*) FROM items {where}", args).fetchone()[0]
-            reasons = dict(self._db.execute(
-                f"SELECT reason, count(*) FROM dropped {where} GROUP BY reason ORDER BY 2 DESC", args).fetchall())
-            redactions: Dict[str, int] = {}
-            cond = (where + " AND" if where else "WHERE")
-            for (blob,) in self._db.execute(f"SELECT redactions FROM items {cond} redactions != '{{}}'", args):
-                for k, v in json.loads(blob).items():
-                    redactions[k] = redactions.get(k, 0) + v
+        kept = self._read(f"SELECT count(*) FROM items {where}", args)[0][0]
+        reasons = dict(self._read(f"SELECT reason, count(*) FROM dropped {where} GROUP BY reason ORDER BY 2 DESC",
+                                  args))
+        redactions: Dict[str, int] = {}
+        # Only rows with redactions, through their partial index (no row bodies read).
+        sql = (f"SELECT redactions FROM items {where + ' AND' if where else 'WHERE'} redactions != '{{}}'")
+        for (blob,) in self._read(sql, args):
+            for k, v in json.loads(blob).items():
+                redactions[k] = redactions.get(k, 0) + v
         return {"kept": kept, "dropped": sum(reasons.values()), "dropped_by_reason": reasons,
                 "redactions": redactions}
 
     def counts(self, source: Optional[str] = None):
-        """(kept, dropped), cheap enough to poll."""
+        """(kept, dropped), cheap enough to poll: reused until something changes."""
         where, args = self._source_where(source)
-        with self._lock:
-            return (self._db.execute(f"SELECT count(*) FROM items {where}", args).fetchone()[0],
-                    self._db.execute(f"SELECT count(*) FROM dropped {where}", args).fetchone()[0])
+        return self._cached(("counts", source), lambda: (
+            self._read(f"SELECT count(*) FROM items {where}", args)[0][0],
+            self._read(f"SELECT count(*) FROM dropped {where}", args)[0][0]))
 
     def date_range(self, source: Optional[str] = None):
         """(oldest, newest) date_ms of kept items, or (None, None)."""
         where, args = self._source_where(source)
-        with self._lock:
-            return tuple(self._db.execute(f"SELECT min(date_ms), max(date_ms) FROM items {where}", args).fetchone())
+        return tuple(self._read(f"SELECT min(date_ms), max(date_ms) FROM items {where}", args)[0])
 
     def source_ids(self) -> List[str]:
         """Sources that have sync state or items on this Mac."""
-        with self._lock:
-            rows = self._db.execute("SELECT DISTINCT source FROM source_state UNION "
-                                    "SELECT DISTINCT source FROM items ORDER BY 1")
-            return [r[0] for r in rows]
+        return list(self._cached(("source_ids",), lambda: [r[0] for r in self._read(
+            "SELECT DISTINCT source FROM source_state UNION SELECT DISTINCT source FROM items ORDER BY 1")]))
 
     # reads ------------------------------------------------------------------
 
@@ -636,8 +683,7 @@ class Store:
             "WHERE items_fts MATCH ? " + "".join(f"AND {w} " for w in where) +
             # weights: title, body, sender, participants, attachment_names, extra
             "ORDER BY bm25(items_fts, 5.0, 1.0, 3.0, 1.0, 2.0, 1.0) LIMIT ?")
-        with self._lock:
-            rows = self._db.execute(sql, [q, *args, max(1, min(limit, 100))]).fetchall()
+        rows = self._read(sql, [q, *args, max(1, min(limit, 100))])
         return [self._hit(r, r["snip"] or r["body"][:200]) for r in rows]
 
     def read_thread(self, thread_id: str, source: Optional[str] = None) -> List[ItemView]:
@@ -645,17 +691,14 @@ class Store:
         oldest first. Without `source`, thread ids are matched in every source."""
         where, args = self._source_where(source)
         cond = (where + " AND" if where else "WHERE")
-        with self._lock:
-            rows = self._db.execute(f"SELECT * FROM items {cond} thread_id=? ORDER BY date_ms",
-                                    [*args, thread_id]).fetchall()
+        rows = self._read(f"SELECT * FROM items {cond} thread_id=? ORDER BY date_ms", [*args, thread_id])
         return [self._view(r) for r in rows]
 
     def read_item(self, item_id: str, source: Optional[str] = None) -> Optional[ItemView]:
         where, args = self._source_where(source)
         cond = (where + " AND" if where else "WHERE")
-        with self._lock:
-            row = self._db.execute(f"SELECT * FROM items {cond} id=? LIMIT 1", [*args, item_id]).fetchone()
-        return self._view(row) if row else None
+        rows = self._read(f"SELECT * FROM items {cond} id=? LIMIT 1", [*args, item_id])
+        return self._view(rows[0]) if rows else None
 
     def read_message(self, message_id: str) -> Optional[ItemView]:
         return self.read_item(message_id, GMAIL)
@@ -666,8 +709,7 @@ class Store:
         where, args = self._filters(sender, after, before, source=source, kind=kind)
         sql = ("SELECT m.* FROM items m " + ("WHERE " + " AND ".join(where) + " " if where else "")
                + f"ORDER BY m.date_ms {'ASC' if oldest_first else 'DESC'} LIMIT ?")
-        with self._lock:
-            rows = self._db.execute(sql, [*args, max(1, min(limit, 200))]).fetchall()
+        rows = self._read(sql, [*args, max(1, min(limit, 200))])
         return [self._hit(r, r["body"][:200]) for r in rows]
 
     def list_messages(self, *, sender: Optional[str] = None, after: DateLike = None,
@@ -689,8 +731,8 @@ class Store:
         "m.redactions, m.attachment_names, "
         "(SELECT count(*) FROM items c WHERE c.source = m.source AND c.thread_id = m.thread_id) AS n_items, "
         "(SELECT count(*) FROM dropped d WHERE d.source = m.source AND d.thread_id = m.thread_id) AS n_dropped, "
-        "(SELECT coalesce(sum(j.value), 0) FROM items c, json_each(c.redactions) j "
-        " WHERE c.source = m.source AND c.thread_id = m.thread_id) AS n_redacted")
+        "(SELECT coalesce(sum(j.value), 0) FROM items c INDEXED BY ix_items_redacted, json_each(c.redactions) j "
+        " WHERE c.source = m.source AND c.thread_id = m.thread_id AND c.redactions != '{}') AS n_redacted")
 
     @staticmethod
     def parse_cursor(cursor: Optional[str]):
@@ -749,11 +791,13 @@ class Store:
         way = "ASC" if oldest else "DESC"
         sql = (f"SELECT {self._THREAD_COLS}, substr(m.body, 1, {self._SNIPPET_CHARS}) AS snip FROM items m "
                f"WHERE m.source IN ({self._marks(sources)}) {after}"
+               # The thread's newest item stands for it. `x.date_ms >= m.date_ms` lets the probe seek
+               # straight to newer items in the thread index instead of walking the whole thread,
+               # which matters for long chats and recurring events.
                "AND NOT EXISTS (SELECT 1 FROM items x WHERE x.source = m.source AND x.thread_id = m.thread_id "
-               "  AND (x.date_ms > m.date_ms OR (x.date_ms = m.date_ms AND x.rowid > m.rowid))) "
+               "  AND x.date_ms >= m.date_ms AND (x.date_ms > m.date_ms OR x.rowid > m.rowid)) "
                f"ORDER BY m.date_ms {way}, m.rowid {way} LIMIT ?")
-        with self._lock:
-            return self._db.execute(sql, [*sources, *args, limit]).fetchall()
+        return self._read(sql, [*sources, *args, limit])
 
     def _dropped_items(self, sources: Sequence[str], reasons: Optional[Sequence[str]], cur,
                        limit: int, oldest: bool = False) -> List[sqlite3.Row]:
@@ -768,8 +812,7 @@ class Store:
                "(SELECT i.title FROM items i WHERE i.source = d.source AND i.thread_id = d.thread_id "
                " ORDER BY i.date_ms LIMIT 1) AS thread_title "
                f"FROM dropped d WHERE {where}{after}ORDER BY d.date_ms {way}, d.rowid {way} LIMIT ?")
-        with self._lock:
-            return self._db.execute(sql, [*params, *args, limit]).fetchall()
+        return self._read(sql, [*params, *args, limit])
 
     def browse(self, sources: Sequence[str], *, view: str = "all", reasons: Optional[Sequence[str]] = None,
                cursor: Optional[str] = None, limit: int = 100, order: str = "newest") -> Dict[str, object]:
@@ -817,14 +860,13 @@ class Store:
                "GROUP BY m.source, m.thread_id "
                + ("ORDER BY last ASC, rid ASC " if order == "oldest" else "ORDER BY last DESC, rid DESC ")
                + "LIMIT ? OFFSET ?")
-        with self._lock:
-            rids = [r["rid"] for r in self._db.execute(sql, [q, *sources, limit, offset])]
-            if not rids:
-                return {"rows": [], "next": None}
-            rows = self._db.execute(
-                f"SELECT {self._THREAD_COLS}, snippet(items_fts, 1, '«', '»', ' … ', 24) AS snip "
-                "FROM items_fts JOIN items m ON m.rowid = items_fts.rowid "
-                f"WHERE items_fts MATCH ? AND items_fts.rowid IN ({self._marks(rids)})", [q, *rids]).fetchall()
+        rids = [r["rid"] for r in self._read(sql, [q, *sources, limit, offset])]
+        if not rids:
+            return {"rows": [], "next": None}
+        rows = self._read(
+            f"SELECT {self._THREAD_COLS}, snippet(items_fts, 1, '«', '»', ' … ', 24) AS snip "
+            "FROM items_fts JOIN items m ON m.rowid = items_fts.rowid "
+            f"WHERE items_fts MATCH ? AND items_fts.rowid IN ({self._marks(rids)})", [q, *rids])
         order = {rid: n for n, rid in enumerate(rids)}
         out = [self._thread_row(r) for r in sorted(rows, key=lambda r: order[r["rid"]])]
         return {"rows": out, "next": str(offset + limit) if len(rids) == limit else None}
@@ -832,12 +874,11 @@ class Store:
     def thread_detail(self, source: str, thread_id: str) -> Dict[str, object]:
         """A thread for the reader: every kept item in full and every dropped item's
         reason and date, oldest first."""
-        with self._lock:
-            items = self._db.execute("SELECT * FROM items WHERE source=? AND thread_id=? ORDER BY date_ms, rowid",
-                                     (source, thread_id)).fetchall()
-            dropped = self._db.execute(
-                "SELECT rowid AS rid, source, id, thread_id, date_ms, reason, '' AS thread_title "
-                "FROM dropped WHERE source=? AND thread_id=? ORDER BY date_ms, rowid", (source, thread_id)).fetchall()
+        items = self._read("SELECT * FROM items WHERE source=? AND thread_id=? ORDER BY date_ms, rowid",
+                           (source, thread_id))
+        dropped = self._read(
+            "SELECT rowid AS rid, source, id, thread_id, date_ms, reason, '' AS thread_title "
+            "FROM dropped WHERE source=? AND thread_id=? ORDER BY date_ms, rowid", (source, thread_id))
         entries: List[tuple] = []
         for r in items:
             v = self._view(r)
@@ -853,22 +894,23 @@ class Store:
 
     def coverage(self, source: str) -> Dict[str, object]:
         """What's on this Mac for one source: counts, dropped reasons, date range, and how
-        many items are queued for re-scrubbing after a rule change."""
-        with self._lock:
-            db = self._db
-            kept = db.execute("SELECT count(*) FROM items WHERE source=?", (source,)).fetchone()[0]
-            reasons = dict(db.execute("SELECT reason, count(*) FROM dropped WHERE source=? GROUP BY reason "
-                                      "ORDER BY 2 DESC", (source,)).fetchall())
-            lo, hi = db.execute(
-                "SELECT min(lo), max(hi) FROM ("
-                " SELECT min(date_ms) AS lo, max(date_ms) AS hi FROM items WHERE source=?"
-                " UNION ALL SELECT min(date_ms), max(date_ms) FROM dropped WHERE source=? AND date_ms > 0)",
-                (source, source)).fetchone()
-            stale = db.execute(
-                "SELECT (SELECT count(*) FROM items WHERE source=? AND scrubber_version != ?)"
-                " + (SELECT count(*) FROM dropped WHERE source=? AND scrubber_version != ?)",
-                (source, SCRUBBER_VERSION, source, SCRUBBER_VERSION)).fetchone()[0]
-        return {"kept": kept, "dropped": sum(reasons.values()), "dropped_by_reason": reasons,
+        many items are queued for re-scrubbing after a rule change. Reused until something changes."""
+        return copy.deepcopy(self._cached(("coverage", source), lambda: self._coverage(source)))
+
+    def _coverage(self, source: str) -> Dict[str, object]:
+        kept, _ = self.counts(source)
+        reasons = self.dropped_reasons([source])
+        lo, hi = self._read(
+            "SELECT min(lo), max(hi) FROM ("
+            " SELECT min(date_ms) AS lo, max(date_ms) AS hi FROM items WHERE source=?"
+            " UNION ALL SELECT min(date_ms), max(date_ms) FROM dropped WHERE source=? AND date_ms > 0)",
+            (source, source))[0]
+        stale = self._read(
+            "SELECT (SELECT count(*) FROM items INDEXED BY ix_items_version WHERE source=? AND scrubber_version != ?)"
+            " + (SELECT count(*) FROM dropped INDEXED BY ix_dropped_version WHERE source=? AND scrubber_version != ?)",
+            (source, SCRUBBER_VERSION, source, SCRUBBER_VERSION))[0][0]
+        return {"kept": kept, "dropped": sum(reasons.values()),
+                "dropped_by_reason": dict(sorted(reasons.items(), key=lambda kv: -kv[1])),
                 "oldest_ms": lo, "newest_ms": hi, "stale": stale}
 
     def dropped_reasons(self, sources: Sequence[str]) -> Dict[str, int]:
@@ -876,7 +918,6 @@ class Store:
         sources = list(sources)
         if not sources:
             return {}
-        with self._lock:
-            return dict(self._db.execute(
-                f"SELECT reason, count(*) FROM dropped WHERE source IN ({self._marks(sources)}) GROUP BY reason",
-                sources).fetchall())
+        return dict(self._cached(("reasons", tuple(sources)), lambda: dict(self._read(
+            f"SELECT reason, count(*) FROM dropped INDEXED BY ix_dropped_sreason "
+            f"WHERE source IN ({self._marks(sources)}) GROUP BY reason", sources))))
