@@ -340,20 +340,28 @@ function mailRow(r, i) {
     el("div", { class: "mrow-top" },
       el("span", { class: "mrow-from" }, isEvent ? sourceName(r.source) : senderName(r.sender),
         r.count > 1 ? el("span", { class: "cnt" }, String(r.count)) : null),
-      isEvent ? el("span", { class: "mrow-date" }, fmtDate(r.date, true)) : mailWhen(r.date)),
+      mailWhen(r.date, isEvent)),
     el("div", { class: "mrow-subj" }, el("span", {}, richText(r.title || "(no subject)"))),
     el("div", { class: "mrow-bottom" },
       el("span", { class: "mrow-snip" }, richText((r.snippet || "").replace(/\s+/g, " "))), ...badges));
 }
 
-// The list's date column. Both the date and the time are rendered, stacked in one grid cell
-// (so the column is as wide as the longer one and nothing shifts); mail.css shows the time
-// while the row is hovered. Events already show their time, so they don't use this.
-function mailWhen(iso) {
+// The list's date column, as in Gmail: the time for today's mail ("2:15 PM"), otherwise the
+// short date ("Nov 24"); events always show date and time. The full date and time is a native
+// tooltip in Gmail's hover format, e.g. "Wed, Mar 4, 2026, 3:42 PM", which WebKit shows after
+// its own hover delay. The Mac's locale decides 12- or 24-hour time.
+function mailWhen(iso, withTime = false) {
   if (!iso) return el("span", { class: "mrow-date" }, "");
-  const time = new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  return el("span", { class: "mrow-date when" },
-    el("span", { class: "when-d" }, fmtDate(iso)), el("span", { class: "when-t" }, time));
+  const d = new Date(iso);
+  const text = !withTime && d.toDateString() === new Date().toDateString()
+    ? d.toLocaleString(undefined, { hour: "numeric", minute: "2-digit" })
+    : fmtDate(iso, withTime);
+  return el("span", { class: "mrow-date", title: mailDateTitle(iso) }, text);
+}
+
+function mailDateTitle(iso) {
+  return new Date(iso).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short",
+    day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function mailManySources() {
