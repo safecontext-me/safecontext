@@ -372,6 +372,13 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .scrub-add { margin-top: 12px; }
 .scrub-preview { margin-top: 12px; white-space: pre-wrap; }
 
+/* ---------- files (opted-in folders and PDFs) ---------- */
+.file-sub { margin-top: 18px; }
+.file-list { display: grid; }
+.file-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3);
+            padding: var(--space-2) 0; border-top: 1px solid var(--border); }
+.file-kind { color: var(--muted-foreground); font-size: var(--text-sm); margin-right: var(--space-2); }
+
 /* ---------- settings ---------- */
 .setting { margin: var(--space-3-5) 0; }
 /* a page title with an action on the right (Sync status) */

@@ -48,9 +48,9 @@ def test_search_screen_is_gone():
 def test_sources_is_a_parent_with_each_source_under_it():
     nav = HTML[HTML.index('<nav class="nav">'):]
     nav = nav[:nav.index("</nav>")]
-    # Security Dashboard, then Sources and the per-source entries (filled in by app.js), then MCP and AI access review.
+    # Security Dashboard, then Sources and the per-source entries (filled in by app.js), then Files, MCP and AI access review.
     assert (nav.index('data-view="removed"') < nav.index('data-view="sources"') < nav.index('id="nav-sources"')
-            < nav.index('data-view="mcp"') < nav.index('data-view="review"'))
+            < nav.index('data-view="files"') < nav.index('data-view="mcp"') < nav.index('data-view="review"'))
     assert 'data-view="mail"' not in nav  # each source opens the browse page instead
     assert "Security Dashboard" in nav and "<h2>Security Dashboard</h2>" in HTML
     assert "What was removed" not in HTML
@@ -82,6 +82,17 @@ def test_approve_dialog_names_the_app_it_was_sent():
     assert '<h2><span id="ga-title">' in HTML and 'id="ga-client"' in HTML
     assert '$("ga-title").textContent = who;' in JS and '$("ga-client").textContent = who;' in JS
     assert 'const who = g.approval.client || "An AI app";' in JS
+
+
+def test_files_screen_is_the_opt_in_for_pdfs():
+    view = HTML[HTML.index('<section id="view-files"'):]
+    view = view[:view.index("</section>")]
+    assert "Add folder" in view and "Add PDF" in view
+    assert "PDFs whose text may be read" in view
+    assert 'id="files-add-folder"' in view and 'id="files-add-file"' in view
+    assert "pdf_pick" in JS and "pdf_selection" in JS and "pdf_remove" in JS
+    assert "read_text" not in JS  # the screen lists paths; it does not read PDF text
+    assert 'if (view === "files") loadFiles();' in JS
 
 
 def test_app_opens_on_the_security_dashboard():

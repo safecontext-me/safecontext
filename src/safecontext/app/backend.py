@@ -25,6 +25,7 @@ from .. import __version__, auth, env, migrate, review, updater as upd
 from ..scrub.controls import PatternError, add_pattern, builtin_rules, delete_pattern, load_patterns, preview, set_enabled
 from ..errors import NeedsPermission
 from ..grok_link import CONNECTOR_PAGES, GrokLink
+from ..pdf_selection import PdfSelection, PdfSelectionError
 from ..sources import Sources, default_sources
 from ..store import DEFAULT_DATA_DIR, GMAIL, Store
 from ..sync import SyncResult, read_heartbeat
@@ -80,6 +81,8 @@ def _safe(fn: Callable) -> Callable:
             return {"ok": False, "error": e.message, "needs_permission": True, "requirement": e.requirement}
         except auth.NotConfigured as e:
             return {"ok": False, "error": str(e)}
+        except PdfSelectionError as e:
+            return {"ok": False, "error": str(e)}
         except Exception as e:  # never leak a traceback (or mail content) into the UI
             log.exception("app call failed: %s", fn.__name__)
             return {"ok": False, "error": f"Something went wrong ({type(e).__name__})."}
@@ -102,7 +105,8 @@ class Backend:
                  imessage_options: Optional[Dict[str, Any]] = None,
                  updater: Optional[upd.Updater] = None,
                  review_home: Optional[Path] = None,
-                 auto_sync: bool = True) -> None:
+                 auto_sync: bool = True,
+                 pdf_chooser: Optional[Callable[[str], Any]] = None) -> None:
         self._demo = demo
         self._data_dir = Path(data_dir or DEFAULT_DATA_DIR)
         # Where the opt-in review scan looks for other AI tools' config. Demo mode never looks
@@ -110,6 +114,8 @@ class Backend:
         self._review_home = Path(review_home) if review_home else (
             self._data_dir / "demo-home" if demo else Path.home())
         self._store = Store(self._data_dir / "mail.db")
+        # Folders and PDFs the user opts in. Text may be read only from those PDFs.
+        self._pdfs = PdfSelection(self._store, chooser=pdf_chooser)
         self._connect_fn = connect_fn  # None: the real Google sign-in
         self._sources: Sources = default_sources(
             self._store, gmail_factory=gmail_factory,
@@ -235,6 +241,36 @@ class Backend:
         self._sources.disconnect(source_id, wipe=bool(wipe))
         self._last_result.pop(source_id, None)
         return {"wiped": bool(wipe)}
+
+    # --- files: the only PDFs whose text may be read ---------------------------
+    def _pdf_payload(self) -> Dict[str, Any]:
+        return {"entries": self._pdfs.entries(), "pdfs": self._pdfs.readable_pdfs()}
+
+    @_safe
+    def pdf_selection(self) -> Dict[str, Any]:
+        """Folders and files the user added, and the PDFs whose text may be read."""
+        return self._pdf_payload()
+
+    @_safe
+    def pdf_add_folder(self, path: str) -> Dict[str, Any]:
+        return {"entry": self._pdfs.add_folder(path), **self._pdf_payload()}
+
+    @_safe
+    def pdf_add_file(self, path: str) -> Dict[str, Any]:
+        return {"entry": self._pdfs.add_file(path), **self._pdf_payload()}
+
+    @_safe
+    def pdf_remove(self, path: str) -> Dict[str, Any]:
+        self._pdfs.remove(path)
+        return self._pdf_payload()
+
+    @_safe
+    def pdf_pick(self, kind: str = "folder") -> Dict[str, Any]:
+        """Open the folder or PDF panel and opt in what the user picks."""
+        entries = self._pdfs.pick(kind)
+        if not entries:
+            return {"cancelled": True}
+        return {"entries": entries, **self._pdf_payload()}
 
     # --- Gmail (the v1 calls the onboarding screen and Settings use) -----------
     @_safe
