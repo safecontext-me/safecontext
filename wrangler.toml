@@ -10,3 +10,8 @@ compatibility_date = "2026-11-01"
 [[r2_buckets]]
 binding = "DOWNLOADS"
 bucket_name = "safecontext-downloads"
+
+# Anonymous update-check counts (app version only), written by functions/update.json.js.
+[[analytics_engine_datasets]]
+binding = "STATS"
+dataset = "safecontext_updates"

@@ -172,8 +172,14 @@ code { font: var(--text-sm) var(--font-mono); word-break: break-all; }
 .view.page > h2:not(:has(+ p.muted)) { margin-bottom: var(--space-8); }  /* a title with no description */
 /* Window-wide Alerts at the top of the page (reconnect, update available): inset from the page edge */
 .page-alert { width: auto; margin: var(--space-3) var(--space-3) 0; flex: none; }
-.page-alert-actions { display: flex; gap: var(--space-2); margin-top: var(--space-1-5); }
-.u-auto { margin-top: var(--space-2-5); }
+.page-alert-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1-5); }
+/* Update banner: "What's new" opens the notes under the buttons. */
+.u-banner-notes { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-2); }
+.u-banner-notes[hidden] { display: none; }
+.u-banner-notes p { margin: 0; white-space: pre-wrap; }
+/* Settings › Updates: each switch row (a horizontal Field) under a divider */
+.u-switch { padding-top: var(--space-3); margin-top: var(--space-3); border-top: 1px solid var(--border); }
+#u-notes { white-space: pre-line; }
 
 /* ---------- reader cards ---------- */
 mark { background: var(--highlight); color: inherit; border-radius: var(--radius-xs); padding: 0 1px; }
@@ -422,4 +428,12 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .rv-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .rv-actions .btn.chosen { border-color: var(--primary); color: var(--primary); background: var(--primary-subtle); font-weight: var(--font-weight-semibold); }
 .rv-when { font-size: var(--text-sm); }
+.rv-tab-log { margin-left: auto; }
+.rv-log-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.rv-log-empty { font-size: var(--text-base); }
+.rv-log-day { padding: 10px 14px 4px; font-size: var(--text-sm); font-weight: var(--font-weight-semibold); color: var(--muted-foreground); }
+.rv-log-day:not(:first-child) { border-top: 1px solid var(--border); }
+.rv-log-row { display: flex; align-items: center; gap: 10px; padding: 7px 14px; font-size: var(--text-base); }
+.rv-log-text { flex: 1; min-width: 0; }
+.rv-log-time { font-size: var(--text-sm); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

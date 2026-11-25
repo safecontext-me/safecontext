@@ -173,6 +173,7 @@ _UNITS = {
     "imessage": ("message", "messages"),
     "whatsapp": ("chat", "chats"),
     "recordings": ("transcript", "transcripts"),
+    "dropbox": ("file", "files"),
 }
 
 

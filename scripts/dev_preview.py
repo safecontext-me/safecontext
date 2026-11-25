@@ -4,7 +4,10 @@ The real app uses pywebview's in-process bridge and no HTTP server. This
 script exists only to preview and screenshot the UI. It binds to 127.0.0.1,
 always runs in demo mode, and is not shipped.
 
-    .venv/bin/python scripts/dev_preview.py [port]
+    .venv/bin/python scripts/dev_preview.py [port] [--data-dir DIR]
+
+--data-dir reuses a demo data folder, e.g. a large one from scripts/perf_fixture.py. Never point it
+at a real SafeContext folder.
 """
 import json
 import sys
@@ -20,7 +23,13 @@ from safecontext.app.backend import Backend  # noqa: E402
 from safecontext.app.demo import demo_backend_kwargs  # noqa: E402
 from safecontext.app.main import build_html  # noqa: E402
 
-backend = Backend(**demo_backend_kwargs(), auto_sync=False)
+_args = sys.argv[1:]
+_data_dir = None
+if "--data-dir" in _args:
+    i = _args.index("--data-dir")
+    _data_dir = Path(_args[i + 1]).expanduser()
+    del _args[i:i + 2]
+backend = Backend(**demo_backend_kwargs(_data_dir), auto_sync=False)
 PUBLIC = {n for n in dir(backend) if not n.startswith("_")}
 
 SHIM = """<script>
@@ -57,6 +66,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+    port = int(_args[0]) if _args else 8765
     print(f"demo UI preview on http://127.0.0.1:{port}")
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

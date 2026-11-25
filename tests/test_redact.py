@@ -296,3 +296,47 @@ def test_booking_codes(text, code):
 ])
 def test_booking_words_without_codes_untouched(text):
     assert_untouched(text)
+
+
+# --- meeting dial-in secrets --------------------------------------------------
+
+@pytest.mark.parametrize("text,secret", [
+    ("Join by phone\n(US) +1 413-555-0199 PIN: 123 456 789#", "456 789"),           # Google Meet
+    ("Phone conference ID: 123 456 789#", "456 789"),                                # Teams
+    ("+1 323-555-0142,,987654321# United States", "987654321"),                      # Teams one-tap
+    ("+16699006833,,81234567890#,,,,*482913# US", "482913"),                         # Zoom one-tap
+    ("Host key: 774410", "774410"),                                                  # Webex
+    ("Participant PIN: 5521 8830", "8830"),
+    ("Attendee PIN: 409 122#", "122"),
+    # The probe set from the calendar review, plus Webex access codes.
+    ("PIN: 1234 5678 90#", "5678 90"),                                               # grouped PIN
+    ("Phone conference ID: 4821 9930 17#", "9930 17"),                               # Teams, 4-4-2
+    ("Host key: 482 913", "913"),                                                    # Webex, grouped
+    ("Attendee ID: 7741 0098", "0098"),                                              # Webex
+    ("+14155550199,,26331451234## tap to join", "26331451234"),                      # Webex one-tap
+    ("Dial-in: (US) +1 650-555-0123\nPIN: 718 442 019#", "442 019"),                 # Google Meet
+    ("Join by phone +1-415-555-0199 Access code: 2633 145 1234", "145 1234"),        # Webex
+    ("Meeting access code: 2633-145-1234", "145-1234"),
+    ("Access code 26331451234", "26331451234"),
+    ("Attendee access code: 2633 145 1234#", "145 1234"),
+    ("Conference code: 557 210 9981", "210 9981"),
+    ("Dial-in PIN: 88213", "88213"),
+])
+def test_dial_in_secrets(text, secret):
+    out, counts = redact(text)
+    assert secret not in out, out
+    assert counts.keys() & {"PASSWORD", "ONE_TIME_CODE"}, (out, counts)  # short PINs can read as codes
+
+
+@pytest.mark.parametrize("text", [
+    "Meeting ID: 812 3456 7890",
+    "Pin the tab, then share it",
+    "Ticket #4821 is fixed",
+    "Dinner at 7, table for 4",
+    "Order #112-5550123",
+    "Room 4512",
+    "Meeting number: 2633 145 1234",   # Webex's public meeting number, like Zoom's ID
+    "Request access code changes in the portal",
+])
+def test_dial_in_leaves_meeting_ids_and_prose(text):
+    assert_untouched(text)

@@ -14,8 +14,8 @@ const REDACTION_NAMES = {
 // A source's status tone -> its Badge variant (shadcn.css)
 const BADGE_TONES = { ok: "badge-success", busy: "badge-info", warn: "badge-warning" };
 const REQ_KINDS = { oauth_scope: "Google permission", macos_permission: "Mac permission", file: "File", folder: "Folder" };
-const SOURCE_ICONS = { gmail: "✉️", gcal: "📅", imessage: "💬", whatsapp: "🟢", recordings: "🎙️" };
-const OPEN_LABELS = { gmail: "Open in Gmail", gcal: "Open in Calendar" };
+const SOURCE_ICONS = { gmail: "✉️", gcal: "📅", imessage: "💬", whatsapp: "🟢", recordings: "🎙️", dropbox: "📦" };
+const OPEN_LABELS = { gmail: "Open in Gmail", gcal: "Open in Calendar", dropbox: "Open in Dropbox" };
 const STATE_LABELS = {
   connected: ["Connected", "ok"], syncing: ["Syncing…", "busy"], needs_reconnect: ["Needs reconnecting", "warn"],
   needs_permission: ["Needs permission", "warn"], error: ["Will retry", "warn"], not_connected: ["Not connected", ""],
@@ -49,7 +49,7 @@ function el(tag, attrs = {}, ...children) {
 // and (optionally) Gmail links made clickable. Everything else stays plain text.
 function richText(text, { links = false } = {}) {
   const frag = document.createDocumentFragment();
-  const re = /\[REDACTED:([A-Z_]+)\]|«([^»]*)»|(https:\/\/(?:mail\.google\.com\/mail\/|www\.google\.com\/calendar\/)[^\s)\]]+)/g;
+  const re = /\[REDACTED:([A-Z_]+)\]|«([^»]*)»|(https:\/\/(?:mail\.google\.com\/mail\/|www\.google\.com\/calendar\/|www\.dropbox\.com\/home\/)[^\s)\]]+)/g;
   let last = 0, m;
   while ((m = re.exec(text))) {
     frag.append(document.createTextNode(text.slice(last, m.index)));
@@ -60,7 +60,7 @@ function richText(text, { links = false } = {}) {
       frag.append(el("mark", {}, m[2]));
     } else if (links) {
       const url = m[3];
-      frag.append(el("a", { onclick: () => openLink(url) }, url.includes("/calendar/") ? "Open in Calendar" : "Open in Gmail"));
+      frag.append(el("a", { onclick: () => openLink(url) }, url.includes("dropbox.com/") ? "Open in Dropbox" : url.includes("/calendar/") ? "Open in Calendar" : "Open in Gmail"));
     } else {
       frag.append(document.createTextNode(m[3]));
     }
@@ -82,6 +82,23 @@ function fmtDate(iso, withTime = false) {
   if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
   if (withTime) Object.assign(opts, { hour: "numeric", minute: "2-digit" });
   return d.toLocaleString(undefined, opts);
+}
+
+// All-day dates are stored as UTC midnight (with an exclusive end): read them in UTC, or anyone
+// west of Greenwich sees the day before. No time; `long` is the tooltip form ("Wed, Mar 4, 2026").
+function fmtAllDay(iso, long = false) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const opts = long ? { weekday: "short", year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }
+    : { month: "short", day: "numeric", timeZone: "UTC" };
+  if (!long && d.getUTCFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+  return d.toLocaleDateString(undefined, opts);
+}
+
+// The last day of an all-day event (its end is exclusive), or null for a one-day event.
+function allDayLast(start, end) {
+  const last = end ? new Date(end).getTime() - 86400000 : 0;
+  return last > new Date(start).getTime() ? new Date(last).toISOString() : null;
 }
 
 function fmtSize(n) {
@@ -135,7 +152,10 @@ function sourceName(id) {
 
 function fmtRange(start, end, allDay) {
   if (!start) return "";
-  if (allDay) return fmtDate(start) + " · all day";
+  if (allDay) {
+    const last = allDayLast(start, end);
+    return fmtAllDay(start) + (last ? ` – ${fmtAllDay(last)}` : "") + " · all day";
+  }
   const s = fmtDate(start, true);
   if (!end) return s;
   const sd = new Date(start), ed = new Date(end);
@@ -420,7 +440,7 @@ function markNav() {
 function openSource(id) {
   mailInit();  // the mail list may not have been shown yet (the app opens on the Security Dashboard)
   if (mail.source !== id) {
-    Object.assign(mail, { source: id, rows: [], next: null, sel: -1, openKey: null, query: "", reasons: [] });
+    Object.assign(mail, { source: id, rows: [], next: null, sel: -1, openKey: null, query: "", reasons: [], lastCovSig: null });
     $("mail-q").value = "";
     $("mail-reader").replaceChildren(el("div", { class: "empty" }, "Select an item to read it."));
     mailReaderBar();
@@ -608,7 +628,8 @@ async function openSourceSettings(x, btn) {
 async function connectSource(x, btn) {
   state.sourcesBusy = true;
   btn.disabled = true;
-  btn.textContent = x.requirements.some((q) => q.kind === "oauth_scope") ? "Waiting for Google sign-in…"
+  btn.textContent = x.requirements.some((q) => q.kind === "oauth_scope")
+    ? (x.id === "dropbox" ? "Waiting for Dropbox sign-in…" : "Waiting for Google sign-in…")
     : x.requirements.some((q) => q.kind === "macos_permission") ? "Checking access…" : "Connecting…";
   const opts = x.id === "gmail" ? { mode: (state.status && state.status.mode) || "full" } : {};
   const r = await api().connect_source(x.id, opts);
@@ -857,16 +878,64 @@ async function loadReview(r) {
   if (!r.ok) return toast(r.error, "error");
   rvLast = r;
   const groups = r.groups.filter((g) => g.checks.length || g.id === "claude");
-  if (!groups.some((g) => g.id === rvTab)) {
+  if (rvTab !== RV_LOG && !groups.some((g) => g.id === rvTab)) {
     const worst = [...groups].sort((a, b) => RV_RANK.indexOf(a.colour) - RV_RANK.indexOf(b.colour))[0];
     rvTab = worst && worst.colour !== "green" ? worst.id : groups[0]?.id;
   }
   $("rv-tally").replaceChildren(...RV_TALLY.filter(([c]) => r.colours[c]).map(([c, word]) =>
     el("span", { class: `rv-t ${c}` }, rvIcon(c), el("b", {}, r.colours[c]), ` ${word}`)));
-  $("rv-tabs").replaceChildren(...groups.map((g) => reviewTab(g)));
+  $("rv-tabs").replaceChildren(...groups.map((g) => reviewTab(g)), historyTab());
   const g = groups.find((x) => x.id === rvTab);
   $("rv-panel").setAttribute("aria-labelledby", `rv-tab-${rvTab}`);
+  if (rvTab === RV_LOG) return loadHistory();
   $("rv-panel").replaceChildren(...(g ? reviewPanel(g, r) : []));
+}
+
+// History: SafeContext's own permission log (permlog.py), newest first. Kept only on this Mac.
+const RV_LOG = "log";
+const RV_LOG_ICON = { approved: ["circle-check", "green"], denied: ["ban", "red"], expired: ["circle-question-mark", "grey"],
+  cancelled: ["circle-question-mark", "grey"] };
+
+function historyTab() {
+  const sel = rvTab === RV_LOG;
+  return el("button", { class: "tabs-trigger rv-tab rv-tab-log", role: "tab", id: `rv-tab-${RV_LOG}`,
+      "aria-selected": String(sel), "aria-controls": "rv-panel", tabindex: sel ? "0" : "-1",
+      onclick: () => rvSelect(RV_LOG), onkeydown: rvTabKey },
+    icon("rotate-ccw-clock", "rv-ic grey"), "History");
+}
+
+async function loadHistory() {
+  const r = await api().permission_log();
+  if (!r.ok) return toast(r.error, "error");
+  if (rvTab !== RV_LOG) return;
+  const intro = el("div", { class: "rv-log-top" },
+    el("p", { class: "rv-blurb" }, "Every time an AI app asked to connect through SafeContext, what you answered, " +
+      "and changes to your link and settings. Kept only on this Mac, for up to a year."),
+    r.entries.length ? el("button", { class: "btn btn-outline btn-sm", onclick: clearHistory }, "Clear") : null);
+  if (!r.entries.length) {
+    return $("rv-panel").replaceChildren(intro, el("p", { class: "muted rv-log-empty" }, "Nothing yet."));
+  }
+  let day = "";
+  const rows = [];
+  for (const e of r.entries) {
+    const d = new Date(e.ts_ms);
+    const label = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+    if (label !== day) { day = label; rows.push(el("div", { class: "rv-log-day" }, label)); }
+    const [name, colour] = e.kind === "connect" ? (RV_LOG_ICON[e.outcome] || RV_LOG_ICON.expired)
+      : e.kind === "scan_change" ? ["triangle-exclamation-point", "yellow"] : ["settings-2", "grey"];
+    rows.push(el("div", { class: "rv-log-row" }, icon(name, `rv-ic ${colour}`),
+      el("span", { class: "rv-log-text" }, e.text),
+      el("time", { class: "muted rv-log-time", datetime: d.toISOString() },
+        d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }))));
+  }
+  $("rv-panel").replaceChildren(intro, el("div", { class: "card rv-list rv-log" }, ...rows));
+}
+
+async function clearHistory() {
+  if (!await confirmDialog("Clear the history? This can't be undone.", "Clear")) return;
+  const r = await api().permission_log_clear();
+  if (!r.ok) return toast(r.error, "error");
+  loadHistory();
 }
 
 function reviewTab(g) {
@@ -1025,55 +1094,89 @@ function renderUpdate(u) {
   $("u-current").textContent = u.current || "—";
   if (u.disabled) {
     $("u-state").textContent = "Updates are off in demo mode.";
-    for (const id of ["u-check", "u-install", "u-download", "u-auto"]) $(id).disabled = true;
+    for (const id of ["u-check", "u-install", "u-download", "u-auto", "u-on-quit"]) $(id).disabled = true;
     $("update-banner").hidden = true;
     return;
   }
-  const busy = ["checking", "downloading", "verifying", "installing"].includes(u.phase);
-  const working = busy && u.phase !== "checking";  // downloading or installing: keep the banner up
+  const v = u.version;
+  const pct = u.phase === "downloading" && u.progress != null ? ` ${Math.round(u.progress * 100)}%` : "";
+  const onQuit = !!u.on_quit;  // downloading or staged, to install when the app quits
+  // Installing now (Update and restart): keep the banner up with the progress and nothing else to click.
+  const working = ["downloading", "verifying", "installing"].includes(u.phase) && !onQuit;
+  const checking = u.phase === "checking";
   let text;
-  if (busy) {
-    text = UPDATE_PHASES[u.phase] + (u.phase === "downloading" && u.progress != null ? ` ${Math.round(u.progress * 100)}%` : "");
+  if (onQuit) {
+    text = u.phase === "ready" ? `SafeContext ${v} is ready and will be installed when you quit.`
+      : u.phase === "verifying" ? `Getting SafeContext ${v} ready: ${UPDATE_PHASES.verifying}`
+      : `Getting SafeContext ${v} ready to install when you quit…${pct}`;
+  } else if (working || checking) {
+    text = UPDATE_PHASES[u.phase] + pct;
   } else if (u.phase === "error") {
     text = u.error;
   } else if (u.available) {
-    text = `SafeContext ${u.version} is available.` + (u.can_install ? "" : ` ${u.cant_install_reason || ""}`);
+    text = `SafeContext ${v} is available.` + (u.can_install ? "" : ` ${u.cant_install_reason || ""}`);
   } else if (u.checked_ms) {
     text = `You're up to date (checked ${ago(u.checked_ms)}).`;
   } else {
     text = "Not checked yet.";
   }
-  if (u.rolled_back && !busy) text = `The update to ${u.rolled_back} didn't start, so SafeContext went back to ${u.current}. ${text}`;
+  if (u.rolled_back && !working) text = `The update to ${u.rolled_back} didn't start, so SafeContext went back to ${u.current}. ${text}`;
+
+  // Settings → Updates
   $("u-state").textContent = text;
   $("u-notes").hidden = !(u.available && u.notes);
   $("u-notes").textContent = u.notes || "";
   $("u-auto").checked = !!u.auto_check;
-  $("u-check").disabled = busy;
+  $("u-on-quit").checked = !!u.install_on_quit;
+  $("u-on-quit").disabled = !u.can_install;
+  $("u-check").disabled = working || checking;
   $("u-install").hidden = !(u.available && u.can_install);
-  $("u-install").disabled = busy;
+  $("u-install").disabled = working || checking;
+  $("u-queue").hidden = !(u.available && u.can_install && !onQuit && !working);
+  $("u-cancel").hidden = !onQuit;
+  $("u-skip").hidden = !(u.available && !u.skipped && !working);
   $("u-download").hidden = !(u.available && !u.can_install);
+  $("u-skipped").hidden = !u.skipped_version;
+  $("u-skipped-v").textContent = u.skipped_version || "";
 
-  $("update-banner").hidden = !(working || (u.available && !u.skipped && !state.updateDismissed));
-  $("update-banner-text").textContent = working ? text : `SafeContext ${u.version} is available.`;
-  $("update-now").textContent = u.can_install ? "Update and restart" : "Download";
-  $("update-now").disabled = busy;
+  // The banner
+  const show = working || (u.available && !u.skipped && !u.later);
+  $("update-banner").hidden = !show;
+  if (!show) return;
+  $("update-banner-text").textContent = working ? text
+    : onQuit ? text
+    : u.can_install ? `SafeContext ${v} is ready to install.` : `SafeContext ${v} is available.`;
+  $("update-whatsnew").hidden = working || !u.notes;
+  $("update-notes-text").textContent = u.notes || "";
+  if (working || !u.notes) { $("update-notes").hidden = true; $("update-whatsnew").setAttribute("aria-expanded", "false"); }
   $("update-later").hidden = working;
+  $("update-cancel").hidden = !onQuit;
+  $("update-on-quit").hidden = working || onQuit || !u.can_install;
+  $("update-now").textContent = u.can_install ? "Update and restart" : "Download";
+  $("update-now").disabled = working || checking;
+}
+
+async function updateCall(name, ...args) {
+  const r = await api()[name](...args);
+  if (r && r.ok === false) toast(r.error, "error");
+  refreshUpdate();
 }
 
 async function updateInstall() {
   const u = state.update || {};
   if (!u.can_install) { await api().update_open_download(); return; }
-  const r = await api().update_install();
-  if (!r.ok) toast(r.error, "error");
-  refreshUpdate();
+  await updateCall("update_install");
 }
 
 async function updateCheck() {
   $("u-state").textContent = UPDATE_PHASES.checking;
-  const r = await api().update_check();
-  if (!r.ok) toast(r.error, "error");
-  state.updateDismissed = false;
-  refreshUpdate();
+  await updateCall("update_check");
+}
+
+function toggleWhatsNew() {
+  const open = $("update-notes").hidden;
+  $("update-notes").hidden = !open;
+  $("update-whatsnew").setAttribute("aria-expanded", String(open));
 }
 
 // ---------- wiring ----------
@@ -1184,8 +1287,17 @@ function wire() {
   $("u-install").addEventListener("click", updateInstall);
   $("update-now").addEventListener("click", updateInstall);
   $("u-download").addEventListener("click", () => api().update_open_download());
-  $("update-later").addEventListener("click", () => { state.updateDismissed = true; $("update-banner").hidden = true; });
-  $("u-auto").addEventListener("change", async (e) => { await api().update_set_auto(e.target.checked); refreshUpdate(); });
+  $("update-later").addEventListener("click", () => { $("update-banner").hidden = true; updateCall("update_later"); });
+  $("update-whatsnew").addEventListener("click", toggleWhatsNew);
+  $("update-on-quit").addEventListener("click", () => updateCall("update_queue"));
+  $("u-queue").addEventListener("click", () => updateCall("update_queue"));
+  $("update-cancel").addEventListener("click", () => updateCall("update_cancel_queue"));
+  $("u-cancel").addEventListener("click", () => updateCall("update_cancel_queue"));
+  $("update-skip").addEventListener("click", () => updateCall("update_skip"));
+  $("u-skip").addEventListener("click", () => updateCall("update_skip"));
+  $("u-unskip").addEventListener("click", (e) => { e.preventDefault(); updateCall("update_unskip"); });
+  $("u-auto").addEventListener("change", (e) => updateCall("update_set_auto", e.target.checked));
+  $("u-on-quit").addEventListener("change", (e) => updateCall("update_set_on_quit", e.target.checked));
   showMcpApp(savedMcpApp(), false);
   $("mcp-copy").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText($("mcp-json").textContent); toast("Copied."); }

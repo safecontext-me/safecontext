@@ -145,6 +145,13 @@ def event_to_item(calendar_id: str, ev: Dict[str, Any], calendar_name: str = "")
 
 # --- sync ---------------------------------------------------------------------------
 
+# Events synced before the dial-in rules (PINs, conference IDs, access codes) kept
+# those secrets, and sync tokens only bring back events that changed. Once per
+# store, list every calendar in full so each event is scrubbed again; mail is
+# untouched. Bump the suffix to force another one-off calendar re-scrub.
+RESCRUB_META = "gcal_rescrub:dial_in_1"
+
+
 class CalendarSyncer(BaseSyncer):
     source = GCAL
     service = "Google Calendar"
@@ -161,7 +168,8 @@ class CalendarSyncer(BaseSyncer):
 
     def _sync(self) -> None:
         tokens = self._tokens()
-        if self.store.stale_ids(source=GCAL):
+        rescrub = self.store.get_meta(RESCRUB_META) is None
+        if rescrub or self.store.stale_ids(source=GCAL):
             tokens = {}  # scrubbing rules changed: re-fetch everything once
         calendars = [c for c in self.api.list_calendars()
                      if not c.get("deleted") and (c.get("primary") or c.get("selected", True))]
@@ -182,6 +190,8 @@ class CalendarSyncer(BaseSyncer):
                 log.info("calendar sync token expired; full resync of one calendar")
                 tokens[cid] = self._sync_calendar(cid, name, None)
             self._save_tokens(tokens)  # after each calendar, so progress survives an interruption
+        if rescrub:
+            self.store.set_meta(RESCRUB_META, "1")
 
     def _sync_calendar(self, cid: str, name: str, token: Optional[str]) -> str:
         full = token is None

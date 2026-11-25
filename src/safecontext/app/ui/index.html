@@ -157,7 +157,14 @@
       <div class="alert-title" id="update-banner-text"></div>
       <div class="alert-description page-alert-actions">
         <button class="btn btn-sm" id="update-now">Update and restart</button>
-        <button class="btn btn-outline btn-sm" id="update-later">Later</button>
+        <button class="btn btn-outline btn-sm" id="update-on-quit">Install when I quit</button>
+        <button class="btn btn-ghost btn-sm" id="update-cancel" hidden>Don't install</button>
+        <button class="btn btn-ghost btn-sm" id="update-later">Later</button>
+        <button class="btn btn-ghost btn-sm" id="update-whatsnew" aria-expanded="false" aria-controls="update-notes">What's new</button>
+      </div>
+      <div class="alert-description u-banner-notes" id="update-notes" hidden>
+        <p id="update-notes-text"></p>
+        <button class="btn btn-ghost btn-sm" id="update-skip">Skip this version</button>
       </div>
     </div>
 
@@ -339,14 +346,14 @@
       <div class="rv-top">
         <div>
           <h2>AI access review</h2>
-          <p class="muted rv-intro">What Grok, Claude and other AI apps can reach, one app at a time.</p>
+          <p class="muted rv-intro">What Grok, Claude and ChatGPT can reach, one app at a time, and a history of what they asked for.</p>
         </div>
         <button class="btn btn-outline btn-sm" id="rv-save">Save report</button>
       </div>
       <div class="rv-tally" id="rv-tally"></div>
-      <div class="tabs-list tabs-line rv-tabs" role="tablist" aria-label="Apps and accounts" id="rv-tabs"></div>
+      <div class="tabs-list tabs-line rv-tabs" role="tablist" aria-label="AI apps" id="rv-tabs"></div>
       <div class="rv-panel" role="tabpanel" id="rv-panel"></div>
-      <p class="hint">SafeContext checks its own access itself. Checks marked grey are ones you do yourself: open the page, look, then say what you found. Answers expire after 90 days.</p>
+      <p class="hint">SafeContext checks what it can by itself. Settings kept on Grok's, Claude's, OpenAI's and Google's servers can't be read by other apps, so checks marked grey are ones you do yourself: open the page, look, then say what you found. Answers expire after 90 days.</p>
     </section>
 
     <!-- Settings -->
@@ -368,11 +375,24 @@
         <div class="row"><span class="muted">Version</span><span id="u-current">—</span></div>
         <div class="row"><span class="muted">Status</span><span id="u-state">—</span></div>
         <p class="hint" id="u-notes" hidden></p>
-        <label class="field u-auto" data-orientation="horizontal"><input type="checkbox" class="checkbox" id="u-auto"><span class="field-label">Check for updates automatically (once a day)</span></label>
+        <p class="hint" id="u-skipped" hidden>You skipped <span id="u-skipped-v"></span>. <a href="#" id="u-unskip">Undo</a></p>
         <div class="actions">
           <button class="btn btn-outline" id="u-check">Check for updates</button>
           <button class="btn" id="u-install" hidden>Update and restart</button>
+          <button class="btn btn-outline" id="u-queue" hidden>Install when I quit</button>
+          <button class="btn btn-ghost" id="u-cancel" hidden>Don't install</button>
+          <button class="btn btn-ghost" id="u-skip" hidden>Skip this version</button>
           <button class="btn btn-outline" id="u-download" hidden>Open download page</button>
+        </div>
+        <div class="field u-switch" data-orientation="horizontal">
+          <span class="field-content"><label class="field-label" for="u-auto">Check for updates automatically</label>
+            <span class="field-description">When SafeContext opens, when you come back to it, and every two hours.</span></span>
+          <label class="switch"><input type="checkbox" id="u-auto" role="switch" aria-label="Check for updates automatically"><span class="switch-thumb" aria-hidden="true"></span></label>
+        </div>
+        <div class="field u-switch" data-orientation="horizontal">
+          <span class="field-content"><label class="field-label" for="u-on-quit">Install updates when I quit</label>
+            <span class="field-description">Downloads and checks a new version in the background, then installs it after you quit SafeContext. It never restarts the app on its own.</span></span>
+          <label class="switch"><input type="checkbox" id="u-on-quit" role="switch" aria-label="Install updates when I quit"><span class="switch-thumb" aria-hidden="true"></span></label>
         </div>
         <p class="hint">Checking downloads a small file from safecontext.me. It sends no account, device ID or usage data.
           Updates must be signed by SafeContext's developer before they replace the app. Your data and settings stay as they are.</p>

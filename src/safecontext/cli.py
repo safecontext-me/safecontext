@@ -3,6 +3,7 @@
     python -m safecontext connect [--headers-only] [--email you@gmail.com]   # Gmail
     python -m safecontext connect --source gcal [--email you@gmail.com]      # Google Calendar
     python -m safecontext connect --source imessage   # Messages on this Mac (needs Full Disk Access)
+    python -m safecontext connect --source dropbox   # Dropbox (read-only; needs SAFECONTEXT_DROPBOX_APP_KEY)
     python -m safecontext sync [--source gcal]       # every connected source, or one
     python -m safecontext status
     python -m safecontext sources
@@ -153,12 +154,14 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     p = argparse.ArgumentParser(prog="safecontext")
     p.add_argument("--data-dir", help=f"defaults to {DEFAULT_DATA_DIR}")
+    # Run by the update helper after "Install when I quit" (see updater.run_self_test). Not for people.
+    p.add_argument("--update-self-test", action="store_true", help=argparse.SUPPRESS)
     sub = p.add_subparsers(dest="cmd")
-    source_ids = ["gmail", "gcal", "imessage"]
+    source_ids = ["gmail", "gcal", "imessage", "dropbox"]
     c = sub.add_parser("connect")
     c.add_argument("--source", choices=source_ids, default="gmail")
     c.add_argument("--headers-only", action="store_true", help="Gmail: use gmail.metadata, no message bodies")
-    c.add_argument("--email", help="pre-fill the Google account chooser")
+    c.add_argument("--email", help="pre-fill the account chooser when the source supports it")
     sy = sub.add_parser("sync")
     sy.add_argument("--source", choices=source_ids, help="default: every connected source")
     sub.add_parser("status")
@@ -178,6 +181,9 @@ def main(argv=None) -> int:
     ap.add_argument("--demo", action="store_true", help="synthetic mailbox, no Google account or network needed")
     ap.add_argument("--debug", action="store_true", help="enable the web inspector")
     args = p.parse_args(argv)
+    if args.update_self_test:
+        from .updater import run_self_test
+        return run_self_test()
     if args.cmd is None:  # double-clicking the packaged .app runs with no arguments
         args = p.parse_args(([] if argv is None else list(argv)) + ["app"])
     # Moving the old MyContext folder touches the real data location, so only do it when this

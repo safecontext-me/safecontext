@@ -9,6 +9,7 @@ from .. import auth
 from ..store import Store
 from .base import (CONNECTOR_API_VERSION, FOLDER, MACOS_PERMISSION, NEEDS_PERMISSION, OAUTH_SCOPE, BaseSource,
                    ConnectorError, ReaderSource, Requirement, Source, SourceStatus, validate_connector)
+from .dropbox import DROPBOX, DropboxSource
 from .gcal import GCAL, GoogleCalendarSource
 from .gmail import GmailSource
 from .imessage import IMESSAGE, IMessageSource
@@ -21,6 +22,7 @@ CONNECTORS: Tuple[Type[BaseSource], ...] = (
     GmailSource,
     GoogleCalendarSource,
     IMessageSource,
+    DropboxSource,
 )
 
 # Shown on the Sources screen as disabled cards until their connectors land.
@@ -97,6 +99,7 @@ class Sources:
 
 def default_sources(store: Store, *, gmail_factory=None, gmail_connect=None, calendar_factory=None,
                     calendar_connect=None, revoke_fn=None,
+                    dropbox_factory=None, dropbox_connect=None, dropbox_revoke=None,
                     imessage_options: Optional[Dict[str, Any]] = None,
                     options: Optional[Mapping[str, Mapping[str, Any]]] = None) -> Sources:
     """Every connector in CONNECTORS, built with `options[<source id>]` as keyword arguments.
@@ -107,6 +110,8 @@ def default_sources(store: Store, *, gmail_factory=None, gmail_connect=None, cal
         GmailSource.id: {"api_factory": gmail_factory, "connect_fn": gmail_connect, "revoke_fn": revoke_fn},
         GoogleCalendarSource.id: {"api_factory": calendar_factory, "connect_fn": calendar_connect,
                                   "revoke_fn": revoke_fn},
+        DropboxSource.id: {"api_factory": dropbox_factory, "connect_fn": dropbox_connect,
+                           "revoke_fn": dropbox_revoke},
         IMessageSource.id: dict(imessage_options or {}),
     }
     for sid, o in (options or {}).items():
@@ -119,6 +124,6 @@ SOURCE_NAMES: Dict[str, str] = {**{cls.id: cls.name for cls in CONNECTORS},
                                 **{c["id"]: c["name"] for c in COMING_SOON}}
 
 
-__all__ = ["BaseSource", "COMING_SOON", "CONNECTORS", "CONNECTOR_API_VERSION", "ConnectorError", "FOLDER",
-           "GCAL", "IMESSAGE", "MACOS_PERMISSION", "OAUTH_SCOPE", "ReaderSource", "Requirement", "Source",
+__all__ = ["BaseSource", "COMING_SOON", "CONNECTORS", "CONNECTOR_API_VERSION", "ConnectorError", "DROPBOX",
+           "FOLDER", "GCAL", "IMESSAGE", "MACOS_PERMISSION", "OAUTH_SCOPE", "ReaderSource", "Requirement", "Source",
            "SourceStatus", "Sources", "default_sources", "SOURCE_NAMES", "validate_connector"]

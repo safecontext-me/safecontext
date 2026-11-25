@@ -1,7 +1,7 @@
 # SafeContext
 
-A private context layer for AI. SafeContext syncs your Gmail and Google Calendar to your
-Mac, scrubs them locally, and only then lets an AI read them. iMessage, WhatsApp and call
+A private context layer for AI. SafeContext syncs your Gmail, Google Calendar, and Dropbox to your
+Mac, scrubs them locally, and only then lets an AI read them. iMessage is included. WhatsApp and call
 recordings are next.
 
 It ships as a command-line tool (`safecontext`), a Mac app (pywebview), a local MCP server
@@ -18,6 +18,11 @@ fetches no message bodies). Google Calendar, if you connect it, is read with the
 `calendar.readonly` scope, requested separately only when you connect Calendar. Calendar
 events go through the same scrubber (dial-in PINs and meeting passcodes are never read);
 email-only rules such as `List-Unsubscribe` don't apply to them.
+Dropbox, if you connect it, is a separate sign-in with the read scopes `account_info.read`,
+`files.metadata.read` and `files.content.read`. Text documents are copied and scrubbed here;
+other files keep only a name, type, and size. SafeContext cannot upload, edit, delete, move,
+or share anything in Dropbox. Set `SAFECONTEXT_DROPBOX_APP_KEY` to your Dropbox app key
+(`SAFECONTEXT_DROPBOX_APP_SECRET` only if the app has a secret).
 
 PDFs are separate from mail and calendar. On the Files screen you add folders and
 individual PDFs. Those are the only PDFs whose text SafeContext may read. A folder
@@ -57,6 +62,7 @@ not a guarantee, so review the output (see the demo section) before trusting it 
 **What leaves the Mac:**
 
 - Gmail and Google Calendar API traffic to sync, and Google's OAuth sign-in.
+- Dropbox API traffic to list files and download text, and Dropbox's OAuth sign-in.
 - With **Use in Grok** on: the results of the search/read tools Grok calls (scrubbed text only),
   answered on your Mac and passed through SafeContext's relay (`relay.safecontext.me`) to Grok.
   The relay doesn't store or log them. From there xAI's own privacy policy applies. Turn the
@@ -103,12 +109,12 @@ subcommand and defaults to `~/Library/Application Support/SafeContext-Dev` when 
 
 | Command | What it does |
 | --- | --- |
-| `connect [--source gmail\|gcal] [--headers-only] [--email ADDR]` | Google sign-in for Gmail (default) or Google Calendar. `--headers-only` uses Gmail's metadata scope (no bodies); `--email` pre-fills the account chooser. |
-| `sync [--source gmail\|gcal]` | Sync every connected source (or one): backfill, then incremental updates. Resumable. |
+| `connect [--source gmail\|gcal\|imessage\|dropbox] [--headers-only] [--email ADDR]` | Sign in to one source. `--headers-only` is Gmail's metadata scope (no bodies). `--email` pre-fills the chooser when that source supports it. |
+| `sync [--source gmail\|gcal\|imessage\|dropbox]` | Sync every connected source (or one): backfill, then incremental updates. Resumable. |
 | `sources` | List sources, their status, item counts and the access each needs. |
 | `status` | Print account, sync mode, auth state, counts and whether a sync is running (JSON). |
 | `search QUERY [--source ID] [--from SENDER] [--after DATE] [--before DATE] [--limit N]` | Full-text search of the scrubbed store (default limit 10). |
-| `disconnect [--source gmail\|gcal] [--wipe]` | Forget the source's token (revoking the Google grant once no other Google source uses it); `--wipe` also deletes that source's local data. |
+| `disconnect [--source gmail\|gcal\|imessage\|dropbox] [--wipe]` | Forget the source's token. A Google grant is revoked only when no other Google source still uses it. Dropbox's token is revoked on its own. `--wipe` also deletes that source's local data. |
 | `mcp` | Run the MCP server on stdio (for local AI apps). |
 | `app [--demo] [--debug]` | Open the Mac app window. |
 
@@ -217,11 +223,12 @@ and Python path; prefer copying that. Run `connect` and `sync` first so there is
 | Scrubbed mail, sync state, sync locks | `~/Library/Application Support/SafeContext/mail.db` (SQLite + FTS5). Override with `--data-dir`. Directory is `0700`, files `0600`, and `secure_delete` is on. |
 | Gmail OAuth token | macOS Keychain via `keyring`, service `SafeContext Gmail`, one entry per account. Never a plain file. |
 | Google Calendar token | macOS Keychain, service `SafeContext Google Calendar`, one entry per account. |
+| Dropbox token | macOS Keychain, service `SafeContext Dropbox`, one entry per account. Never a plain file. |
 | Grok link | macOS Keychain, service `SafeContext Grok`: the link id and this Mac's relay secret. Grok's activity list is `grok_activity.json` in the data folder (`0600`). |
 | Transcription models | `~/Library/Application Support/SafeContext/models/whisper`. |
 | OAuth client file | `src/safecontext/oauth_client.json` or `$SAFECONTEXT_OAUTH_CLIENT`. Not committed. |
 
-`disconnect` removes the token and revokes the grant at Google; `disconnect --wipe` also deletes the local mail.
+`disconnect` removes that source's token and revokes its grant (Google or Dropbox); `disconnect --wipe` also deletes that source's local data.
 
 These are the packaged app's locations. A development checkout uses its own; see below.
 
@@ -233,7 +240,7 @@ installed `SafeContext.app` never share state, so both can be open at once:
 | | Packaged app | Development checkout |
 | --- | --- | --- |
 | Data folder (mail, sync locks, models) | `…/Application Support/SafeContext` | `…/Application Support/SafeContext-Dev` |
-| Keychain services | `SafeContext Gmail`, `SafeContext Google Calendar`, `SafeContext Grok` | the same with ` (Dev)` appended |
+| Keychain services | `SafeContext Gmail`, `SafeContext Google Calendar`, `SafeContext Dropbox`, `SafeContext Grok` | the same with ` (Dev)` appended |
 | MCP server name in Settings | `safecontext` | `safecontext-dev` |
 | Window title | `SafeContext` | `SafeContext (Dev)` |
 
@@ -276,7 +283,7 @@ state alone and starts fresh:
 .venv/bin/pytest
 ```
 
-The suite uses fakes for Gmail and Google Calendar and a local stand-in for the Grok relay, so it
+The suite uses fakes for Gmail, Google Calendar, and Dropbox and a local stand-in for the Grok relay, so it
 needs no credentials or network. The relay has its own tests (`cd relay && npm test`). It includes
 leak tests that check synthetic secrets never reach the store.
 

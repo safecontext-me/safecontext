@@ -21,7 +21,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from .. import __version__, auth, env, migrate, review, updater as upd
+from .. import __version__, auth, env, migrate, permlog, review, updater as upd
 from ..scrub.controls import PatternError, add_pattern, builtin_rules, delete_pattern, load_patterns, preview, set_enabled
 from ..errors import NeedsPermission
 from ..grok_link import CONNECTOR_PAGES, GrokLink
@@ -92,6 +92,8 @@ def _safe(fn: Callable) -> Callable:
 _NOOP_REVOKE = lambda account, revoke=True: None  # noqa: E731  (demo mode: no Google to revoke at)
 
 
+META_SCAN_FACTS = "review_scan_facts"  # what the last opt-in scan saw (names and rules only)
+
 class Backend:
     """Public methods are callable from the window. Everything else is underscore-prefixed
     because pywebview exposes public attributes, including methods of nested objects."""
@@ -113,6 +115,9 @@ class Backend:
         # in the real home folder: it gets a fixture (demo.py) or an empty folder.
         self._review_home = Path(review_home) if review_home else (
             self._data_dir / "demo-home" if demo else Path.home())
+        # Where the review looks for installed AI apps (existence of the .app only).
+        self._app_roots = [self._review_home / "Applications"] if (review_home or demo) else [
+            Path("/Applications"), Path.home() / "Applications"]
         self._store = Store(self._data_dir / "mail.db")
         # Folders and PDFs the user opts in. Text may be read only from those PDFs.
         self._pdfs = PdfSelection(self._store, chooser=pdf_chooser)
@@ -290,6 +295,8 @@ class Backend:
     @_safe
     def window_focused(self) -> Dict[str, Any]:
         """The window came forward: check any source not checked in the last couple of minutes."""
+        if self._updater is not None:
+            self._updater.on_focus()  # and for a new version, if the last check is 15+ min old
         return {"started": self._auto_sync(MIN_SYNC_GAP_SECONDS) if self._auto_sync_on else []}
 
     def _start_sync(self, source_id: str) -> bool:
@@ -388,7 +395,7 @@ class Backend:
         # Only ever open the kinds of deep link our sources generate (Gmail, Google Calendar...),
         # never a URL taken from the content of a message or event.
         if not self._sources.link_allowed(url):
-            return {"ok": False, "error": "Only links back to the original (Gmail, Google Calendar) can be opened."}
+            return {"ok": False, "error": "Only links back to the original (Gmail, Google Calendar, Dropbox) can be opened."}
         webbrowser.open(url)
         return {}
 
@@ -560,13 +567,29 @@ class Backend:
 
     # --- AI access review (review.py) --------------------------------------------------
     def _review_data(self) -> Dict[str, Any]:
-        rows = self._source_statuses()
-        for x in rows:
-            if x["id"] == GMAIL:
-                x["mode"] = self._store.state(GMAIL).get("sync_mode") or "full"
         answers = review.load_answers(self._store.get_meta(review.META_ANSWERS))
         scan = review.scan_ai_configs(self._review_home) if self._store.get_meta(review.META_SCAN) == "1" else None
-        return review.build_review(rows, self._grok.status(), answers, scan)
+        if scan is not None:
+            self._log_scan_changes(scan)
+        status = self._grok.status()  # also logs connect requests that went unanswered
+        since = int(time.time() * 1000) - review.REQUEST_WINDOW_DAYS * review.DAY_MS
+        return review.build_review(status, answers, scan, events=self._grok.permlog.since(since, "connect"),
+                                   apps=review.installed_apps(self._app_roots))
+
+    def _log_scan_changes(self, scan: Dict[str, Any]) -> None:
+        """Compare with what the last scan saw and log what appeared or went. The first scan only
+        sets the baseline. Keeps names and rules only, like the scan itself."""
+        facts = permlog.scan_facts(scan)
+        raw = self._store.get_meta(META_SCAN_FACTS)
+        if raw is not None:
+            try:
+                before = set(json.loads(raw))
+            except (ValueError, TypeError):
+                before = set()
+            for note in permlog.scan_changes(before, facts)[:20]:
+                self._grok.permlog.record("scan_change", note=note)
+        if raw is None or set(json.loads(raw or "[]")) != facts:
+            self._store.set_meta(META_SCAN_FACTS, json.dumps(sorted(facts)))
 
     @_safe
     def review(self) -> Dict[str, Any]:
@@ -588,8 +611,23 @@ class Backend:
     @_safe
     def review_set_scan(self, on: bool) -> Dict[str, Any]:
         """Opt in or out of reading Claude Desktop's and Claude Code's config files."""
+        was = self._store.get_meta(review.META_SCAN) == "1"
         self._store.set_meta(review.META_SCAN, "1" if on else None)
+        if bool(on) != was:
+            self._grok.permlog.record("scan", "on" if on else "off")
+            self._store.set_meta(META_SCAN_FACTS, None)  # the next scan sets a fresh baseline
         return self._review_data()
+
+    @_safe
+    def permission_log(self) -> Dict[str, Any]:
+        """The permission log, newest first (permlog.py). Kept only on this Mac."""
+        self._grok.status()  # log any request that expired while nobody looked
+        return {"entries": self._grok.permlog.entries(200)}
+
+    @_safe
+    def permission_log_clear(self) -> Dict[str, Any]:
+        self._grok.permlog.clear()
+        return {"entries": []}
 
     @_safe
     def review_open(self, check_id: str) -> Dict[str, Any]:
@@ -649,7 +687,7 @@ class Backend:
 
     @_safe
     def update_check(self) -> Dict[str, Any]:
-        return self._need_updater().check()
+        return self._need_updater().check(manual=True)
 
     @_safe
     def update_set_auto(self, on: bool) -> Dict[str, Any]:
@@ -666,10 +704,50 @@ class Backend:
         except upd.UpdateError as e:
             return {"ok": False, "error": str(e)}
 
+    @_safe
+    def update_queue(self) -> Dict[str, Any]:
+        """Install when I quit: download and verify now, swap after the user quits (no reopen)."""
+        try:
+            return self._need_updater().queue_for_quit()
+        except upd.UpdateError as e:
+            return {"ok": False, "error": str(e)}
+
+    @_safe
+    def update_cancel_queue(self) -> Dict[str, Any]:
+        return self._need_updater().cancel_quit_install()
+
+    @_safe
+    def update_set_on_quit(self, on: bool) -> Dict[str, Any]:
+        return self._need_updater().set_install_on_quit(bool(on))
+
+    @_safe
+    def update_later(self) -> Dict[str, Any]:
+        return self._need_updater().later()
+
+    @_safe
+    def update_skip(self) -> Dict[str, Any]:
+        try:
+            return self._need_updater().skip()
+        except upd.UpdateError as e:
+            return {"ok": False, "error": str(e)}
+
+    @_safe
+    def update_unskip(self) -> Dict[str, Any]:
+        return self._need_updater().unskip()
+
+    def _on_window_closing(self) -> None:
+        """The window is closing (red button or ⌘Q): start an "install when I quit" swap, if one is staged.
+        Not exposed to the page (leading underscore)."""
+        if self._updater is not None:
+            try:
+                self._updater.on_quit()
+            except Exception:
+                logging.getLogger("safecontext.app").exception("install on quit failed")
+
     def _restart_into(self, plan: upd.SwapPlan) -> None:
         assert self._updater is not None
         self._updater.launch_helper(plan)
-        if self._quit_fn is not None:
+        if self._quit_fn is not None and not self._updater.is_demo:  # the demo stays open
             self._quit_fn()
 
     @_safe

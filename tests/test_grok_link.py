@@ -465,3 +465,56 @@ def test_approval_shows_the_name_the_app_registered(link, relay):
 def test_oauth_help_uses_the_neutral_client_id(link):
     link.enable()
     assert link.status()["oauth"]["client_id"] == "safecontext"
+
+
+def _log(link):
+    return [(e["kind"], e["outcome"], e.get("client", ""), e.get("note", "")) for e in reversed(link.permlog.entries())]
+
+
+def test_permission_log_records_answers_and_settings_but_no_codes(link, relay, tmp_path):
+    link.enable()
+    wait(lambda: link.status()["state"] == "waiting")
+    relay.send({"t": "approve", "id": "p1", "client": "Grok", "code": "4821"})
+    wait(lambda: link.status()["approval"] is not None)
+    link.approve("p1", True)
+    relay.send({"t": "approve", "id": "p2", "client": "Claude", "code": "1111"})
+    wait(lambda: (link.status()["approval"] or {}).get("id") == "p2")
+    link.approve("p2", False)
+    relay.send({"t": "approve", "id": "p3", "client": "Grok", "code": "2222"})
+    wait(lambda: (link.status()["approval"] or {}).get("id") == "p3")
+    relay.send({"t": "approve_cancel", "id": "p3"})
+    wait(lambda: link.status()["approval"] is None)
+    relay.send({"t": "grants", "n": 1})
+    wait(lambda: link.status()["grants"] == 1)
+    link.set_link_only(True)
+    link.set_link_only(True)  # no change, no entry
+    link.set_keep_awake(True)
+    link.disable()
+    assert _log(link) == [
+        ("link", "on", "", ""), ("connect", "approved", "Grok", ""), ("connect", "denied", "Claude", ""),
+        ("connect", "cancelled", "Grok", ""), ("signins", "", "", "0 → 1"), ("link_only", "on", "", ""),
+        ("keep_awake", "on", "", ""), ("link", "off", "", "")]
+    saved = (tmp_path / "permission_log.json").read_text()
+    assert "4821" not in saved and "1111" not in saved and link.connector_url() not in saved
+    assert oct((tmp_path / "permission_log.json").stat().st_mode & 0o777) == "0o600"
+
+
+def test_permission_log_records_expired_and_replaced_requests(link, relay, monkeypatch):
+    link.enable()
+    wait(lambda: link.status()["state"] == "waiting")
+    relay.send({"t": "approve", "id": "e1", "client": "Grok", "code": "1"})
+    wait(lambda: link.status()["approval"] is not None)
+    relay.send({"t": "approve", "id": "e2", "client": "Grok", "code": "2"})  # replaces e1 unanswered
+    wait(lambda: link.status()["approval"]["id"] == "e2")
+    later = grok_link._now_ms() + grok_link.APPROVAL_TTL_MS + 1000
+    monkeypatch.setattr(grok_link, "_now_ms", lambda: later)
+    assert link.status()["approval"] is None
+    assert [e[:2] for e in _log(link)][-2:] == [("connect", "expired"), ("connect", "expired")]
+
+
+def test_regenerate_is_logged(link, relay):
+    link.enable()
+    wait(lambda: link.status()["state"] == "waiting")
+    relay.secret = None
+    link.regenerate()
+    assert _log(link)[-1][:2] == ("link", "regenerated")

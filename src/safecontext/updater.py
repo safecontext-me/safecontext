@@ -9,10 +9,22 @@ How it works:
         "sha256": "…", "size": 53087522, "notes": "…", "min_macos": "11.0"}
 
    The request carries no cookies, no account and no device ID. It does send the app
-   version (``?v=0.1.6``), which the site counts per day with nothing else; only
-   the address every HTTPS request has. The app checks shortly after launch and
-   then once a day, and only when it is the installed app (never a dev checkout
-   or demo mode). "Check for updates" in Settings checks on demand.
+   version (``?v=0.1.6``) and, after the first check, ``If-None-Match`` with the
+   ETag of the manifest it last saw (a hash of that public file, kept in memory
+   only), so an unchanged manifest costs a 304 and a few hundred bytes. The app
+   checks shortly after launch, when the window comes forward (at most every
+   ``FOCUS_MIN_GAP``), after the Mac wakes, and every ``CHECK_EVERY_SECONDS``,
+   backing off after failures (``RETRY_SECONDS``). It only checks on its own as the
+   installed app (never a dev checkout or demo mode). "Check for updates" in
+   Settings checks on demand.
+
+   Nothing is installed without the user: **Update and restart** installs now;
+   **Install when I quit** (or the "Install updates when I quit" setting, off by
+   default) downloads and verifies in the background and swaps the app after the
+   user quits, without reopening it (the helper runs the new app once with
+   ``--update-self-test`` instead, which proves it starts and exits). **Later**
+   hides the offer until the next launch or ``LATER_SECONDS``; **Skip this version**
+   hides that version until a newer one comes out.
 
 2. **Download and verify.** The DMG is streamed to ``~/Library/Caches/SafeContext/updates``
    and its SHA-256 must match the manifest. The app inside is copied next to the
@@ -51,6 +63,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,8 +85,15 @@ CODE_REQUIREMENT = ('anchor apple generic and certificate 1[field.1.2.840.113635
                     'and certificate leaf[field.1.2.840.113635.100.6.1.13] '
                     f'and certificate leaf[subject.OU] = "{TEAM_ID}"')
 
-CHECK_EVERY_SECONDS = 24 * 3600
+CHECK_EVERY_SECONDS = 2 * 3600  # while running; plus at launch, on focus and after wake
 FIRST_CHECK_DELAY = 20
+FOCUS_MIN_GAP = 15 * 60  # the window coming forward checks if the last check is older than this
+WAKE_DELAY = 30  # after the Mac wakes, give the network a moment
+WAKE_JUMP = 120  # the wall clock running this much ahead of the monotonic one means the Mac slept
+TICK_SECONDS = 60  # how often the background loop looks at the clock
+RETRY_SECONDS = (15 * 60, 30 * 60, 3600, 2 * 3600)  # after 1, 2, 3, 4+ failed checks in a row
+LATER_SECONDS = 24 * 3600  # "Later" hides the offer this long (or until the next launch)
+HELPER_FRESH_SECONDS = 300  # a helper started this recently may still be moving the staged app
 MAX_MANIFEST_BYTES = 64 * 1024
 MAX_DMG_BYTES = 1024 * 1024 * 1024
 LAUNCH_TIMEOUT = 90
@@ -81,6 +101,8 @@ USER_AGENT = "SafeContext-Updater"  # no identifier; the version goes in ?v= (se
 
 META_AUTO = "update_auto_check"
 META_SKIP = "update_skip_version"
+META_ON_QUIT = "update_install_on_quit"
+SELF_TEST_ARG = "--update-self-test"
 
 _VERSION_RE = re.compile(r"^\d+(\.\d+){1,3}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -157,6 +179,25 @@ def http_get(url: str, limit: int = MAX_MANIFEST_BYTES) -> bytes:
     if len(data) > limit:
         raise UpdateError("The update information is too large.")
     return data
+
+
+def http_fetch_manifest(url: str, etag: Optional[str] = None) -> Tuple[Optional[bytes], Optional[str]]:
+    """GET the manifest. Returns (body, etag), or (None, etag) when the server answers 304
+    because `etag` still matches. The only extra header is If-None-Match with that public hash."""
+    req = _request(url)
+    if etag:
+        req.add_header("If-None-Match", etag)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = r.read(MAX_MANIFEST_BYTES + 1)
+            new_etag = r.headers.get("ETag")
+    except urllib.error.HTTPError as e:
+        if e.code == 304:
+            return None, e.headers.get("ETag") or etag
+        raise
+    if len(data) > MAX_MANIFEST_BYTES:
+        raise UpdateError("The update information is too large.")
+    return data, new_etag
 
 
 def http_download(url: str, dest: Path, progress: Callable[[int, Optional[int]], None]) -> None:
@@ -294,11 +335,15 @@ def copy_app_from_dmg(dmg: Path, dest: Path, run: Runner = run_cmd) -> None:
 
 # --- the swap helper ------------------------------------------------------------------------
 
-# Runs after the app quits. Arguments: pid app staged backup failed marker rollback_note timeout version.
+# Runs after the app quits. Arguments: pid app staged backup failed marker rollback_note timeout version [mode].
+# mode "restart" (the default) opens the new app. "quit" (Install when I quit) doesn't reopen anything:
+# it runs the new app once, hidden, with --update-self-test, which writes the marker and exits.
 _HELPER = r"""#!/bin/sh
 PID="$1"; APP="$2"; NEW="$3"; OLD="$4"; FAILED="$5"; MARKER="$6"; NOTE="$7"; WAIT="$8"; VERSION="$9"
+MODE="${10:-restart}"
 OPEN="${SAFECONTEXT_OPEN:-/usr/bin/open}"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
+reopen() { if [ "$MODE" != quit ]; then "$OPEN" "$APP"; fi; }
 
 i=0
 while kill -0 "$PID" 2>/dev/null; do
@@ -307,11 +352,16 @@ while kill -0 "$PID" 2>/dev/null; do
 done
 
 rm -rf "$OLD" "$FAILED"
-if ! mv "$APP" "$OLD"; then log "couldn't move the old app"; rm -rf "$NEW"; "$OPEN" "$APP"; exit 1; fi
-if ! mv "$NEW" "$APP"; then log "couldn't move the new app in; restoring"; mv "$OLD" "$APP"; "$OPEN" "$APP"; exit 1; fi
+if ! mv "$APP" "$OLD"; then log "couldn't move the old app"; rm -rf "$NEW"; reopen; exit 1; fi
+if ! mv "$NEW" "$APP"; then log "couldn't move the new app in; restoring"; mv "$OLD" "$APP"; reopen; exit 1; fi
 rm -f "$MARKER" "$NOTE"
-log "installed $VERSION; opening it"
-"$OPEN" "$APP"
+if [ "$MODE" = quit ]; then
+  log "installed $VERSION; checking that it starts"
+  "$OPEN" -g -j "$APP" --args --update-self-test
+else
+  log "installed $VERSION; opening it"
+  "$OPEN" "$APP"
+fi
 
 i=0
 while [ ! -f "$MARKER" ]; do
@@ -320,7 +370,7 @@ while [ ! -f "$MARKER" ]; do
     log "$VERSION didn't start within ${WAIT}s; rolling back"
     mv "$APP" "$FAILED" && mv "$OLD" "$APP"
     echo "$VERSION" > "$NOTE"
-    "$OPEN" "$APP"
+    reopen
     exit 1
   fi
 done
@@ -348,15 +398,20 @@ def plan_swap(app: Path, version: str, folder: Path) -> SwapPlan:
 
 
 def spawn_helper(plan: SwapPlan, pid: int, folder: Path, timeout: int = LAUNCH_TIMEOUT,
-                 extra_env: Optional[Dict[str, str]] = None) -> subprocess.Popen:
+                 extra_env: Optional[Dict[str, str]] = None, mode: str = "restart") -> subprocess.Popen:
+    if mode not in ("restart", "quit"):
+        raise ValueError(mode)
     folder.mkdir(parents=True, exist_ok=True)
     script = folder / "install-update.sh"
     script.write_text(_HELPER)
     logf = open(folder / "install.log", "a")
     try:
+        # Also marks the log as fresh, so an app opened meanwhile leaves the staged copy alone.
+        logf.write(time.strftime("%Y-%m-%d %H:%M:%S") + f" waiting for SafeContext to quit ({mode}, {plan.version})\n")
+        logf.flush()
         return subprocess.Popen(
             ["/bin/sh", str(script), str(pid), str(plan.app), str(plan.staged), str(plan.backup),
-             str(plan.failed), str(plan.marker), str(plan.note), str(timeout), plan.version],
+             str(plan.failed), str(plan.marker), str(plan.note), str(timeout), plan.version, mode],
             stdin=subprocess.DEVNULL, stdout=logf, stderr=logf, start_new_session=True,
             env={**os.environ, **(extra_env or {})}, close_fds=True)
     finally:
@@ -365,33 +420,53 @@ def spawn_helper(plan: SwapPlan, pid: int, folder: Path, timeout: int = LAUNCH_T
 
 # --- the updater the app uses -------------------------------------------------------------
 
+Fetch = Callable[[str, Optional[str]], Any]  # (url, etag) -> (body or None for 304, etag), or plain bytes
+
+
 class Updater:
-    """Thread-safe. Public methods return plain dicts for the window (see Backend.update_*)."""
+    """Thread-safe. Public methods return plain dicts for the window (see Backend.update_*).
+
+    `now` is the wall clock and `mono` the monotonic one; tests pass fakes. The background loop
+    calls tick() about once a minute (or at once when the window comes forward)."""
 
     def __init__(self, store: Any = None, *, current: str = __version__,
-                 fetch: Callable[[str], bytes] = http_get,
+                 fetch: Fetch = http_fetch_manifest,
                  download: Callable[[str, Path, Callable[[int, Optional[int]], None]], None] = http_download,
                  run: Runner = run_cmd, app: Optional[Path] = "auto",  # type: ignore[assignment]
                  folder: Optional[Path] = None, verify: Callable[[Path, str], None] = None,  # type: ignore[assignment]
                  spawn: Callable[..., Any] = spawn_helper, now: Callable[[], float] = time.time,
-                 auto_default: Optional[bool] = None) -> None:
+                 mono: Callable[[], float] = time.monotonic, auto_default: Optional[bool] = None) -> None:
         self._store = store
         self.current = current
-        self._fetch, self._download, self._run, self._spawn, self._now = fetch, download, run, spawn, now
+        self._fetch, self._download, self._run, self._spawn = fetch, download, run, spawn
+        self._now, self._mono = now, mono
         self.app = installed_app() if app == "auto" else app
         self.folder = folder or updates_dir()
         self._verify = verify or (lambda path, version: verify_app(path, version, run))
         self._auto_default = (env.CURRENT == env.APP) if auto_default is None else auto_default
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._kick = threading.Event()  # the window came forward, or stop()
         self.manifest: Optional[Manifest] = None
         self.phase = "idle"  # idle | checking | downloading | verifying | ready | installing | error
         self.error: Optional[str] = None
         self.progress: Optional[float] = None
         self.checked_ms: Optional[int] = None
         self.rolled_back: Optional[str] = self._read_rollback_note()
+        self._etag: Optional[str] = None  # memory only
+        self._fails = 0  # failed checks in a row
+        self._wake_at: Optional[float] = None
+        self._clock: Optional[Tuple[float, float]] = None  # (wall, mono) at the last tick
+        self._later: Optional[Tuple[str, float]] = None  # (version, until): memory only, so a relaunch ends it
+        self._queued: Optional[str] = None  # the version the user chose "Install when I quit" for
+        self._declined: Optional[str] = None  # cancelled "install when I quit" for this version: don't restage it
+        self._stage_mode: Optional[str] = None  # "quit" or "restart" while a download is going or staged
         self._staged: Optional[SwapPlan] = None
+        self._on_ready: Optional[Callable[[SwapPlan], None]] = None
+        self._helper_started = False
         self._worker: Optional[threading.Thread] = None
+        self.is_demo = False  # demo/fake_update.py: installing never quits the window
+        self._clean_stale_staged()
 
     # settings
     @property
@@ -403,8 +478,49 @@ class Updater:
         if self._store is not None:
             self._store.set_meta(META_AUTO, "1" if on else "0")
 
+    @property
+    def install_on_quit(self) -> bool:
+        """The "Install updates when I quit" setting. Off unless the user turns it on."""
+        return self._store is not None and self._store.get_meta(META_ON_QUIT) == "1"
+
+    def set_install_on_quit(self, on: bool) -> Dict[str, Any]:
+        if self._store is not None:
+            self._store.set_meta(META_ON_QUIT, "1" if on else "0")
+        if on:
+            self._declined = None
+            self._maybe_stage_for_quit()
+        elif self._queued is None:
+            self._discard_staged()
+        return self.status()
+
     def _skip(self) -> Optional[str]:
-        return self._store.get_meta(META_SKIP) if self._store is not None else None
+        v = self._store.get_meta(META_SKIP) if self._store is not None else None
+        return v or None
+
+    def skip(self) -> Dict[str, Any]:
+        """Skip this version: no banner and no background install until a newer one comes out."""
+        m = self.manifest
+        if not m or not is_newer(m.version, self.current):
+            raise UpdateError("There's no newer version to skip.")
+        if self._store is not None:
+            self._store.set_meta(META_SKIP, m.version)
+        if self._queued == m.version or self._stage_mode == "quit":
+            self._queued = None
+            self._discard_staged()
+        return self.status()
+
+    def unskip(self) -> Dict[str, Any]:
+        if self._store is not None:
+            self._store.set_meta(META_SKIP, None)
+        self._maybe_stage_for_quit()
+        return self.status()
+
+    def later(self) -> Dict[str, Any]:
+        """Hide the offer until the next launch or LATER_SECONDS from now, whichever comes first."""
+        m = self.manifest
+        if m:
+            self._later = (m.version, self._now() + LATER_SECONDS)
+        return self.status()
 
     def _read_rollback_note(self) -> Optional[str]:
         note = self.folder / "rolled-back"
@@ -421,21 +537,49 @@ class Updater:
             self._store.set_meta(META_SKIP, v)  # don't offer the broken version again on its own
         return v
 
+    def _clean_stale_staged(self) -> None:
+        """Remove staged copies an earlier run left next to the app (it quit without installing),
+        unless a swap helper started in the last few minutes may still be moving one into place."""
+        if self.app is None:
+            return
+        try:
+            if self._now() - (self.folder / "install.log").stat().st_mtime < HELPER_FRESH_SECONDS:
+                return
+        except OSError:
+            pass
+        try:
+            leftovers = list(self.app.parent.glob(".SafeContext-*.update.app"))
+        except OSError:
+            return
+        for p in leftovers:
+            shutil.rmtree(p, ignore_errors=True)
+
     # status
-    def status(self) -> Dict[str, Any]:
+    def _offer(self) -> Optional[Manifest]:
         m = self.manifest
-        available = bool(m and is_newer(m.version, self.current))
+        return m if m and is_newer(m.version, self.current) else None
+
+    def status(self) -> Dict[str, Any]:
+        m = self._offer()
+        skip = self._skip()
+        later = bool(m and self._later and self._later[0] == m.version and self._now() < self._later[1])
+        staging = self.phase in ("downloading", "verifying", "ready")
+        on_quit = bool(m and staging and self._stage_mode == "quit")
         return {
             "current": self.current,
-            "available": available,
-            "version": m.version if available else None,
-            "notes": m.notes if available else "",
-            "skipped": bool(available and m and self._skip() == m.version),
+            "available": bool(m),
+            "version": m.version if m else None,
+            "notes": m.notes if m else "",
+            "skipped": bool(m and skip == m.version),
+            "skipped_version": skip if (skip and m and skip == m.version) else None,
+            "later": later,
             "phase": self.phase,
             "progress": self.progress,
             "error": self.error,
             "checked_ms": self.checked_ms,
             "auto_check": self.auto_check,
+            "install_on_quit": self.install_on_quit,
+            "on_quit": on_quit,  # this version is downloading or staged, to install when the app quits
             "can_install": why_cant_install(self.app) is None,
             "cant_install_reason": why_cant_install(self.app),
             "download_page": DOWNLOAD_PAGE,
@@ -443,57 +587,187 @@ class Updater:
         }
 
     # check
-    def check(self) -> Dict[str, Any]:
+    def check(self, manual: bool = False) -> Dict[str, Any]:
+        """Fetch the manifest. `manual` (the Check for updates button) also ends a "Later"."""
+        if manual:
+            self._later = None
         with self._lock:
-            if self.phase in ("downloading", "verifying", "installing"):
+            prev = self.phase
+            if prev in ("downloading", "verifying", "installing"):
                 return self.status()
-            self.phase, self.error = "checking", None
+            if prev != "ready":  # a staged update stays staged while we look for a newer one
+                self.phase, self.error = "checking", None
         try:
-            m = parse_manifest(self._fetch(manifest_url(self.current)))
+            got = self._fetch(manifest_url(self.current), self._etag)
+            body, etag = got if isinstance(got, tuple) else (got, None)
+            if body is None and self.manifest is None:  # a 304 for a manifest we don't hold: ask again in full
+                self._etag = None
+                body, etag = self._fetch(manifest_url(self.current), None)
+            m = parse_manifest(body) if body is not None else self.manifest
             with self._lock:
                 self.manifest = m
-                self.phase = "idle"
+                self._etag = etag
+                if self.phase == "checking":
+                    self.phase = "idle"
+            self._fails = 0
         except UpdateError as e:
-            self._fail(str(e))
+            self._fails += 1
+            self._fail(str(e), keep_ready=prev == "ready")
         except Exception as e:  # network down, TLS, HTTP error: say so plainly
             log.info("update check failed: %s", e)
-            self._fail("Couldn't reach safecontext.me to check for updates.")
+            self._fails += 1
+            self._fail("Couldn't reach safecontext.me to check for updates.", keep_ready=prev == "ready")
         self.checked_ms = int(self._now() * 1000)
+        self._after_check()
         return self.status()
 
-    def _fail(self, message: str) -> None:
+    def _fail(self, message: str, keep_ready: bool = False) -> None:
         with self._lock:
+            if keep_ready and self.phase == "ready":
+                return  # a failed check doesn't undo a staged update; the next one tries again
             self.phase, self.error, self.progress = "error", message, None
+
+    def _after_check(self) -> None:
+        m = self._offer()
+        if self._staged and (not m or self._staged.version != m.version):
+            self._queued = None
+            self._discard_staged()  # a newer release replaced the one we staged
+        self._maybe_stage_for_quit()
+
+    # scheduling
+    def next_check_at(self) -> float:
+        """Wall time of the next scheduled check (0 = now)."""
+        if self.checked_ms is None:
+            return 0.0
+        gap = CHECK_EVERY_SECONDS if not self._fails else RETRY_SECONDS[min(self._fails, len(RETRY_SECONDS)) - 1]
+        return self.checked_ms / 1000 + gap
+
+    def on_focus(self) -> bool:
+        """The window came forward. Ask the loop to check if the last check is old enough."""
+        if not self.auto_check or self._stop.is_set():
+            return False
+        now = self._now()
+        if self.checked_ms is not None and now - self.checked_ms / 1000 < FOCUS_MIN_GAP:
+            return False
+        if self._fails and now < self.next_check_at():
+            return False
+        self._kick.set()
+        return True
+
+    def tick(self, kicked: bool = False) -> bool:
+        """One look at the clock. Checks if it's time, the window asked, or the Mac woke a moment ago."""
+        wall, mono = self._now(), self._mono()
+        if self._clock is not None:
+            if (wall - self._clock[0]) - (mono - self._clock[1]) > WAKE_JUMP:
+                self._wake_at = wall + WAKE_DELAY
+        self._clock = (wall, mono)
+        if not self.auto_check:
+            return False
+        due = kicked or wall >= self.next_check_at() or (self._wake_at is not None and wall >= self._wake_at)
+        if not due:
+            return False
+        self._wake_at = None
+        self.check()
+        return True
 
     # download, verify, stage
     def start_install(self, on_ready: Callable[[SwapPlan], None]) -> Dict[str, Any]:
-        """Download and verify in the background; call on_ready(plan) once the new app is staged."""
+        """Install now: download and verify in the background (or use what's already staged),
+        then call on_ready(plan), which starts the helper and quits."""
+        return self._start(on_ready, "restart")
+
+    def queue_for_quit(self) -> Dict[str, Any]:
+        """Install when I quit: download and verify now, swap after the app quits."""
+        m = self._offer()
+        if m:
+            self._queued, self._declined = m.version, None
+        return self._start(None, "quit")
+
+    def cancel_quit_install(self) -> Dict[str, Any]:
+        m = self._offer()
+        self._queued = None
+        if m:
+            self._declined = m.version
+        self._discard_staged()
+        return self.status()
+
+    def _start(self, on_ready: Optional[Callable[[SwapPlan], None]], mode: str) -> Dict[str, Any]:
         reason = why_cant_install(self.app)
         if reason:
             raise UpdateError(reason)
         with self._lock:
-            m = self.manifest
-            if not m or not is_newer(m.version, self.current):
+            m = self._offer()
+            if not m:
                 raise UpdateError("There's no newer version to install.")
-            if self._worker and self._worker.is_alive():
+            if self.phase == "installing":
                 return self.status()
-            self.phase, self.error, self.progress = "downloading", None, 0.0
-            self._worker = threading.Thread(target=self._install, args=(m, on_ready), daemon=True,
-                                            name="update-install")
+            if self._worker and self._worker.is_alive():
+                if on_ready is not None:
+                    self._stage_mode = mode  # already downloading for later: install when it's done
+                    self._on_ready = on_ready
+                return self.status()
+            self._stage_mode, self._on_ready = mode, on_ready
+            if self.phase != "ready":
+                self.phase, self.error, self.progress = "downloading", None, 0.0
+            self._worker = threading.Thread(target=self._install, args=(m,), daemon=True, name="update-install")
             self._worker.start()
         return self.status()
 
-    def _install(self, m: Manifest, on_ready: Callable[[SwapPlan], None]) -> None:
+    def _install(self, m: Manifest) -> None:
         try:
-            plan = self.stage(m)
+            plan = self._staged
+            if not (plan and plan.version == m.version and plan.staged.exists()):
+                plan = self.stage(m)
             with self._lock:
-                self.phase = "installing"
+                on_ready = self._on_ready
+                if on_ready is None:
+                    if self._stage_mode == "quit":
+                        self.phase = "ready"  # waits for on_quit()
+                        return
+                    # cancelled or skipped while it downloaded
+                    self._staged, self.phase = None, "idle"
+                    discard = plan
+                else:
+                    self.phase = "installing"
+                    discard = None
+            if discard is not None:
+                shutil.rmtree(discard.staged, ignore_errors=True)
+                return
             on_ready(plan)
         except UpdateError as e:
+            self._stage_mode = None
             self._fail(str(e))
         except Exception as e:
             log.exception("update failed")
+            self._stage_mode = None
             self._fail(f"The update couldn't be installed ({type(e).__name__}).")
+
+    def _maybe_stage_for_quit(self) -> None:
+        """With the setting on (or this version queued), get a new version ready in the background."""
+        m = self._offer()
+        if not m or self._skip() == m.version or self._declined == m.version:
+            return
+        if not (self.install_on_quit or self._queued == m.version):
+            return
+        if why_cant_install(self.app) or self.phase in ("downloading", "verifying", "ready", "installing"):
+            return
+        try:
+            self._start(None, "quit")
+        except UpdateError:
+            pass
+
+    def _discard_staged(self) -> None:
+        with self._lock:
+            if self.phase == "installing" or (self._worker and self._worker.is_alive()):
+                if self._stage_mode == "quit":
+                    self._stage_mode = None  # the download finishes, then nothing installs it
+                    self._on_ready = None
+                return
+            plan, self._staged, self._stage_mode = self._staged, None, None
+            if self.phase == "ready":
+                self.phase = "idle"
+        if plan is not None:
+            shutil.rmtree(plan.staged, ignore_errors=True)
 
     def stage(self, m: Manifest) -> SwapPlan:
         """Download `m`, check it, and put the verified app next to the installed one."""
@@ -525,8 +799,26 @@ class Updater:
         return plan
 
     def launch_helper(self, plan: SwapPlan, pid: Optional[int] = None) -> None:
-        """Start the helper that swaps the app once this process (pid) has quit."""
+        """Start the helper that swaps the app once this process (pid) has quit, then opens it."""
+        with self._lock:
+            if self._helper_started:
+                return
+            self._helper_started = True
         self._spawn(plan, pid or os.getpid(), self.folder)
+
+    def on_quit(self, pid: Optional[int] = None) -> bool:
+        """The app is quitting. If a verified version is staged for "install when I quit", start the
+        helper: it swaps the app once this process is gone and doesn't reopen it. Safe to call twice."""
+        with self._lock:
+            plan = self._staged
+            if (self._helper_started or self.phase != "ready" or self._stage_mode != "quit"
+                    or plan is None or not plan.staged.exists()):
+                return False
+            if self._skip() == plan.version:
+                return False
+            self._helper_started = True
+        self._spawn(plan, pid or os.getpid(), self.folder, mode="quit")
+        return True
 
     # background
     def start_background(self, first_delay: float = FIRST_CHECK_DELAY) -> None:
@@ -535,13 +827,26 @@ class Updater:
     def _loop(self, first_delay: float) -> None:
         if self._stop.wait(first_delay):
             return
-        while True:
-            if self.auto_check:
-                due = self.checked_ms is None or self._now() * 1000 - self.checked_ms >= CHECK_EVERY_SECONDS * 1000
-                if due:
-                    self.check()
-            if self._stop.wait(3600):
-                return
+        kicked = False
+        while not self._stop.is_set():
+            try:
+                self.tick(kicked)
+            except Exception:
+                log.exception("update tick failed")
+            kicked = self._kick.wait(TICK_SECONDS)
+            self._kick.clear()
 
     def stop(self) -> None:
         self._stop.set()
+        self._kick.set()
+
+
+def run_self_test() -> int:
+    """`SafeContext --update-self-test`: run by the swap helper after "Install when I quit" in place of
+    reopening the app. Proves the new app's Python, the window toolkit and the app code load, tells the
+    helper so, and exits without opening a window or touching the data folder."""
+    import webview  # noqa: F401  (the window toolkit and its pyobjc wheels load)
+
+    from .app import backend, main  # noqa: F401  (the app's own code imports)
+    mark_launched()
+    return 0
