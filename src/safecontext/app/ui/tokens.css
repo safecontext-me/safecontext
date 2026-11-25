@@ -1,0 +1,142 @@
+/* SafeContext design tokens: the one place the app's look is defined.
+   Every other stylesheet (app.css, mail.css, components.css) uses these and never hard-codes a color,
+   font size, spacing, radius, shadow or duration. Change a value here and it changes everywhere.
+
+   Color names follow shadcn/ui's roles (background, foreground, card, primary, muted-foreground,
+   border, ring, destructive…) so they read the same to anyone who knows that system, and so a future
+   React front end could reuse them as-is. Each color has a light value here and a dark value below. */
+
+:root {
+  color-scheme: light dark;
+
+  /* ---------- color: surfaces and text ---------- */
+  --chrome: #ebeae6;               /* the window frame: header and sidebar, behind the page */
+  --background: #f6f6f4;           /* the page: the raised panel that holds each screen */
+  --foreground: #1d1d1b;           /* body text */
+  --card: #ffffff;                 /* panels, cards, inputs, menus */
+  --card-foreground: var(--foreground);
+  --popover: var(--card);          /* menus, popovers and dialogs */
+  --muted-foreground: #6b6a66;     /* secondary text, captions, icons */
+  --border: #eae9e4;               /* hairlines and outlines: kept quiet, low contrast */
+  --page-border: color-mix(in srgb, var(--border) 80%, var(--background));
+  --control-border: color-mix(in srgb, var(--muted-foreground) 60%, transparent);  /* checkboxes and other controls: must stay visible */  /* the page panel's edge: 20% quieter still */
+  /* Interaction backgrounds: a translucent wash, so they look the same on the frame, the page, cards and
+     menus. --hover while the pointer is over something; --active for the current, selected, open or
+     keyboard-highlighted item. Use these two everywhere; nothing else. */
+  --hover: rgba(0, 0, 0, .035);
+  --active: rgba(0, 0, 0, .06);
+
+  /* ---------- color: brand and status ---------- */
+  --primary: #2f5bd3;              /* brand blue: primary buttons, links, active states */
+  --primary-foreground: #ffffff;   /* text and icons on --primary */
+  --primary-subtle: #e8eefc;       /* tinted backgrounds: selected rows, soft pills */
+  --ring: var(--primary);          /* keyboard focus outline */
+  --success: #2e8b57;
+  --warning: #d8a200;              /* status dot */
+  --warning-foreground: #9a7300;   /* text on a warning */
+  --warning-subtle: #fff4d6;       /* warning banner background */
+  --warning-border: #f0d48a;
+  --destructive: #c0392b;          /* delete, disconnect, errors */
+  --badge: #ece9fb;                /* "1 redacted" style badges */
+  --badge-foreground: #4b3aa8;
+  --highlight: #fff1a8;            /* search-match highlight */
+  --switch-thumb: #ffffff;
+  --overlay: rgba(0, 0, 0, .35);   /* behind modal dialogs */
+
+  /* ---------- type ---------- */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif,
+               "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Type scale: deliberately small. Nearly everything is --text-base; hierarchy comes from weight and
+     color, not size. Sidebar, tabs, bar titles, card titles, buttons, menus and body text all share it. */
+  --text-xs: 11px;       /* micro: badges, pills, keyboard keys, uppercase labels */
+  --text-sm: 12px;       /* secondary: dates, previews, captions, hints */
+  --text-base: 13px;     /* everything else */
+  --text-title: 20px;    /* page titles and big stat numbers only */
+  --text-display: 40px;  /* one-off: the 4-digit approval code */
+
+  /* Emoji used as icons (source tiles) are sized here, apart from text. */
+  --icon-sm: 14px;
+  --icon-md: 18px;
+  --icon-lg: 22px;
+  --icon-xl: 36px;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --leading-none: 1;
+  --leading-tight: 1.3;
+  --leading-snug: 1.4;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.6;
+
+  /* ---------- spacing: a 4px grid (padding, margin, gap) ---------- */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-3-5: 14px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-16: 64px;
+
+  /* ---------- radius ---------- */
+  --radius-xs: 4px;     /* kbd keys, tiny chips */
+  --radius-sm: 6px;     /* small buttons, tags */
+  --radius-md: 8px;     /* buttons, inputs, menu items */
+  --radius-lg: 10px;    /* cards and panels */
+  --radius-xl: 12px;    /* popovers, tiles */
+  --radius-2xl: 16px;   /* large icon tiles */
+  --radius-full: 999px; /* pills, dots, avatars */
+
+  /* ---------- elevation ---------- */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .3);           /* small raised parts, like a switch thumb */
+  --shadow-outline: 0 0 0 1px var(--border);          /* the active nav item */
+  --shadow-popover: 0 12px 32px rgba(0, 0, 0, .28);   /* menus, popovers, flyouts */
+
+  /* ---------- layout ---------- */
+  --titlebar-height: 44px;   /* the header row, where the traffic lights and search sit (main.py _HEADER_MIDDLE is half of it) */
+  --sidebar-width: 232px;
+  --page-width: 880px;           /* the centered column every page except mail sits in */
+  --bar-height: 44px;
+  --nav-item-height: 28px;       /* sidebar rows */            /* page header bars: the mail tab row and the reader's title bar */
+  --mail-list-width: 380px;      /* default width of the message list; the divider resizes it (mail.js) */
+  --page-inset: var(--space-2);  /* gap between the page panel and the window edge */
+
+  /* ---------- motion ---------- */
+  --duration-fast: 150ms;
+  --duration-slow: 400ms;
+  --ease-standard: ease-in-out;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --chrome: #141416;
+    --background: #1b1b1d;
+    --foreground: #ececea;
+    --card: #242427;
+    --muted-foreground: #a09f9a;
+    --border: #2b2b2e;
+    --hover: rgba(255, 255, 255, .04);
+    --active: rgba(255, 255, 255, .07);
+    --primary: #7c9cff;
+    --primary-foreground: #0f1530;
+    --primary-subtle: #2a3150;
+    --success: #5cc78a;
+    --warning-subtle: #3a3220;
+    --warning-border: #6b5a2a;
+    --destructive: #ff7a6b;
+    --badge: #352f55;
+    --badge-foreground: #cfc6ff;
+    --highlight: #5b5020;
+  }
+}
