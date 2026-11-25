@@ -1,5 +1,8 @@
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
+/* The window itself never scrolls or rubber-bands: the header and frame stay put, and only the page's own
+   areas (views, the mail list and reader, the sidebar) scroll, keeping any bounce inside themselves. */
+html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
+.view, .mail-list, .mail-reader, .sidebar, .search-results { overscroll-behavior: contain; }
 body {
   font: var(--text-base)/var(--leading-normal) var(--font-sans);
   background: var(--chrome); color: var(--foreground);  /* the window frame; pages sit above it on --background */
@@ -380,14 +383,35 @@ dialog::backdrop { background: var(--overlay); }
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--foreground);
          color: var(--background); padding: var(--space-2) var(--space-3-5); border-radius: var(--radius-md); font-size: var(--text-base); }
 
+/* Smaller windows: the sidebar collapses and the page takes the full width. The header's sidebar button
+   opens it as a floating panel over the page (app.js toggles .sidebar-open; picking an item, clicking
+   outside or Esc closes it). Keep 1000px in step with SIDEBAR_COLLAPSE in app.js. */
+@media (max-width: 1000px) {
+  .shell, .shell.sidebar-hidden { grid-template-columns: 0 minmax(0, 1fr); }
+  /* The page fills the window: no gap or border on the sides and bottom, square corners. */
+  .main, .shell.sidebar-hidden .main { margin: 0; border-width: 1px 0 0; border-radius: 0; }
+  /* The sidebar floats over the page, flush with the window's left and bottom edges (no gap), rounded only on
+     its right corners, sliding in from the left when opened and back out when closed. */
+  .shell .sidebar, .shell.sidebar-hidden .sidebar {
+    display: flex; position: fixed; z-index: 40; top: var(--titlebar-height); bottom: 0;
+    left: 0; width: var(--sidebar-width); background: var(--chrome);
+    border: 0; border-top: 1px solid var(--page-border); border-right: 1px solid var(--page-border);
+    border-radius: 0 var(--radius-xl) var(--radius-xl) 0;  /* square against the window, rounded on the page side */
+    box-shadow: var(--shadow-popover);
+    transform: translateX(calc(-100% - var(--space-6))); visibility: hidden;  /* fully off screen, shadow too */
+    transition: transform var(--duration-base) var(--ease-out), visibility 0s var(--duration-base); }
+  .shell.sidebar-open .sidebar { transform: none; visibility: visible;
+                                 transition: transform var(--duration-base) var(--ease-out); }
+  /* While it's open, dim everything else; only the sidebar and its button stay above the layer.
+     Clicking the layer closes the sidebar (app.js). */
+  .shell::after { content: ""; position: fixed; inset: 0; z-index: 35; background: var(--overlay);
+                  opacity: 0; visibility: hidden; pointer-events: none;
+                  transition: opacity var(--duration-base) var(--ease-standard), visibility 0s var(--duration-base); }
+  .shell.sidebar-open::after { opacity: 1; visibility: visible; pointer-events: auto;
+                               transition: opacity var(--duration-base) var(--ease-standard); }  /* fades in and out */
+  .shell.sidebar-open #nav-sidebar { position: relative; z-index: 45; }
+}
 @media (max-width: 900px) {
-  .shell, .shell.sidebar-hidden { grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--titlebar-height) auto minmax(0, 1fr); }
-  .sidebar, .main { grid-column: 1; }
-  .sidebar { flex-direction: row; flex-wrap: wrap; align-items: center; }
-  .main { margin-left: var(--page-inset); }
-  .sync { margin-top: 0; }
-  .acct-menu { bottom: auto; top: calc(100% + 6px); min-width: 200px; }  /* sidebar is a top bar here */
-  .nav { grid-auto-flow: column; }
   .panes, .two-col, .tiles, .sp-tiles { grid-template-columns: 1fr; }
 }
 

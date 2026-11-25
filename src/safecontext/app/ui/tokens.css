@@ -114,8 +114,10 @@
 
   /* ---------- motion ---------- */
   --duration-fast: 150ms;
+  --duration-base: 200ms;  /* fades: the sidebar's dimming layer */
   --duration-slow: 400ms;
   --ease-standard: ease-in-out;
+  --ease-out: cubic-bezier(.2, .8, .2, 1);  /* quick start, gentle settle: things sliding into place */
 }
 
 @media (prefers-color-scheme: dark) {

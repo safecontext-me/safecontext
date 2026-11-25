@@ -245,13 +245,36 @@ function show(view) {
 // ---------- header: hide the sidebar, back / forward ----------
 const SIDEBAR_KEY = "safecontext.sidebarHidden";
 
+// Below this width the sidebar collapses and opens as a floating panel over the page (app.css, same number).
+const SIDEBAR_COLLAPSE = window.matchMedia("(max-width: 1000px)");
+
 function setSidebarHidden(hidden, save = true) {
   $("shell").classList.toggle("sidebar-hidden", hidden);
-  const b = $("nav-sidebar"), label = hidden ? "Show sidebar" : "Hide sidebar";
-  b.setAttribute("aria-label", label);
-  b.setAttribute("aria-pressed", String(hidden));
-  b.title = `${label} (⌘\\)`;
   if (save) { try { localStorage.setItem(SIDEBAR_KEY, hidden ? "1" : ""); } catch (e) { /* this session only */ } }
+  sidebarButton();
+}
+
+// Narrow windows: the sidebar floats over the page while open.
+function setSidebarOpen(open) {
+  $("shell").classList.toggle("sidebar-open", open);
+  sidebarButton();
+}
+
+// The header button: on wide windows it hides or shows the sidebar (remembered); on narrow ones it opens
+// or closes the floating panel.
+function toggleSidebar() {
+  const shell = $("shell");
+  if (SIDEBAR_COLLAPSE.matches) setSidebarOpen(!shell.classList.contains("sidebar-open"));
+  else setSidebarHidden(!shell.classList.contains("sidebar-hidden"));
+}
+
+function sidebarButton() {
+  const shell = $("shell");
+  const showing = SIDEBAR_COLLAPSE.matches ? shell.classList.contains("sidebar-open") : !shell.classList.contains("sidebar-hidden");
+  const b = $("nav-sidebar"), label = showing ? "Hide sidebar" : "Show sidebar";
+  b.setAttribute("aria-label", label);
+  b.setAttribute("aria-pressed", String(!showing));
+  b.title = `${label} (⌘\\)`;
 }
 
 // Pages visited, for Back and Forward. A place is a page plus which source page or mailbox it showed.
@@ -874,14 +897,26 @@ function wire() {
   let hidden = false;
   try { hidden = localStorage.getItem(SIDEBAR_KEY) === "1"; } catch (e) { /* default: shown */ }
   setSidebarHidden(hidden, false);
-  $("nav-sidebar").addEventListener("click", () => setSidebarHidden(!$("shell").classList.contains("sidebar-hidden")));
+  $("nav-sidebar").addEventListener("click", toggleSidebar);
+  // The floating sidebar (narrow windows) closes when you pick something, click outside it, or press Esc,
+  // and whenever the window gets wide enough to show the sidebar normally.
+  document.querySelector(".sidebar").addEventListener("click", (e) => {
+    if (e.target.closest(".nav button, .acct-menu button, .sync")) setSidebarOpen(false);
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if ($("shell").classList.contains("sidebar-open") && !e.target.closest(".sidebar, #nav-sidebar")) setSidebarOpen(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && $("shell").classList.contains("sidebar-open")) setSidebarOpen(false);
+  });
+  SIDEBAR_COLLAPSE.addEventListener("change", () => setSidebarOpen(false));
   $("nav-back").addEventListener("click", () => navGo(-1));
   $("nav-fwd").addEventListener("click", () => navGo(1));
   document.addEventListener("keydown", (e) => {  // ⌘[ back, ⌘] forward, ⌘\ sidebar (standard Mac shortcuts)
     if (!e.metaKey || e.ctrlKey || e.altKey || document.querySelector("dialog[open]")) return;
     if (e.key === "[") { e.preventDefault(); navGo(-1); }
     else if (e.key === "]") { e.preventDefault(); navGo(1); }
-    else if (e.key === "\\") { e.preventDefault(); setSidebarHidden(!$("shell").classList.contains("sidebar-hidden")); }
+    else if (e.key === "\\") { e.preventDefault(); toggleSidebar(); }
   });
   // Search is in the header: results drop down under it and a page opens only when one is chosen
   // (mail.js searchInit). ⌘K focuses it from anywhere, without changing page.
