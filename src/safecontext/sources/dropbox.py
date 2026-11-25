@@ -16,11 +16,17 @@ is kept in extra.
 Email-only drop rules look at Gmail labels and bulk headers. A file has
 neither, so those rules do not match. The universal rules still run: a file
 named like a tax form is dropped, and card numbers in a notes file are
-redacted.
+redacted. File names and folders get one more rule here (sensitive_file):
+a file in a "Taxes" or "Medical" folder, or named like a bank statement, a
+passport scan or a private key, is dropped before its bytes are downloaded,
+and a text document that reads like a statement or a medical record is
+dropped after.
 """
 from __future__ import annotations
 
 import logging
+import re
+import time
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import quote
@@ -29,9 +35,11 @@ from .. import auth, dropbox_auth
 from ..dropbox_api import CursorExpired, DropboxAPI, NotDownloadable
 from ..errors import TransientError
 from ..scrub import Attachment, RawItem, scrub_item
+from ..scrub.drop import check_sensitive_text, check_subject
+from ..scrub.models import Dropped
 from ..store import Store, to_ms
 from ..sync import BaseSyncer, ProgressFn
-from .base import OAUTH_SCOPE, BaseSource, Requirement
+from .base import NOT_CONNECTED, OAUTH_SCOPE, UNAVAILABLE, BaseSource, Requirement, SourceStatus
 
 log = logging.getLogger("safecontext.dropbox")
 
@@ -56,13 +64,81 @@ DropboxFactory = Callable[[str], DropboxAPI]
 DropboxConnect = Callable[[Optional[str]], str]
 
 
+# The scrubber's subject rule is written for email subjects. A file name adds
+# underscores and dashes ("bank_statement_03.csv", which \b doesn't split) and
+# kinds of documents an email subject rarely names (a passport scan, a private
+# key). Matched against the name and every folder on the path, with _ - . as
+# spaces. Conservative on purpose: a wrongly dropped file costs little, a kept
+# bank statement is what SafeContext exists to prevent.
+_SENSITIVE_NAME = re.compile(
+    r"\b(?:statements?|tax(?:es)?|1099s?|w ?2s?|w ?9|1040s?|1098|k 1|irs|payroll|pay ?stubs?|payslips?|"
+    r"salary|bank(?:ing)?|brokerage|mortgage|loan|credit report|invoices? paid|"
+    r"medical|health|healthcare|lab results?|diagnos[ie]s|prescriptions?|therapy|psychiatr\w*|"
+    r"insurance|eob|patient|vaccination|immuni[sz]ation|"
+    r"passports?|driver'?s? licen[cs]e|licen[cs]e scan|id card|identity card|social security|ssn|"
+    r"birth certificate|visa|green card|residence permit|"
+    r"passwords?|credentials?|recovery (?:codes?|key)|backup codes?|seed phrase|private key|"
+    r"id (?:rsa|ed25519|ecdsa|dsa)|keychain|1password|bitwarden|lastpass)\b",
+    re.I,
+)
+# Files that are secrets by type, whatever they are called. Not ".key": that is also Keynote.
+_SECRET_EXTS = frozenset({".pem", ".p12", ".pfx", ".kdbx", ".keychain", ".asc", ".gpg", ".ovpn"})
+_SECRET_NAMES = frozenset({".env", ".netrc", ".npmrc", ".pypirc", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
+                           "credentials", "credentials.json"})
+# A text document that reads like a statement, a tax form or a medical record.
+_SENSITIVE_DOC = re.compile(
+    r"\b(?:statement period|(?:opening|closing|beginning|ending|available) balance|account number|"
+    r"routing number|iban|sort code|taxpayer identification|employer identification|"
+    r"adjusted gross income|form (?:1040|1099|w-?2)|social security number|"
+    r"date of birth|DOB|patient (?:name|id)|medical record number|MRN|diagnosis|"
+    r"chief complaint|policy (?:number|holder)|member id|group number)\b|"
+    r"^\s*(?:medications?|allergies|patient|findings)\s*:",
+    re.I | re.M,
+)
+_DOC_SCAN_CHARS = 20_000
+
+
+def _spaced(part: str) -> str:
+    return re.sub(r"[_\-.+]+", " ", part)
+
+
+def sensitive_name(path: str, name: str) -> Optional[str]:
+    """Drop reason for a file whose name or folders say it is sensitive, else None."""
+    if name.lower() in _SECRET_NAMES or _suffix(name) in _SECRET_EXTS:
+        return "sensitive:subject"
+    parts = [p for p in (path or "").split("/") if p] or [name]
+    for part in parts:
+        spaced = _spaced(part)
+        if _SENSITIVE_NAME.search(spaced) or check_subject(spaced):
+            return "sensitive:subject"
+    return None
+
+
+def sensitive_text(text: str) -> Optional[str]:
+    """Drop reason for a text document that reads like a statement or a medical record."""
+    head = text[:_DOC_SCAN_CHARS]
+    if _SENSITIVE_DOC.search(head):
+        return "sensitive:text"
+    return check_sensitive_text(head)
+
+
 def _real_connect(email: Optional[str]) -> str:
     return dropbox_auth.connect(email)
 
 
 def _real_api(account: str) -> DropboxAPI:
     from ..dropbox_api import DropboxHTTP
-    return DropboxHTTP(dropbox_auth.access_token(account))
+    # A provider, not a token: a long first sync outlives the 4-hour access token.
+    # access_token() refreshes within 60 s of expiry, so re-reading the Keychain every
+    # 50 s keeps the token valid without a Keychain read per request.
+    cache = {"token": "", "at": 0.0}
+
+    def token() -> str:
+        now = time.monotonic()
+        if not cache["token"] or now - cache["at"] > 50:
+            cache["token"], cache["at"] = dropbox_auth.access_token(account), now
+        return cache["token"]
+    return DropboxHTTP(token)
 
 
 def _suffix(name: str) -> str:
@@ -220,10 +296,21 @@ class DropboxSyncer(BaseSyncer):
             if tag != "file":
                 continue
             try:
-                item = file_to_item(entry, self._body(entry), account=self.account)
+                when = to_ms(entry.get("client_modified") or entry.get("server_modified")) or 0
+                reason = sensitive_name(entry.get("path_display") or "", entry.get("name") or "")
+                if reason:  # dropped before its bytes are downloaded
+                    results.append(Dropped(fid, fid, reason, when))
+                    continue
+                body = self._body(entry)
+                item = file_to_item(entry, body, account=self.account)
                 if item is None:
                     continue
-                results.append(scrub_item(item))
+                reason = sensitive_text(item.text or item.html) if (item.text or item.html) else None
+                results.append(Dropped(fid, fid, reason, when) if reason else scrub_item(item, strip_quotes=False))
+            except (TransientError, auth.NeedsReconnect):
+                # Network trouble, rate limiting or lost access is not this file's fault. Stop here
+                # without storing the page; the next sync resumes at this page (page_cursor).
+                raise
             except Exception as e:
                 results.append(self._error(fid, e))
         if deleted:
@@ -273,11 +360,21 @@ class DropboxSource(BaseSource):
 
     def __init__(self, store: Store, *, api_factory: Optional[DropboxFactory] = None,
                  connect_fn: Optional[DropboxConnect] = None,
-                 revoke_fn: Optional[Callable[..., None]] = None) -> None:
+                 revoke_fn: Optional[Callable[..., None]] = None,
+                 configured_fn: Optional[Callable[[], bool]] = None) -> None:
         super().__init__(store)
         self.api_factory = api_factory or _real_api
         self.connect_fn = connect_fn or _real_connect
         self.revoke_fn = revoke_fn
+        # A build without a Dropbox app key shows the card as unavailable instead of failing on Connect.
+        # A stand-in connect_fn (tests, demo) needs no key.
+        self.configured_fn = configured_fn or (dropbox_auth.configured if connect_fn is None else (lambda: True))
+
+    def status(self) -> SourceStatus:
+        out = super().status()
+        if out.state == NOT_CONNECTED and not self.configured_fn():
+            out.state, out.message = UNAVAILABLE, dropbox_auth.NOT_IN_BUILD
+        return out
 
     def connect(self, email: Optional[str] = None, **_: object) -> str:
         account = self.connect_fn(email)

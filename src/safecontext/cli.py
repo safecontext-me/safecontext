@@ -3,7 +3,7 @@
     python -m safecontext connect [--headers-only] [--email you@gmail.com]   # Gmail
     python -m safecontext connect --source gcal [--email you@gmail.com]      # Google Calendar
     python -m safecontext connect --source imessage   # Messages on this Mac (needs Full Disk Access)
-    python -m safecontext connect --source dropbox   # Dropbox (read-only; needs SAFECONTEXT_DROPBOX_APP_KEY)
+    python -m safecontext connect --source dropbox   # Dropbox (read-only; app key from dropbox_app.json or SAFECONTEXT_DROPBOX_APP_KEY)
     python -m safecontext sync [--source gcal]       # every connected source, or one
     python -m safecontext status
     python -m safecontext sources

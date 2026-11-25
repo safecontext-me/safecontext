@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 
 from ..demo.fake_ai_configs import demo_ai_home
 from ..demo.fake_calendar import make_fake_calendar
+from ..demo.fake_dropbox import make_fake_dropbox
 from ..demo.fake_gmail import FakeGmail
 from ..demo.fake_messages import demo_imessage_options
 from ..demo.fake_update import demo_updater
@@ -76,6 +77,7 @@ def make_fake_gmail() -> FakeGmail:
 def demo_backend_kwargs(data_dir: Optional[Path] = None) -> Dict[str, Any]:
     gmail = make_fake_gmail()
     calendar = make_fake_calendar(DEMO_ACCOUNT)
+    dropbox = make_fake_dropbox(DEMO_ACCOUNT)
     data_dir = data_dir or Path(tempfile.mkdtemp(prefix="safecontext-demo-"))
     return dict(
         data_dir=data_dir,
@@ -88,6 +90,10 @@ def demo_backend_kwargs(data_dir: Optional[Path] = None) -> Dict[str, Any]:
         # A synthetic chat.db beside the demo data; Full Disk Access starts "off" and the
         # Open System Settings button turns it on. Never the real ~/Library/Messages.
         imessage_options=demo_imessage_options(Path(data_dir) / "demo-messages"),
+        # A made-up Dropbox: Connect never opens the real Dropbox sign-in, and needs no app key.
+        source_options={"dropbox": {"api_factory": lambda account: dropbox,
+                                    "connect_fn": lambda email: (time.sleep(0.8), DEMO_ACCOUNT)[1],
+                                    "revoke_fn": lambda account, revoke=True: None}},
         # The AI access review's opt-in scan reads a made-up home, never the real one.
         review_home=demo_ai_home(Path(data_dir) / "demo-home"),
         # Check for updates finds a made-up next version; installing goes through the real updater

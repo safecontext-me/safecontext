@@ -102,3 +102,23 @@ class FakeDropbox:
         if file_id not in self.content:
             raise NotDownloadable()
         return self.content[file_id]
+
+
+def make_fake_dropbox(email: str = "alex@example.org") -> FakeDropbox:
+    """A small made-up Dropbox for demo mode: notes to search, files kept as name and size,
+    and a few sensitive files the scrubber drops."""
+    box = FakeDropbox(email)
+    box.add("id:demo-groceries", "Groceries.txt", "/Notes/Groceries.txt", b"Oat milk, eggs, sourdough, lemons.")
+    box.add("id:demo-trip", "Lisbon trip.md", "/Notes/Lisbon trip.md",
+            b"# Lisbon\nFlight TP 1351 on May 3. Hotel near Alfama. Call Sam about the tram tour.",
+            modified="2026-10-14T09:30:00Z")
+    box.add("id:demo-plan", "Q4 plan.md", "/Work/Q4 plan.md",
+            b"Ship the new onboarding. Card on file for the vendor: 4242 4242 4242 4242.",
+            modified="2026-11-02T16:00:00Z")
+    box.add("id:demo-deck", "Roadmap.key", "/Work/Roadmap.key", size=8_400_000)
+    box.add("id:demo-photo", "Beach.jpg", "/Photos/Beach.jpg", size=2_100_000)
+    box.add("id:demo-tax", "W-2 2025.pdf", "/Taxes/W-2 2025.pdf", size=90_000)
+    box.add("id:demo-bank", "bank_statement_2026-10.csv", "/Finance/bank_statement_2026-10.csv",
+            b"date,amount\n2026-10-01,-12.00\n")
+    box.add("id:demo-passport", "Passport scan.jpg", "/Scans/Passport scan.jpg", size=1_200_000)
+    return box

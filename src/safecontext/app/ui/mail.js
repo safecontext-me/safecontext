@@ -375,7 +375,7 @@ function mailRow(r, i) {
   // Attachment tag hidden for now (design round 2): r.has_attachments still comes from the backend.
   return el("div", attrs,
     el("div", { class: "mrow-top" },
-      el("span", { class: "mrow-from" }, isEvent ? sourceName(r.source) : senderName(r.sender),
+      el("span", { class: "mrow-from" }, isEvent || !r.sender ? sourceName(r.source) : senderName(r.sender),
         r.count > 1 ? el("span", { class: "cnt" }, String(r.count)) : null),
       mailWhen(r, isEvent)),
     el("div", { class: "mrow-subj" }, el("span", {}, richText(r.title || "(no subject)"))),
@@ -466,7 +466,7 @@ function searchRender(error) {
   sourceIcon(r.source, "sr-ico"),
   el("span", { class: "sr-main" },
     el("span", { class: "sr-title" }, richText(r.title || "(no subject)")),
-    el("span", { class: "sr-meta" }, r.kind === "event" ? sourceName(r.source) : senderName(r.sender), " · ", r.all_day ? fmtAllDay(r.date) : fmtDate(r.date)))));
+    el("span", { class: "sr-meta" }, r.kind === "event" || !r.sender ? sourceName(r.source) : senderName(r.sender), " · ", r.all_day ? fmtAllDay(r.date) : fmtDate(r.date)))));
   const all = search.results.length;
   const footer = el("button", { class: "sr-item sr-all" + (search.active === all ? " active" : ""), type: "button",
     role: "option", "aria-selected": String(search.active === all), onclick: () => searchChoose(all) },

@@ -1,24 +1,35 @@
 """Dropbox sign-in for a desktop app.
 
-OAuth with PKCE (S256) and a loopback redirect on 127.0.0.1, same shape as
-Google sign-in. The app key comes from the environment, never from the repo.
+OAuth with PKCE (S256) and a loopback redirect, same shape as Google sign-in.
 The token lives in the macOS Keychain. The scopes are read-only: account info,
 file metadata, and file bytes. Nothing here can change the user's Dropbox.
 
-SAFECONTEXT_DROPBOX_APP_KEY is required. SAFECONTEXT_DROPBOX_APP_SECRET is
-optional, for a Dropbox app that still has a secret; a PKCE app can omit it.
+The app key is bundled at build time as dropbox_app.json next to this file
+(gitignored, like oauth_client.json; see packaging/README.md), and
+SAFECONTEXT_DROPBOX_APP_KEY overrides it for development. With PKCE Dropbox
+needs no app secret: the key is an identifier, not a secret, so shipping it
+is fine. Never bundle or send an app secret.
+
+Dropbox only accepts a redirect URI registered exactly, port included, in the
+App Console. So sign-in listens on one of REDIRECT_PORTS (all registered),
+not on a random port.
 """
 from __future__ import annotations
 
+import errno
 import hashlib
 import http.server
 import json
 import secrets
+import select
+import socket
+import socketserver
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+from pathlib import Path
 from typing import Optional
 
 import keyring
@@ -31,8 +42,11 @@ from .migrate import getenv, keychain_delete, keychain_get
 
 SCOPES = ("account_info.read", "files.metadata.read", "files.content.read")
 KEYRING_SERVICE = keychain_service("SafeContext Dropbox")
-APP_KEY_ENV = "DROPBOX_APP_KEY"          # SAFECONTEXT_DROPBOX_APP_KEY
-APP_SECRET_ENV = "DROPBOX_APP_SECRET"    # SAFECONTEXT_DROPBOX_APP_SECRET, optional
+APP_KEY_ENV = "DROPBOX_APP_KEY"          # SAFECONTEXT_DROPBOX_APP_KEY, overrides the bundled key
+BUNDLED_APP_CONFIG = Path(__file__).with_name("dropbox_app.json")
+# Each is registered in the Dropbox App Console as http://localhost:<port>/ . Changing
+# this list means changing the App Console too, or sign-in fails with "invalid redirect_uri".
+REDIRECT_PORTS = (47811, 47812, 47813)
 
 AUTHORIZE_URL = "https://www.dropbox.com/oauth2/authorize"
 TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
@@ -41,22 +55,35 @@ ACCOUNT_URL = "https://api.dropboxapi.com/2/users/get_current_account"
 
 RECONNECT_MESSAGE = ("Dropbox access was revoked or has expired. Click “Reconnect” on the "
                      "Dropbox card to continue syncing.")
+NOT_IN_BUILD = "Dropbox isn't available in this build of SafeContext."
 _MISSING_KEY = (
-    "Dropbox sign-in needs a Dropbox app key. Set SAFECONTEXT_DROPBOX_APP_KEY to the app key "
-    "from the Dropbox App Console. Allow only the read scopes account_info.read, "
-    "files.metadata.read and files.content.read."
+    NOT_IN_BUILD + " For development, set SAFECONTEXT_DROPBOX_APP_KEY to the app key from the "
+    "Dropbox App Console, or save it as {\"app_key\": \"...\"} in src/safecontext/dropbox_app.json."
 )
+_PORTS_BUSY = ("Dropbox sign-in couldn't start: the ports it uses on this Mac are busy. "
+               "Quit other sign-in windows and try again.")
 
 
-def app_key() -> str:
+def app_key(path: Optional[Path] = None) -> str:
     key = (getenv(APP_KEY_ENV) or "").strip()
+    if not key:
+        p = Path(path or BUNDLED_APP_CONFIG)
+        try:
+            key = str(json.loads(p.read_text()).get("app_key") or "").strip()
+        except (OSError, ValueError, AttributeError):
+            key = ""
     if not key:
         raise auth.NotConfigured(_MISSING_KEY)
     return key
 
 
-def app_secret() -> str:
-    return (getenv(APP_SECRET_ENV) or "").strip()
+def configured() -> bool:
+    """True when this build (or the environment) has a Dropbox app key."""
+    try:
+        app_key()
+    except auth.NotConfigured:
+        return False
+    return True
 
 
 def authorize_url(client_id: str, code_challenge: str, redirect_uri: str) -> str:
@@ -106,7 +133,7 @@ def connect(email: Optional[str] = None, *, open_browser: bool = True, opener=No
     code = (query.get("code") or [""])[0]
     if not code:
         raise auth.NotConfigured("Dropbox sign-in didn't finish. Try Connect again.")
-    token = exchange_code(key, app_secret(), code, verifier, redirect, opener=opener)
+    token = exchange_code(key, code, verifier, redirect, opener=opener)
     address = fetch_account_email(token["access_token"], opener=opener)
     token["email"] = address
     TokenStore().save(address, token)
@@ -128,7 +155,7 @@ def access_token(account: str, *, opener=None) -> str:
         key = app_key()
     except auth.NotConfigured as e:
         raise auth.NeedsReconnect("not_configured", str(e)) from None
-    fresh = refresh_token(key, app_secret(), refresh, opener=opener)
+    fresh = refresh_token(key, refresh, opener=opener)
     blob["access_token"] = fresh["access_token"]
     blob["expires_at"] = fresh["expires_at"]
     if fresh.get("refresh_token"):
@@ -149,8 +176,7 @@ def revoke(account: str, revoke: bool = True, *, opener=None) -> None:
     store.delete(account)
 
 
-def exchange_code(client_id: str, client_secret: str, code: str, verifier: str, redirect_uri: str, *,
-                  opener=None) -> dict:
+def exchange_code(client_id: str, code: str, verifier: str, redirect_uri: str, *, opener=None) -> dict:
     fields = {
         "code": code,
         "grant_type": "authorization_code",
@@ -158,15 +184,12 @@ def exchange_code(client_id: str, client_secret: str, code: str, verifier: str, 
         "code_verifier": verifier,
         "redirect_uri": redirect_uri,
     }
-    if client_secret:
-        fields["client_secret"] = client_secret
     return _token_response(_post_form(TOKEN_URL, fields, opener=opener))
 
 
-def refresh_token(client_id: str, client_secret: str, refresh: str, *, opener=None) -> dict:
+def refresh_token(client_id: str, refresh: str, *, opener=None) -> dict:
+    # PKCE: the app key alone, no secret.
     fields = {"grant_type": "refresh_token", "refresh_token": refresh, "client_id": client_id}
-    if client_secret:
-        fields["client_secret"] = client_secret
     return _token_response(_post_form(TOKEN_URL, fields, opener=opener))
 
 
@@ -209,20 +232,66 @@ def _token_response(raw: bytes) -> dict:
     }
 
 
-def _browser_roundtrip(client_id: str, challenge: str, open_browser: bool):
+class _LoopbackServer(http.server.HTTPServer):
+    """HTTPServer.server_bind looks up socket.getfqdn(host), a reverse DNS lookup that on
+    recent macOS can go out over mDNS and show the "find devices on local networks"
+    privacy prompt mid sign-in. A loopback server only needs the address as its name."""
+
+    def server_bind(self) -> None:
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = str(self.server_address[0])
+        self.server_port = self.server_address[1]
+
+
+class _Loopback6Server(_LoopbackServer):
+    address_family = socket.AF_INET6
+
+
+def _listen(port: int) -> list:
+    """Servers on 127.0.0.1:port and, when free, [::1]:port. The redirect says "localhost",
+    which the browser may resolve to either. Raises OSError when 127.0.0.1:port is taken."""
+    servers = [_LoopbackServer(("127.0.0.1", port), _Redirect)]
+    try:
+        servers.append(_Loopback6Server(("::1", port), _Redirect))
+    except OSError as e:
+        if e.errno == errno.EADDRINUSE:  # someone else would get the redirect: try the next port
+            servers[0].server_close()
+            raise
+        # No IPv6 loopback on this Mac: the browser falls back to 127.0.0.1.
+    return servers
+
+
+def _bind_redirect(ports=None) -> tuple:
+    for port in ports or REDIRECT_PORTS:
+        try:
+            return port, _listen(port)
+        except OSError:
+            continue
+    raise auth.NotConfigured(_PORTS_BUSY)
+
+
+def _browser_roundtrip(client_id: str, challenge: str, open_browser: bool, *, timeout: float = 600):
     """Open the Dropbox page and wait for the loopback redirect. Returns (redirect_uri, query)."""
-    with auth._no_reverse_dns_for_loopback():
-        httpd = http.server.HTTPServer(("127.0.0.1", 0), _Redirect)
-    redirect = f"http://127.0.0.1:{httpd.server_address[1]}/"
+    port, servers = _bind_redirect()
+    redirect = f"http://localhost:{port}/"
     url = authorize_url(client_id, challenge, redirect)
     if open_browser:
         webbrowser.open(url)
-    httpd.timeout = 600
+    deadline = time.monotonic() + timeout
+    query: dict = {}
     try:
-        httpd.handle_request()
+        while not query:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            ready, _, _ = select.select(servers, [], [], left)
+            for srv in ready:
+                srv.handle_request()
+                query = getattr(srv, "query", {}) or query
     finally:
-        httpd.server_close()
-    return redirect, getattr(httpd, "query", {})
+        for srv in servers:
+            srv.server_close()
+    return redirect, query
 
 
 class _Redirect(http.server.BaseHTTPRequestHandler):

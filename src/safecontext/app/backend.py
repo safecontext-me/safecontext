@@ -105,6 +105,7 @@ class Backend:
                  calendar_connect_fn: Optional[Callable[[Optional[str]], str]] = None,
                  grok_link: Optional[Callable[[Store, Path], GrokLink]] = None,
                  imessage_options: Optional[Dict[str, Any]] = None,
+                 source_options: Optional[Dict[str, Dict[str, Any]]] = None,
                  updater: Optional[upd.Updater] = None,
                  review_home: Optional[Path] = None,
                  auto_sync: bool = True,
@@ -126,7 +127,8 @@ class Backend:
             self._store, gmail_factory=gmail_factory,
             gmail_connect=lambda mode, email: (self._connect_fn or _real_gmail_connect)(mode, email),
             calendar_factory=calendar_factory, calendar_connect=calendar_connect_fn,
-            revoke_fn=_NOOP_REVOKE if demo else None, imessage_options=imessage_options)
+            revoke_fn=_NOOP_REVOKE if demo else None, imessage_options=imessage_options,
+            options=source_options)
         if not demo:
             migrate.remove_ask_leftovers(self._store)  # the old Ask feature's xAI key, once
         self._grok = (grok_link or GrokLink)(self._store, self._data_dir)
@@ -195,7 +197,7 @@ class Backend:
         for x in out:
             if self._is_syncing(x["id"]):
                 x["syncing"] = True
-                if x["state"] not in ("coming_soon", "not_connected"):
+                if x["state"] not in ("coming_soon", "unavailable", "not_connected"):
                     x["state"] = "syncing"
             res = self._last_result.get(x["id"])
             x["last_result"] = None if not res else {"status": res.status, "message": res.message}
