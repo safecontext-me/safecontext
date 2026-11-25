@@ -159,6 +159,7 @@ def test_statuses_include_coming_soon_cards(store):
     by = {s["id"]: s for s in st}
     assert list(by)[:3] == ["gmail", "gcal", "imessage"]
     assert by["imessage"]["available"] and by["imessage"]["state"] == "not_connected"
+    assert by["dropbox"]["available"] and by["dropbox"]["requirements"][0]["kind"] == "oauth_scope"
     for cid in ("whatsapp", "recordings"):
         assert by[cid]["state"] == "coming_soon" and not by[cid]["available"] and by[cid]["requirements"]
     assert any(r["kind"] == FOLDER for r in by["recordings"]["requirements"])
@@ -170,6 +171,7 @@ def test_link_allowlist(store):
     s = default_sources(store)
     assert s.link_allowed("https://mail.google.com/mail/#all/1")
     assert s.link_allowed("https://www.google.com/calendar/event?eid=abc")
+    assert s.link_allowed("https://www.dropbox.com/home/Notes/a.txt")
     for bad in ("https://evil.example/", "javascript:alert(1)", "https://www.google.com.evil/calendar/", None):
         assert not s.link_allowed(bad)
 

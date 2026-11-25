@@ -395,7 +395,7 @@ class Backend:
         # Only ever open the kinds of deep link our sources generate (Gmail, Google Calendar...),
         # never a URL taken from the content of a message or event.
         if not self._sources.link_allowed(url):
-            return {"ok": False, "error": "Only links back to the original (Gmail, Google Calendar) can be opened."}
+            return {"ok": False, "error": "Only links back to the original (Gmail, Google Calendar, Dropbox) can be opened."}
         webbrowser.open(url)
         return {}
 
