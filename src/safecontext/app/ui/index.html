@@ -271,6 +271,24 @@
         <div class="card"><h3>Blanked out inside kept items</h3><div id="redacted-bars" class="bars"></div></div>
       </div>
       <div class="card by-source"><h3>By source</h3><div id="by-source" class="bars"></div></div>
+      <div class="card" id="scrub-controls">
+        <h3>What gets removed from files</h3>
+        <p class="muted">These rules run when SafeContext reads text out of a PDF or another file on this Mac. The built-in ones always run. A pattern you add runs after them. Mail and calendar keep the scrubber they already use.</p>
+        <ul class="scrub-builtin" id="scrub-builtin"></ul>
+        <div id="scrub-patterns"></div>
+        <form id="scrub-add" class="scrub-add">
+          <label class="field">Name
+            <input id="scrub-name" maxlength="40" autocomplete="off" placeholder="Employee ID"></label>
+          <label class="field">Pattern
+            <input id="scrub-pattern" maxlength="200" spellcheck="false" autocomplete="off" placeholder="EMP-\d{4}"></label>
+          <button class="btn primary" type="submit">Add pattern</button>
+        </form>
+        <label class="field">Try a sample. It is not saved.
+          <textarea id="scrub-sample" rows="3" maxlength="4000" placeholder="Paste an example of the text a file would contain"></textarea>
+        </label>
+        <button class="btn" type="button" id="scrub-try">See what would be removed</button>
+        <div id="scrub-preview" class="scrub-preview" hidden></div>
+      </div>
     </section>
 
     <!-- AI access review (review.py) -->

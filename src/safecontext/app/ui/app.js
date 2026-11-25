@@ -695,6 +695,53 @@ async function loadRemoved() {
   for (const x of r.by_source || []) by[`${x.name} · kept`] = x.kept;
   for (const x of r.by_source || []) if (x.dropped) by[`${x.name} · skipped`] = x.dropped;
   bars($("by-source"), by);
+  loadScrubber();
+}
+
+function renderScrubber(r) {
+  $("scrub-builtin").replaceChildren(...r.builtin.map((rule) =>
+    el("li", {}, el("b", {}, rule.label), el("span", { class: "muted" }, " · always on. " + rule.detail))));
+  const rows = r.patterns.length
+    ? r.patterns.map((p) => {
+        const box = el("input", { type: "checkbox", onchange: (e) => scrubberSet(p.id, e.target.checked) });
+        box.checked = !!p.enabled;
+        return el("div", { class: "scrub-row" },
+          el("label", { class: "check" }, box, el("span", {}, el("b", {}, p.name), " ", el("code", {}, p.pattern))),
+          el("button", { class: "btn small", type: "button", onclick: () => scrubberDelete(p.id) }, "Remove"));
+      })
+    : [el("p", { class: "muted" }, "No extra patterns yet.")];
+  $("scrub-patterns").replaceChildren(...rows);
+}
+
+async function loadScrubber() {
+  const r = await api().scrubber_rules();
+  if (!r.ok) return toast(r.error);
+  renderScrubber(r);
+}
+
+async function scrubberSet(id, enabled) {
+  const r = await api().scrubber_set_enabled(id, enabled);
+  if (!r.ok) return toast(r.error);
+  renderScrubber(r);
+}
+
+async function scrubberDelete(id) {
+  const ok = await confirmDialog("Remove this pattern? Files read after this won't use it.", "Remove");
+  if (!ok) return;
+  const r = await api().scrubber_delete(id);
+  if (!r.ok) return toast(r.error);
+  renderScrubber(r);
+}
+
+async function scrubberPreview() {
+  const r = await api().scrubber_preview($("scrub-sample").value);
+  const box = $("scrub-preview");
+  box.hidden = false;
+  if (!r.ok) {
+    box.replaceChildren(el("p", { class: "error" }, r.error));
+    return;
+  }
+  box.replaceChildren(richText(r.text));
 }
 
 // ---------- AI access review ----------
@@ -937,6 +984,15 @@ function wire() {
   document.addEventListener("visibilitychange", focused);
   $("ob-connect").addEventListener("click", () => connect($("ob-connect"), $("ob-error")));
   $("reconnect").addEventListener("click", () => connect($("reconnect"), null));
+  $("scrub-add").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const r = await api().scrubber_add($("scrub-name").value, $("scrub-pattern").value);
+    if (!r.ok) return toast(r.error);
+    $("scrub-name").value = "";
+    $("scrub-pattern").value = "";
+    renderScrubber(r);
+  });
+  $("scrub-try").addEventListener("click", scrubberPreview);
   $("s-disconnect").addEventListener("click", () => disconnect(false));
   $("s-wipe").addEventListener("click", () => disconnect(true));
   $("mcp-toggle").addEventListener("change", mcpToggle);

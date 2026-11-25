@@ -54,6 +54,7 @@ def test_sources_is_a_parent_with_each_source_under_it():
     assert 'data-view="mail"' not in nav  # each source opens the browse page instead
     assert "Security Dashboard" in nav and "<h2>Security Dashboard</h2>" in HTML
     assert "What was removed" not in HTML
+    assert 'id="scrub-controls"' in HTML and "What gets removed from files" in HTML
 
 
 def test_settings_lives_in_the_account_menu_and_mcp_in_the_nav():
