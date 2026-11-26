@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from typing import Optional, Protocol
+from typing import Callable, Optional, Protocol, Union
 
 from .auth import NeedsReconnect
 from .dropbox_auth import RECONNECT_MESSAGE
@@ -37,10 +37,12 @@ class DropboxAPI(Protocol):
 
 
 class DropboxHTTP:
-    """The real client. `opener` is urllib.request.urlopen, replaced in tests."""
+    """The real client. `opener` is urllib.request.urlopen, replaced in tests. `access_token`
+    is a token or a function returning a fresh one (asked before every request, so it can
+    refresh an expiring token during a long sync)."""
 
-    def __init__(self, access_token: str, *, opener=None, timeout: float = 60) -> None:
-        self._token = access_token
+    def __init__(self, access_token: Union[str, Callable[[], str]], *, opener=None, timeout: float = 60) -> None:
+        self._token_fn = access_token if callable(access_token) else (lambda: access_token)
         self._open = opener or urllib.request.urlopen
         self._timeout = timeout
 
@@ -59,13 +61,13 @@ class DropboxHTTP:
         # The id is ASCII (`id:...`), so it is safe in a header. The path is not used:
         # a name with spaces or non-ASCII would break an HTTP header, and we don't need it.
         req = urllib.request.Request(f"{CONTENT}/2/files/download", data=b"", method="POST")
-        req.add_header("Authorization", "Bearer " + self._token)
+        req.add_header("Authorization", "Bearer " + self._token_fn())
         req.add_header("Dropbox-API-Arg", json.dumps({"path": file_id}, separators=(",", ":")))
         return self._read(req, download=True)
 
     def _json(self, url: str, payload: dict) -> bytes:
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST")
-        req.add_header("Authorization", "Bearer " + self._token)
+        req.add_header("Authorization", "Bearer " + self._token_fn())
         req.add_header("Content-Type", "application/json")
         return self._read(req, download=False)
 

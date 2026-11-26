@@ -189,7 +189,8 @@ def test_disconnect_does_not_touch_the_google_grant(store):
     assert store.state("gmail").get("account") == ME
 
 
-def test_registry_lists_dropbox(store):
+def test_registry_lists_dropbox(store, monkeypatch):
+    monkeypatch.setenv("SAFECONTEXT_DROPBOX_APP_KEY", "test-app-key")
     by = {s["id"]: s for s in default_sources(store).statuses()}
     assert by["dropbox"]["available"] and by["dropbox"]["state"] == "not_connected"
     assert by["dropbox"]["requirements"][0]["kind"] == "oauth_scope"
@@ -261,9 +262,14 @@ def test_connect_stores_a_token_and_only_talks_to_dropbox(monkeypatch, fake_keyr
     assert saved["refresh_token"] == "rtk" and saved["email"] == ME
 
 
-def test_missing_app_key_does_not_call_the_network(monkeypatch):
+def _no_key(monkeypatch, tmp_path):
     monkeypatch.delenv("SAFECONTEXT_DROPBOX_APP_KEY", raising=False)
     monkeypatch.delenv("MYCONTEXT_DROPBOX_APP_KEY", raising=False)
+    monkeypatch.setattr(dropbox_auth, "BUNDLED_APP_CONFIG", tmp_path / "missing" / "dropbox_app.json")
+
+
+def test_missing_app_key_does_not_call_the_network(monkeypatch, tmp_path):
+    _no_key(monkeypatch, tmp_path)
     called = []
     monkeypatch.setattr(dropbox_auth, "_browser_roundtrip", lambda *a, **k: called.append(1))
     with pytest.raises(auth.NotConfigured):
@@ -291,3 +297,179 @@ def test_revoke_forgets_the_keychain_item(monkeypatch, fake_keyring):
     dropbox_auth.revoke(ME, opener=opener)
     assert seen == [dropbox_auth.REVOKE_URL]
     assert fake_keyring.get_password(dropbox_auth.KEYRING_SERVICE, ME) is None
+
+
+# --- release readiness: bundled key, registered redirect, PKCE without a secret ---
+
+def test_bundled_app_key_and_env_override(monkeypatch, tmp_path):
+    _no_key(monkeypatch, tmp_path)
+    cfg = tmp_path / "dropbox_app.json"
+    monkeypatch.setattr(dropbox_auth, "BUNDLED_APP_CONFIG", cfg)
+    assert not dropbox_auth.configured()
+    cfg.write_text(json.dumps({"app_key": "bundled-key"}))
+    assert dropbox_auth.app_key() == "bundled-key" and dropbox_auth.configured()
+    monkeypatch.setenv("SAFECONTEXT_DROPBOX_APP_KEY", "dev-key")
+    assert dropbox_auth.app_key() == "dev-key"
+    cfg.write_text("not json")
+    monkeypatch.delenv("SAFECONTEXT_DROPBOX_APP_KEY")
+    assert not dropbox_auth.configured()
+
+
+def test_card_says_unavailable_without_a_key(store, monkeypatch, tmp_path):
+    _no_key(monkeypatch, tmp_path)
+    by = {s["id"]: s for s in default_sources(store).statuses()}
+    assert by["dropbox"]["state"] == "unavailable"
+    assert by["dropbox"]["message"] == dropbox_auth.NOT_IN_BUILD
+    # A connected account keeps its normal state (and can still be disconnected).
+    store.state("dropbox").set("account", ME)
+    store.state("dropbox").set("auth_state", "ok")
+    by = {s["id"]: s for s in default_sources(store).statuses()}
+    assert by["dropbox"]["state"] == "connected"
+
+
+def test_no_app_secret_is_sent():
+    sent = []
+
+    def opener(req, timeout=60):
+        sent.append(urllib.parse.parse_qs(req.data.decode()))
+        return _Resp(json.dumps({"access_token": "a", "refresh_token": "r", "expires_in": 60}).encode())
+
+    dropbox_auth.exchange_code("key", "code", "verifier", "http://localhost:47811/", opener=opener)
+    dropbox_auth.refresh_token("key", "r", opener=opener)
+    for fields in sent:
+        assert "client_secret" not in fields and fields["client_id"] == ["key"]
+    assert sent[0]["code_verifier"] == ["verifier"] and sent[0]["redirect_uri"] == ["http://localhost:47811/"]
+    assert "APP_SECRET" not in inspect.getsource(dropbox_auth)
+
+
+def test_redirect_uses_a_registered_port_and_skips_a_busy_one():
+    import socket
+    busy = socket.socket()
+    busy.bind(("127.0.0.1", 0))
+    busy.listen(1)
+    taken = busy.getsockname()[1]
+    try:
+        free = socket.socket()
+        free.bind(("127.0.0.1", 0))
+        spare = free.getsockname()[1]
+        free.close()
+        port, servers = dropbox_auth._bind_redirect((taken, spare))
+        assert port == spare
+        for s in servers:
+            s.server_close()
+        with pytest.raises(auth.NotConfigured):
+            dropbox_auth._bind_redirect((taken,))
+    finally:
+        busy.close()
+
+
+def test_browser_roundtrip_gets_the_code_on_localhost(monkeypatch):
+    import socket
+    import threading
+    import urllib.request
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    monkeypatch.setattr(dropbox_auth, "REDIRECT_PORTS", (port,))
+    urls = []
+    monkeypatch.setattr(dropbox_auth.webbrowser, "open", lambda url: urls.append(url) or threading.Thread(
+        target=lambda: urllib.request.urlopen(f"http://127.0.0.1:{port}/?code=abc&state=x", timeout=5).read()
+    ).start())
+    redirect, query = dropbox_auth._browser_roundtrip("key", "challenge", True, timeout=10)
+    assert redirect == f"http://localhost:{port}/"
+    assert query["code"] == ["abc"]
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(urls[0]).query)
+    assert q["redirect_uri"] == [redirect] and q["client_id"] == ["key"]
+
+
+def test_http_client_asks_for_a_fresh_token_each_request():
+    tokens = iter(["t1", "t2"])
+    seen = []
+
+    def opener(req, timeout=60):
+        seen.append(req.get_header("Authorization"))
+        return _Resp(json.dumps({"entries": [], "cursor": "c", "has_more": False}).encode())
+
+    client = DropboxHTTP(lambda: next(tokens), opener=opener)
+    client.list_folder(None)
+    client.list_folder("c")
+    assert seen == ["Bearer t1", "Bearer t2"]
+
+
+# --- scrubbing realistic file names and documents ---
+
+SENSITIVE_FILES = [
+    ("/Docs/Chase Statement March.pdf", None),
+    ("/bank_statement_2025-03.csv", b"date,amount\n2025-03-01,12.00\n"),
+    ("/Taxes/2024/receipt.pdf", None),
+    ("/W-2 2025.pdf", None),
+    ("/Medical/notes.txt", b"knee feels better"),
+    ("/Scans/passport scan.jpg", None),
+    ("/drivers_license.png", None),
+    ("/Insurance card.jpg", None),
+    ("/passwords.txt", b"gmail: hunter2"),
+    ("/.ssh/id_rsa", b"-----BEGIN OPENSSH PRIVATE KEY-----"),
+    ("/proj/.env", b"TOKEN=abc"),
+    ("/payslip march.pdf", None),
+]
+SENSITIVE_TEXT = [
+    ("/Notes/mri.txt", b"Patient: Alex\nFindings: herniated disc L4-L5"),
+    ("/Notes/march.csv", b"Statement period: Mar 1 - Mar 31\nEnding balance: $1,203.11"),
+    ("/Notes/meds.md", b"Medications: sertraline 50mg"),
+]
+KEPT_FILES = [
+    ("/groceries.txt", b"oat milk, eggs"),
+    ("/Trip itinerary.md", b"Flight to Lisbon on May 3"),
+    ("/Work/Q3 plan.md", b"Ship the account settings page"),
+    ("/Work/Roadmap 2026.key", None),  # Keynote, not a private key
+    ("/Photos/beach.jpg", None),
+]
+
+
+def test_sensitive_files_are_dropped_by_name_or_content(store):
+    box = FakeDropbox(ME)
+    for i, (path, body) in enumerate(SENSITIVE_FILES + SENSITIVE_TEXT + KEPT_FILES):
+        name = path.rsplit("/", 1)[1]
+        box.add(f"id:{i}", name, path, body, size=None if body is not None else 1000)
+    r = DropboxSyncer(store, box, account=ME).run()
+    assert r.status == "ok"
+    n_name, n_text = len(SENSITIVE_FILES), len(SENSITIVE_TEXT)
+    gone = dropped(store)
+    for i in range(n_name):
+        assert gone[f"id:{i}"] == "sensitive:subject", SENSITIVE_FILES[i]
+        assert f"id:{i}" not in box.downloaded  # dropped before its bytes were fetched
+    for i in range(n_name, n_name + n_text):
+        assert gone[f"id:{i}"] == "sensitive:text", SENSITIVE_TEXT[i - n_name]
+    assert set(items(store)) == {f"id:{i}" for i in range(n_name + n_text, n_name + n_text + len(KEPT_FILES))}
+    blob = everything(store)
+    for needle in ("hunter2", "herniated", "1,203.11", "sertraline", "passport", "Statement"):
+        assert needle not in blob
+
+
+def test_a_download_failure_is_retried_not_stored_as_dropped(store):
+    class Flaky(FakeDropbox):
+        fail = True
+
+        def download(self, file_id):
+            if self.fail:
+                from safecontext.errors import TransientError
+                raise TransientError("429")
+            return super().download(file_id)
+
+    box = Flaky(ME)
+    box.add("id:a", "a.txt", "/a.txt", b"apples")
+    r = DropboxSyncer(store, box, account=ME).run()
+    assert r.status == "retry_later"
+    assert items(store) == {} and dropped(store) == {}
+    box.fail = False
+    assert DropboxSyncer(store, box, account=ME).run().status == "ok"
+    assert set(items(store)) == {"id:a"}
+
+
+def test_documents_keep_dividers_and_blockquotes(store):
+    box = FakeDropbox(ME)
+    box.add("id:md", "plan.md", "/plan.md", b"# Plan\n--\nPart two: budget\n> a quoted idea\nThanks,\nAlex\nShip date May 3")
+    DropboxSyncer(store, box, account=ME).run()
+    body = items(store)["id:md"]["body"]
+    assert "Part two" in body and "a quoted idea" in body and "Ship date May 3" in body

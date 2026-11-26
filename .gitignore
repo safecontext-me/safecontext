@@ -17,6 +17,9 @@ src/safecontext/oauth_client.json
 oauth_client*.json
 client_secret*.json
 
+# Dropbox app key (bundled at build time; see packaging/README.md)
+src/safecontext/dropbox_app.json
+
 # Local secrets and data: never commit these
 .env
 .env.*

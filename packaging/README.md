@@ -13,7 +13,20 @@ its own Python runtime (use 3.12) so users don't need Python installed.
    of type *Desktop app*, download the JSON, and save it as
    `src/safecontext/oauth_client.json`. It is bundled into the app. Google treats
    Desktop client secrets as non-confidential, so shipping it is expected.
-4. `bundle` in `pyproject.toml` is `me.safecontext` (from safecontext.me), so the bundle ID
+4. **The Dropbox app key.** In the Dropbox App Console (app "SafeContext", scoped access,
+   Full Dropbox), copy the **App key** from the Settings tab and save it as
+   `src/safecontext/dropbox_app.json`:
+   ```json
+   {"app_key": "<the app key>"}
+   ```
+   It is gitignored and bundled into the app. Sign-in uses PKCE, so Dropbox needs no app
+   secret and the key is an identifier, not a secret. **Never put the app secret in this
+   file** (the build check refuses it). Without the file the Dropbox card says "Not
+   available in this build". The redirect URIs `http://localhost:47811/`,
+   `http://localhost:47812/` and `http://localhost:47813/` must stay registered on the
+   app's Settings tab (`REDIRECT_PORTS` in `dropbox_auth.py`). For development,
+   `SAFECONTEXT_DROPBOX_APP_KEY` overrides the file.
+5. `bundle` in `pyproject.toml` is `me.safecontext` (from safecontext.me), so the bundle ID
    is `me.safecontext.safecontext`. Keep it stable once you ship: macOS ties permissions to it.
 
 ## Build
@@ -27,7 +40,7 @@ python3.12 -m venv .venv312 && .venv312/bin/pip install briefcase
 .venv312/bin/briefcase build macOS
 .venv312/bin/briefcase run macOS            # smoke test
 scripts/check_bundle_tls.sh                 # the bundled Python can verify TLS (relay, Google)
-scripts/set_bundle_version.sh               # Info.plist version (Briefcase only sets it on create)
+scripts/set_bundle_version.sh               # Info.plist version; fails if oauth_client.json or dropbox_app.json is missing
 .venv312/bin/briefcase package macOS --identity "Developer ID Application: <Your Name> (<TEAMID>)"
 ```
 

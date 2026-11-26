@@ -19,7 +19,7 @@ const OPEN_LABELS = { gmail: "Open in Gmail", gcal: "Open in Calendar", dropbox:
 const STATE_LABELS = {
   connected: ["Connected", "ok"], syncing: ["Syncing…", "busy"], needs_reconnect: ["Needs reconnecting", "warn"],
   needs_permission: ["Needs permission", "warn"], error: ["Will retry", "warn"], not_connected: ["Not connected", ""],
-  coming_soon: ["Coming soon", ""],
+  coming_soon: ["Coming soon", ""], unavailable: ["Not available in this build", ""],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -537,7 +537,7 @@ function renderSources(list) {
 
 // The Sources grid shows only icon, name, description and status; everything else is on the source's page.
 function sourceTile(x) {
-  return el("button", { class: "card card-sm src-tile" + (x.state === "coming_soon" ? " soon" : ""), type: "button",
+  return el("button", { class: "card card-sm src-tile" + (x.state === "coming_soon" || x.state === "unavailable" ? " soon" : ""), type: "button",
     onclick: () => openSourcePage(x.id) },
   el("span", { class: "card-content src-tile-body" },
     sourceIcon(x.id, "src-icon lg"),
@@ -570,6 +570,11 @@ function sourceTileStatus(x) {
   return el("span", { class: `badge ${BADGE_TONES[tone] || "badge-secondary"}` }, label);
 }
 
+// The pill beside a requirement. OAuth scopes are Google's except on the Dropbox card.
+function reqKind(x, q) {
+  return q.kind === "oauth_scope" && x.id === "dropbox" ? "Dropbox permission" : REQ_KINDS[q.kind];
+}
+
 function openSourcePage(id) {
   state.sourceId = id;
   show("source");
@@ -583,12 +588,12 @@ function renderSourcePage() {
   const page = $("view-source");
   if (!x) { page.replaceChildren(); return; }
   const [label, tone, perm] = sourceStatus(x);
-  const soon = x.state === "coming_soon";
+  const soon = x.state === "coming_soon" || x.state === "unavailable";
   const connected = !!x.account && !soon;
 
   const actions = el("div", { class: "sp-actions" });
   if (soon) {
-    actions.append(el("button", { class: "btn btn-outline btn-lg", disabled: "" }, "Coming soon"));
+    actions.append(el("button", { class: "btn btn-outline btn-lg", disabled: "" }, x.state === "unavailable" ? "Not available" : "Coming soon"));
   } else if (perm) {
     // The permission box carries Open System Settings; here: try again, or back out.
     actions.append(el("button", { class: "btn btn-outline", onclick: (e) => connectSource(x, e.target) }, "Check again"));
@@ -620,7 +625,7 @@ function renderSourcePage() {
   // What access the source needs: each one's name is its own heading (no card, no "Access it needs" over it).
   for (const q of x.requirements || [])
     main.append(el("section", { class: "sp-need" },
-      el("h3", {}, q.label, REQ_KINDS[q.kind] ? el("span", { class: "badge badge-secondary" }, REQ_KINDS[q.kind]) : null),
+      el("h3", {}, q.label, reqKind(x, q) ? el("span", { class: "badge badge-secondary" }, reqKind(x, q)) : null),
       el("p", {}, q.why)));
 
   const meta = (k, v) => v ? el("div", { class: "sp-meta-row" }, el("div", { class: "sp-k" }, k), el("div", {}, v)) : null;
