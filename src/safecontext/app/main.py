@@ -15,6 +15,18 @@ from .backend import Backend
 from .window_frame import fit_frame
 
 UI_DIR = Path(__file__).with_name("ui")
+LUCIDE_DIR = UI_DIR / "vendor" / "lucide"
+
+
+def lucide_icons() -> dict:
+    """The vendored Lucide icons (ui/vendor/lucide/*.svg, unchanged from lucide-icons/lucide) as
+    {name: [[tag, attributes], ...]}: each icon's shapes, for icons.js to draw with createElementNS."""
+    import xml.etree.ElementTree as ET
+    icons = {}
+    for f in sorted(LUCIDE_DIR.glob("*.svg")):
+        root = ET.parse(f).getroot()
+        icons[f.stem] = [[el.tag.split("}")[-1], dict(el.attrib)] for el in root]
+    return icons
 
 
 def build_html(mac_titlebar: bool = False) -> str:
@@ -24,10 +36,14 @@ def build_html(mac_titlebar: bool = False) -> str:
     html = (UI_DIR / "index.html").read_text()
     if mac_titlebar:
         html = html.replace('<html lang="en">', '<html lang="en" class="mac-titlebar">', 1)
-    for name in ("tokens", "app", "components", "mail"):  # tokens.css first: everything else uses it
+    for name in ("tokens", "shadcn", "app", "components", "mail"):  # tokens.css first, then the component library
         css = (UI_DIR / f"{name}.css").read_text()
         html = html.replace(f'<link rel="stylesheet" href="{name}.css">', f"<style>\n{css}\n</style>")
-    for name in ("components", "app", "mail"):
+    import json
+    icons = json.dumps(lucide_icons(), separators=(",", ":")).replace("</", "<\\/")
+    html = html.replace('<script src="icons.js"></script>',
+                        f'<script>window.LUCIDE = {icons};</script>\n<script src="icons.js"></script>')
+    for name in ("icons", "components", "app", "mail"):  # icons.js first: the others draw with icon()
         js = (UI_DIR / f"{name}.js").read_text()
         html = html.replace(f'<script src="{name}.js"></script>', f"<script>\n{js}\n</script>")
     return html
