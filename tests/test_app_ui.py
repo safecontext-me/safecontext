@@ -26,7 +26,7 @@ def test_mcp_card_has_link_and_a_tab_per_app():
     mcp = mcp[:mcp.index("</section>")]
     assert 'id="mcp-card"' in mcp and 'id="mcp-json"' in mcp
     # The link and its Copy button come before the per-app instructions.
-    assert HTML.index('id="mcp-url"') < HTML.index('id="mcp-link-copy"') < HTML.index('class="mcp-tabs"')
+    assert HTML.index('id="mcp-url"') < HTML.index('id="mcp-link-copy"') < HTML.index('class="tabs-list mcp-tabs"')
     for app in ("grok", "claude", "muse"):
         assert f'id="tab-{app}" data-app="{app}"' in HTML
         assert f'id="panel-{app}"' in HTML
@@ -79,7 +79,7 @@ def test_claude_signs_in_with_approve_and_muse_stays_link_only():
 
 
 def test_approve_dialog_names_the_app_it_was_sent():
-    assert '<h2><span id="ga-title">' in HTML and 'id="ga-client"' in HTML
+    assert '<h2 class="dialog-title"><span id="ga-title">' in HTML and 'id="ga-client"' in HTML
     assert '$("ga-title").textContent = who;' in JS and '$("ga-client").textContent = who;' in JS
     assert 'const who = g.approval.client || "An AI app";' in JS
 
@@ -88,7 +88,7 @@ def test_files_screen_is_the_opt_in_for_pdfs():
     view = HTML[HTML.index('<section id="view-files"'):]
     view = view[:view.index("</section>")]
     assert "Add folder" in view and "Add PDF" in view
-    assert "PDFs whose text may be read" in view
+    assert 'id="files-rows"' in view and 'class="table"' in view  # one table: folders added and readable PDFs
     assert 'id="files-add-folder"' in view and 'id="files-add-file"' in view
     assert "pdf_pick" in JS and "pdf_selection" in JS and "pdf_remove" in JS
     assert "read_text" not in JS  # the screen lists paths; it does not read PDF text
@@ -113,7 +113,7 @@ def test_lucide_licence_ships_with_the_app():
 # tokens.css is the one place colors, type, radii, shadows and motion are defined. The other
 # stylesheets must use its variables, so a change there reaches every screen.
 
-STYLESHEETS = ("app.css", "mail.css", "components.css")
+STYLESHEETS = ("shadcn.css", "app.css", "mail.css", "components.css")
 TOKENS = (UI / "tokens.css").read_text()
 
 
@@ -146,7 +146,22 @@ def test_dark_mode_only_overrides_existing_tokens():
 def test_type_scale_stays_small():
     # Nearly everything is --text-base; hierarchy comes from weight and color. Adding a size here is a
     # design decision: change this list on purpose, not by accident.
-    sizes = dict(re.findall(r"--text-([a-z]+):\s*(\d+)px", TOKENS))
-    assert sizes == {"xs": "11", "sm": "12", "base": "13", "title": "20", "display": "40"}
+    sizes = dict(re.findall(r"--text-([a-z-]+):\s*([\d.]+)px", TOKENS))
+    # md, lg and button-sm are shadcn base-nova's Button and Card text (14px, 16px, 0.8rem), used only by shadcn.css.
+    assert sizes == {"xs": "11", "sm": "12", "button-sm": "12.8", "base": "13", "md": "14", "lg": "16", "title": "20", "display": "40"}
     body = _css_body("app.css")
     assert "font: var(--text-base)" in body  # the window's default text is the base size
+
+
+def test_every_icon_named_is_vendored():
+    # Lucide icons come only from ui/vendor/lucide (icons.js); a name that isn't there would draw nothing.
+    vendored = {p.stem for p in (UI / "vendor" / "lucide").glob("*.svg")}
+    js = "".join((UI / f).read_text() for f in ("app.js", "mail.js", "components.js"))
+    named = set(re.findall(r'data-lucide="([^"]+)"', HTML)) | set(re.findall(r'\bicon\("([a-z-]+)"', js))
+    named |= set(re.findall(r'icon: "([a-z-]+)"', js)) | set(re.findall(r'"(circle-[a-z-]+|triangle-[a-z-]+)"', js))
+    assert named and named <= vendored, sorted(named - vendored)
+    page = re.sub(r"<template.*?</template>|<!--.*?-->", "", HTML, flags=re.S)
+    marks = set(re.findall(r'data-mark="([^"]+)"', page))
+    assert marks and all(f'<template id="icon-{m}">' in HTML for m in marks)
+    inline = [t for t in re.findall(r"<svg[^>]*>", page) if "data-lucide" not in t and "data-mark" not in t and 'width="0"' not in t]
+    assert not inline, "draw icons with data-lucide / data-mark, not inline SVG"

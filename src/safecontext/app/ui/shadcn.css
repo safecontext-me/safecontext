@@ -1,0 +1,601 @@
+/* SafeContext's component library: shadcn/ui components translated by hand into plain CSS.
+
+   No React, no Tailwind, no build step. Each component below is copied from shadcn's "base-nova" style:
+   its Tailwind classes turned into ordinary CSS rules. Colors, radii and type come from tokens.css,
+   which uses shadcn's token names (--primary, --muted, --destructive, --ring…).
+
+   Sources (github.com/shadcn-ui/ui, apps/v4/registry):
+     Button   bases/base/ui/button.tsx + styles/style-nova.css (.cn-button*)
+     Card     bases/base/ui/card.tsx   + styles/style-nova.css (.cn-card*)
+     Badge    bases/base/ui/badge.tsx  + styles/style-nova.css (.cn-badge*)
+     Switch   bases/base/ui/switch.tsx + styles/style-nova.css (.cn-switch*)
+     Input    bases/base/ui/input.tsx  + styles/style-nova.css (.cn-input)
+     Textarea bases/base/ui/textarea.tsx + styles/style-nova.css (.cn-textarea)
+     Tabs     bases/base/ui/tabs.tsx   + styles/style-nova.css (.cn-tabs*)
+     Dropdown Menu  bases/base/ui/dropdown-menu.tsx + styles/style-nova.css (.cn-dropdown-menu*)
+     Dialog   bases/base/ui/dialog.tsx + styles/style-nova.css (.cn-dialog*)
+     Tooltip  bases/base/ui/tooltip.tsx + styles/style-nova.css (.cn-tooltip*)
+     Checkbox bases/base/ui/checkbox.tsx + styles/style-nova.css (.cn-checkbox*)
+     Native Select  bases/base/ui/native-select.tsx + styles/style-nova.css (.cn-native-select*)
+     Field    bases/base/ui/field.tsx  + styles/style-nova.css (.cn-field*)
+     Label    bases/base/ui/label.tsx  + styles/style-nova.css (.cn-label)
+     Alert    bases/base/ui/alert.tsx  + styles/style-nova.css (.cn-alert*)
+     Kbd      bases/base/ui/kbd.tsx    + styles/style-nova.css (.cn-kbd*)
+     Item     bases/base/ui/item.tsx   + styles/style-nova.css (.cn-item*)
+     Table    bases/base/ui/table.tsx  + styles/style-nova.css (.cn-table*)
+     Toggle, Toggle Group  bases/base/ui/toggle.tsx, toggle-group.tsx + styles/style-nova.css (.cn-toggle*)
+     Sonner   bases/base/ui/sonner.tsx + styles/style-nova.css (.cn-toast) + the sonner library's own toast styles
+
+   Rules:
+   - Use these components for every button (and, as they're added, cards, badges, menus…).
+     Don't add one-off button or menu styles anywhere else; add the shadcn component here instead.
+   - A new component is copied from shadcn's published definition, with its source listed above.
+   - Behavior shadcn gets from its React libraries (menus opening, focus, Escape) is written in the app's JS.
+   - Layout-only tweaks for one spot (width: 100%, a margin) can live with that screen's CSS. */
+
+/* ---------- Reset ----------
+   shadcn assumes Tailwind's reset (preflight), which this app doesn't have. This does the same job for
+   the components in this file only, so the app's global rules (h1, label, small, p margins…) can't leak in. */
+:where(.btn, .badge, .switch, .tabs-list, .dropdown-menu), :where(.btn, .badge, .switch, .tabs-list, .dropdown-menu) *, :where(.btn) *::before, :where(.btn) *::after {
+  box-sizing: border-box; margin: 0; border: 0 solid;
+}
+/* Form controls: same job as Tailwind's preflight for inputs */
+:where(.input, .textarea, .checkbox) { box-sizing: border-box; margin: 0; font: inherit; color: inherit; }
+:where(.field-group, .field, .field-content, .field-label, .field-description, .field-error, .label) { box-sizing: border-box; margin: 0; }
+:where(.alert, .alert-title, .alert-description, .alert-action) { box-sizing: border-box; margin: 0; }
+:where(.kbd, .kbd-group) { box-sizing: border-box; margin: 0; border: 0 solid; }
+:where(.toaster, .toast, .toast-title) { box-sizing: border-box; margin: 0; }
+:where(.item-group, .item, .item-media, .item-content, .item-title, .item-description, .item-actions) { box-sizing: border-box; margin: 0; }
+:where(.table-container, .table, .table th, .table td) { box-sizing: border-box; margin: 0; }
+:where(.toggle-group, .toggle) { box-sizing: border-box; margin: 0; }
+:where(.toggle) { font: inherit; color: inherit; background: transparent; border: 0 solid; padding: 0;
+                  appearance: none; -webkit-appearance: none; cursor: pointer; }
+/* A Dialog's own parts only (the browser gives <dialog> padding, a border and a max size) */
+:where(.dialog, .dialog-header, .dialog-title, .dialog-description, .dialog-footer) { box-sizing: border-box; margin: 0; border: 0 solid; }
+/* A Card's own parts only, not what's inside them: the app's content inside a card keeps its spacing. */
+:where(.card, .card-header, .card-title, .card-description, .card-action, .card-content, .card-footer) {
+  box-sizing: border-box; margin: 0; border: 0 solid;
+}
+:where(.btn) { font: inherit; letter-spacing: inherit; color: inherit; background: transparent; padding: 0;
+               appearance: none; -webkit-appearance: none; text-align: center; }
+
+/* ---------- Button ----------
+   <button class="btn [btn-outline|btn-secondary|btn-ghost|btn-destructive|btn-link]
+                      [btn-xs|btn-sm|btn-lg|btn-icon|btn-icon-xs|btn-icon-sm|btn-icon-lg]">
+   An icon before or after the label takes data-icon="inline-start" / "inline-end" (pulls that side in). */
+.btn {
+  display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; gap: var(--space-1-5);
+  height: var(--control); padding: 0 var(--space-2-5);
+  border: 1px solid transparent; border-radius: var(--radius-lg); background-clip: padding-box;
+  font-size: var(--text-md); line-height: 20px; font-weight: var(--font-weight-medium); white-space: nowrap;
+  background-color: var(--primary); color: var(--primary-foreground);
+  cursor: pointer; outline: none; user-select: none; -webkit-user-select: none; text-decoration: none;
+  transition: background-color var(--duration-fast), color var(--duration-fast), border-color var(--duration-fast),
+              box-shadow var(--duration-fast), transform var(--duration-fast);
+}
+.btn[hidden] { display: none; }  /* display above would otherwise beat the hidden attribute */
+.btn:hover { background-color: color-mix(in srgb, var(--primary) 80%, transparent); }
+.btn:active:not([aria-haspopup]) { transform: translateY(1px); }
+.btn:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.btn:disabled, .btn[aria-disabled="true"] { pointer-events: none; opacity: .5; }
+.btn svg { pointer-events: none; flex-shrink: 0; }
+.btn svg:not([class*="size-"]) { width: 16px; height: 16px; }
+.btn:has(> [data-icon="inline-start"]) { padding-left: var(--space-2); }
+.btn:has(> [data-icon="inline-end"]) { padding-right: var(--space-2); }
+
+/* variants */
+.btn-outline { border-color: var(--border); background-color: var(--background); color: var(--foreground); }
+.btn-outline:hover, .btn-outline[aria-expanded="true"] { background-color: var(--muted); color: var(--foreground); }
+
+.btn-secondary { background-color: var(--secondary); color: var(--secondary-foreground); }
+.btn-secondary:hover { background-color: color-mix(in oklch, var(--secondary), var(--foreground) 5%); }
+.btn-secondary[aria-expanded="true"] { background-color: var(--secondary); color: var(--secondary-foreground); }
+
+.btn-ghost { background-color: transparent; color: var(--foreground); }
+.btn-ghost:hover, .btn-ghost[aria-expanded="true"] { background-color: var(--muted); color: var(--foreground); }
+
+.btn-destructive { background-color: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
+.btn-destructive:hover { background-color: color-mix(in srgb, var(--destructive) 20%, transparent); }
+.btn-destructive:focus-visible { border-color: color-mix(in srgb, var(--destructive) 40%, transparent);
+                                 box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive) 20%, transparent); }
+
+.btn-link { background-color: transparent; color: var(--primary); text-underline-offset: 4px; }
+.btn-link:hover { background-color: transparent; text-decoration: underline; }
+
+/* sizes (default is h-8) */
+.btn-xs { height: var(--control-xs); gap: var(--space-1); padding: 0 var(--space-2); border-radius: var(--radius-md);
+          font-size: var(--text-sm); line-height: 16px; }
+.btn-xs svg:not([class*="size-"]) { width: 12px; height: 12px; }
+.btn-sm { height: var(--control-sm); gap: var(--space-1); padding: 0 var(--space-2-5); border-radius: var(--radius-md);
+          font-size: var(--text-button-sm); }
+.btn-sm svg:not([class*="size-"]) { width: 14px; height: 14px; }
+.btn-xs:has(> [data-icon="inline-start"]), .btn-sm:has(> [data-icon="inline-start"]) { padding-left: var(--space-1-5); }
+.btn-xs:has(> [data-icon="inline-end"]), .btn-sm:has(> [data-icon="inline-end"]) { padding-right: var(--space-1-5); }
+.btn-lg { height: var(--control-lg); }
+
+.btn-icon, .btn-icon-xs, .btn-icon-sm, .btn-icon-lg { padding: 0; }
+.btn-icon { width: var(--control); }
+.btn-icon-xs { width: var(--control-xs); height: var(--control-xs); border-radius: var(--radius-md); }
+.btn-icon-xs svg:not([class*="size-"]) { width: 12px; height: 12px; }
+.btn-icon-sm { width: var(--control-sm); height: var(--control-sm); border-radius: var(--radius-md); }
+.btn-icon-lg { width: var(--control-lg); height: var(--control-lg); }
+
+@media (prefers-color-scheme: dark) {
+  .btn-outline { background-color: color-mix(in srgb, var(--input) 30%, transparent); border-color: var(--input); }
+  .btn-outline:hover { background-color: color-mix(in srgb, var(--input) 50%, transparent); }
+  .btn-ghost:hover { background-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+  .btn-destructive { background-color: color-mix(in srgb, var(--destructive) 20%, transparent); }
+  .btn-destructive:hover { background-color: color-mix(in srgb, var(--destructive) 30%, transparent); }
+  .btn-destructive:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive) 40%, transparent); }
+}
+
+/* ---------- Card ----------
+   <div class="card [card-sm]">
+     <div class="card-header [border-b]">
+       <div class="card-title">…</div>
+       <div class="card-description">…</div>     (optional)
+       <div class="card-action">…</div>          (optional: top right, beside title and description)
+     </div>
+     <div class="card-content">…</div>
+     <div class="card-footer">…</div>            (optional: muted strip along the bottom)
+   </div> */
+.card {
+  display: flex; flex-direction: column; gap: var(--card-spacing); overflow: hidden;
+  padding: var(--card-spacing) 0; border-radius: var(--radius-xl);
+  background-color: var(--card); color: var(--card-foreground); font-size: var(--text-md);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);  /* ring-1 ring-foreground/10 */
+}
+.card[hidden] { display: none; }
+.card-sm { --card-spacing: var(--space-3); }
+.card:has(> .card-footer) { padding-bottom: 0; }
+
+.card-header { display: grid; grid-auto-rows: min-content; align-items: start; gap: var(--space-1);
+               padding: 0 var(--card-spacing); border-top-left-radius: var(--radius-xl); border-top-right-radius: var(--radius-xl); }
+.card-header:has(> .card-action) { grid-template-columns: 1fr auto; }
+.card-header:has(> .card-description) { grid-template-rows: auto auto; }
+.card-header.border-b { padding-bottom: var(--card-spacing); border-bottom: 1px solid var(--border); }
+
+.card-title { font-size: var(--text-lg); line-height: var(--leading-snug); font-weight: var(--font-weight-medium); }
+.card-sm .card-title { font-size: var(--text-md); }
+.card-description { color: var(--muted-foreground); font-size: var(--text-md); }
+.card-action { grid-column: 2; grid-row: 1 / span 2; align-self: start; justify-self: end; }
+.card-content { padding: 0 var(--card-spacing); }
+.card-footer { display: flex; align-items: center; padding: var(--card-spacing);
+               border-top: 1px solid var(--border); background-color: color-mix(in srgb, var(--muted) 50%, transparent);
+               border-bottom-left-radius: var(--radius-xl); border-bottom-right-radius: var(--radius-xl); }
+
+/* ---------- Badge ----------
+   <span class="badge [badge-secondary|badge-outline|badge-destructive|badge-ghost|badge-link]">…</span>
+   SafeContext status additions (not in shadcn; same shape, our status colors):
+   badge-success (connected), badge-info (syncing), badge-warning (needs attention), badge-redacted (blanked-out counts). */
+.badge {
+  display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; gap: var(--space-1); width: fit-content;
+  height: 20px; padding: var(--space-0-5) var(--space-2); overflow: hidden;
+  border: 1px solid transparent; border-radius: var(--radius-full);
+  font-size: var(--text-sm); line-height: 16px; font-weight: var(--font-weight-medium); white-space: nowrap;
+  background-color: var(--primary); color: var(--primary-foreground);
+  transition: background-color var(--duration-fast), color var(--duration-fast), box-shadow var(--duration-fast);
+}
+.badge[hidden] { display: none; }
+.badge > svg { width: 12px; height: 12px; pointer-events: none; }
+.badge:has(> [data-icon="inline-start"]) { padding-left: var(--space-1-5); }
+.badge:has(> [data-icon="inline-end"]) { padding-right: var(--space-1-5); }
+.badge:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+a.badge:hover { background-color: color-mix(in srgb, var(--primary) 80%, transparent); }
+
+.badge-secondary { background-color: var(--secondary); color: var(--secondary-foreground); }
+a.badge-secondary:hover { background-color: color-mix(in srgb, var(--secondary) 80%, transparent); }
+.badge-outline { background-color: transparent; border-color: var(--border); color: var(--foreground); }
+a.badge-outline:hover { background-color: var(--muted); color: var(--muted-foreground); }
+.badge-destructive { background-color: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
+a.badge-destructive:hover { background-color: color-mix(in srgb, var(--destructive) 20%, transparent); }
+.badge-ghost { background-color: transparent; color: var(--foreground); }
+.badge-ghost:hover { background-color: var(--muted); color: var(--muted-foreground); }
+.badge-link { background-color: transparent; color: var(--primary); text-underline-offset: 4px; }
+.badge-link:hover { text-decoration: underline; }
+
+/* SafeContext additions */
+.badge-success { background-color: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+.badge-info { background-color: var(--primary-subtle); color: var(--primary); }
+.badge-warning { background-color: var(--warning-subtle); color: var(--warning-foreground); border-color: var(--warning-border); }
+.badge-redacted { background-color: var(--badge); color: var(--badge-foreground); }
+
+@media (prefers-color-scheme: dark) {
+  .badge-ghost:hover { background-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+  .badge-destructive { background-color: color-mix(in srgb, var(--destructive) 20%, transparent); }
+}
+
+/* ---------- Switch ----------
+   <label class="switch [switch-sm]"><input type="checkbox" role="switch"><span class="switch-thumb"></span></label>
+   A native checkbox carries the state and the keyboard; it's invisible and covers the track.
+   SafeContext change: the thumb stays white in both states and both modes (shadcn darkens it in dark mode). */
+.switch {
+  position: relative; display: inline-flex; flex-shrink: 0; align-items: center;
+  width: 32px; height: 18.4px; border: 1px solid transparent; border-radius: var(--radius-full);
+  background-color: var(--input); cursor: pointer; transition: background-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+.switch > input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.switch-thumb { display: block; width: 16px; height: 16px; border-radius: var(--radius-full); pointer-events: none;
+                background-color: var(--switch-thumb); transition: transform var(--duration-fast); }
+.switch:has(> input:checked) { background-color: var(--primary); }
+.switch:has(> input:checked) .switch-thumb { transform: translateX(calc(100% - 2px)); }
+.switch:has(> input:focus-visible) { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.switch:has(> input:disabled) { cursor: not-allowed; opacity: .5; }
+.switch-sm { width: 24px; height: 14px; }
+.switch-sm .switch-thumb { width: 12px; height: 12px; }
+@media (prefers-color-scheme: dark) {
+  .switch:not(:has(> input:checked)) { background-color: color-mix(in srgb, var(--input) 80%, transparent); }
+}
+
+/* ---------- Checkbox ----------
+   <input type="checkbox" class="checkbox">
+   A native checkbox styled as shadcn's: a 16px rounded box that fills with --primary and shows Lucide's
+   check (14px) when checked. Put it in a label with its text; the label's layout lives with the screen. */
+.checkbox {
+  appearance: none; -webkit-appearance: none; position: relative; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border: 1px solid var(--input); border-radius: var(--radius-xs);
+  background-color: transparent; color: var(--primary-foreground); cursor: pointer; outline: none;
+  transition: background-color var(--duration-fast), border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+.checkbox:checked { background-color: var(--primary); border-color: var(--primary); }
+.checkbox:checked::after {
+  content: ""; width: 14px; height: 14px; background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.checkbox:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.checkbox:disabled { cursor: not-allowed; opacity: .5; }
+@media (prefers-color-scheme: dark) {
+  .checkbox:not(:checked) { background-color: color-mix(in srgb, var(--input) 30%, transparent); }
+}
+
+/* ---------- Native Select ----------
+   <div class="native-select" [data-size="sm"]>
+     <select>…</select><svg class="native-select-icon" data-lucide="chevron-down"></svg>
+   </div> */
+.native-select { position: relative; width: fit-content; }
+.native-select:has(select:disabled) { opacity: .5; }
+.native-select select {
+  box-sizing: border-box; width: 100%; min-width: 0; height: var(--control); margin: 0;
+  padding: var(--space-1) var(--space-8) var(--space-1) var(--space-2-5);
+  border: 1px solid var(--input); border-radius: var(--radius-lg); background: transparent;
+  color: var(--foreground); font: inherit; font-size: var(--text-md);
+  outline: none; appearance: none; -webkit-appearance: none; user-select: none; cursor: pointer;
+  transition: color var(--duration-fast), background-color var(--duration-fast), border-color var(--duration-fast);
+}
+.native-select select:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.native-select select:disabled { pointer-events: none; cursor: not-allowed; }
+.native-select[data-size="sm"] select { height: var(--control-sm); padding-top: var(--space-0-5); padding-bottom: var(--space-0-5);
+                                        border-radius: var(--radius-md); }
+.native-select option, .native-select optgroup { background: Canvas; color: CanvasText; }
+.native-select-icon { position: absolute; top: 50%; right: var(--space-2-5); width: 16px; height: 16px;
+                      color: var(--muted-foreground); pointer-events: none; user-select: none; transform: translateY(-50%); }
+@media (prefers-color-scheme: dark) {
+  .native-select select { background: color-mix(in srgb, var(--input) 30%, transparent); }
+}
+@media (prefers-color-scheme: dark) and (hover: hover) {
+  .native-select select:hover { background: color-mix(in srgb, var(--input) 50%, transparent); }
+}
+
+/* ---------- Field and Label ----------
+   <div class="field-group">                          a stack of fields, 20px apart
+     <div class="field">                              vertical: label, control, description, 8px apart
+       <label class="field-label" for="x">Email</label>
+       <input class="input" id="x">
+       <p class="field-description">…</p>
+     </div>
+     <label class="field" data-orientation="horizontal">   a checkbox (or switch) beside its label
+       <input type="checkbox" class="checkbox">
+       <span class="field-content">                   optional: a label with a description under it
+         <span class="field-label">…</span> <span class="field-description">…</span>
+       </span>
+     </label>
+   </div>
+   A standalone label is <label class="label">. Invalid field: data-invalid="true" on .field. */
+.field-group { display: flex; flex-direction: column; gap: var(--space-5); width: 100%; }
+.field-group > .field-group { gap: var(--space-4); }
+.field { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; }
+.field > :not(.checkbox, .switch) { width: 100%; }
+.field[data-invalid="true"] { color: var(--destructive); }
+.field[data-orientation="horizontal"] { flex-direction: row; align-items: center; }
+.field[data-orientation="horizontal"] > :not(.checkbox, .switch) { width: auto; }  /* a checkbox or switch keeps its own size */
+.field[data-orientation="horizontal"] > .field-label { flex: 1 1 auto; }
+.field[data-orientation="horizontal"]:has(> .field-content) { align-items: flex-start; }
+.field[data-orientation="horizontal"]:has(> .field-content) > .checkbox { margin-top: 1px; }
+.field-content { display: flex; flex: 1; flex-direction: column; gap: var(--space-0-5); line-height: 1.375; }
+.label, .field-label {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-md); font-weight: var(--font-weight-medium); line-height: 1; user-select: none; -webkit-user-select: none;
+}
+.field-label { width: fit-content; line-height: 1.375; }
+label.field, .field[data-orientation="horizontal"] .field-label { cursor: pointer; }
+.field:has(:disabled) .field-label, .label:has(+ :disabled) { opacity: .5; cursor: not-allowed; }
+.field-description { color: var(--muted-foreground); font-size: var(--text-md); font-weight: var(--font-weight-regular);
+                     line-height: 1.5; text-align: left; }
+.field-description:nth-last-child(2) { margin-top: calc(-1 * var(--space-1)); }
+.field-description:last-child { margin-top: 0; }
+.field-description > a { text-decoration: underline; text-underline-offset: 4px; }
+.field-error { color: var(--destructive); font-size: var(--text-md); font-weight: var(--font-weight-regular); }
+
+/* ---------- Input and Textarea ----------
+   <input class="input">   <textarea class="textarea"></textarea> */
+.input, .textarea {
+  width: 100%; min-width: 0; border: 1px solid var(--input); border-radius: var(--radius-lg);
+  background-color: transparent; padding: var(--space-1) var(--space-2-5); font-size: var(--text-md); outline: none;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+.input { height: var(--control); }
+.textarea { display: flex; min-height: 64px; padding: var(--space-2) var(--space-2-5); field-sizing: content; }
+.input::placeholder, .textarea::placeholder { color: var(--muted-foreground); }
+.input:focus-visible, .textarea:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.input[aria-invalid="true"], .textarea[aria-invalid="true"] { border-color: var(--destructive);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive) 20%, transparent); }
+.input:disabled, .textarea:disabled { pointer-events: none; cursor: not-allowed; opacity: .5; background-color: color-mix(in srgb, var(--input) 50%, transparent); }
+@media (prefers-color-scheme: dark) {
+  .input, .textarea { background-color: color-mix(in srgb, var(--input) 30%, transparent); }
+  .input:disabled, .textarea:disabled { background-color: color-mix(in srgb, var(--input) 80%, transparent); }
+}
+
+/* ---------- Tabs ----------
+   <div class="tabs-list [tabs-line]" role="tablist">
+     <button class="tabs-trigger" role="tab" aria-selected="true">…</button> …
+   </div>
+   The selected tab is the one with aria-selected="true" (shadcn's data-active). */
+.tabs-list {
+  display: inline-flex; align-items: center; justify-content: center; width: fit-content; height: var(--control);
+  padding: 3px; border-radius: var(--radius-lg); background-color: var(--muted); color: var(--muted-foreground);
+}
+.tabs-line { gap: var(--space-1); border-radius: 0; background-color: transparent; }
+.tabs-trigger {
+  position: relative; display: inline-flex; flex: 1; align-items: center; justify-content: center; gap: var(--space-1-5);
+  height: calc(100% - 1px); padding: var(--space-0-5) var(--space-1-5); border: 1px solid transparent; border-radius: var(--radius-md);
+  background: transparent; font-size: var(--text-md); font-weight: var(--font-weight-medium); white-space: nowrap; cursor: pointer;
+  color: color-mix(in srgb, var(--foreground) 60%, transparent); transition: color var(--duration-fast), background-color var(--duration-fast);
+}
+.tabs-trigger:hover { color: var(--foreground); }
+.tabs-trigger:focus-visible { border-color: var(--ring); outline: 1px solid var(--ring);
+                              box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.tabs-trigger:disabled, .tabs-trigger[aria-disabled="true"] { pointer-events: none; opacity: .5; }
+.tabs-trigger svg { pointer-events: none; flex-shrink: 0; }
+.tabs-trigger svg:not([class*="size-"]) { width: 16px; height: 16px; }
+.tabs-trigger[aria-selected="true"] { background-color: var(--background); color: var(--foreground); box-shadow: var(--shadow-tab); }
+/* line variant: no pill, an underline under the selected tab */
+.tabs-line .tabs-trigger[aria-selected="true"] { background-color: transparent; box-shadow: none; }
+.tabs-line .tabs-trigger::after { content: ""; position: absolute; left: 0; right: 0; bottom: -5px; height: 2px;
+                                  background-color: var(--foreground); opacity: 0; transition: opacity var(--duration-fast); }
+.tabs-line .tabs-trigger[aria-selected="true"]::after { opacity: 1; }
+@media (prefers-color-scheme: dark) {
+  .tabs-trigger { color: var(--muted-foreground); }
+  .tabs-trigger[aria-selected="true"] { border-color: var(--input); background-color: color-mix(in srgb, var(--input) 30%, transparent); }
+  .tabs-line .tabs-trigger[aria-selected="true"] { border-color: transparent; background-color: transparent; }
+}
+
+/* ---------- Dropdown Menu ----------
+   <div class="dropdown-menu" role="menu">
+     <div class="dropdown-menu-label">…</div>
+     <button class="dropdown-menu-item" role="menuitem">[icon] Label <span class="dropdown-menu-shortcut">⌘K</span></button>
+     <button class="dropdown-menu-item" data-variant="destructive" role="menuitem">Delete</button>
+     <div class="dropdown-menu-separator" role="separator"></div>
+   </div>
+   Opening, placement, outside-click and Escape are in the app's JS (<sc-menu>, the account menu). */
+.dropdown-menu {
+  z-index: 50; min-width: 128px; padding: var(--space-1); overflow: hidden auto;
+  border-radius: var(--radius-lg); background-color: var(--popover); color: var(--popover-foreground);
+  box-shadow: var(--shadow-menu), 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);
+  animation: sc-pop-in var(--duration-fast) var(--ease-out);
+}
+.dropdown-menu[hidden] { display: none; }
+.dropdown-menu-item {
+  position: relative; display: flex; align-items: center; gap: var(--space-1-5); width: 100%;
+  padding: var(--space-1) var(--space-1-5); border-radius: var(--radius-md); background: transparent;
+  font-size: var(--text-md); line-height: 20px; text-align: left; color: inherit;
+  cursor: default; user-select: none; -webkit-user-select: none; outline: none;
+}
+.dropdown-menu-item:hover, .dropdown-menu-item:focus-visible, .dropdown-menu-item[aria-expanded="true"] {
+  background-color: var(--accent); color: var(--accent-foreground); }
+.dropdown-menu-item:disabled, .dropdown-menu-item[aria-disabled="true"] { pointer-events: none; opacity: .5; }
+.dropdown-menu-item svg { pointer-events: none; flex-shrink: 0; }
+.dropdown-menu-item svg:not([class*="size-"]) { width: 16px; height: 16px; }
+.dropdown-menu-item[data-variant="destructive"], .dropdown-menu-item[data-variant="destructive"] svg { color: var(--destructive); }
+.dropdown-menu-item[data-variant="destructive"]:hover, .dropdown-menu-item[data-variant="destructive"]:focus-visible {
+  background-color: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
+.dropdown-menu-label { padding: var(--space-1) var(--space-1-5); color: var(--muted-foreground);
+                       font-size: var(--text-sm); font-weight: var(--font-weight-medium); }
+.dropdown-menu-separator { height: 1px; margin: var(--space-1) calc(-1 * var(--space-1)); background-color: var(--border); }
+.dropdown-menu-shortcut { margin-left: auto; color: var(--muted-foreground); font-size: var(--text-sm); letter-spacing: .1em; }
+@media (prefers-color-scheme: dark) {
+  .dropdown-menu-item[data-variant="destructive"]:hover, .dropdown-menu-item[data-variant="destructive"]:focus-visible {
+    background-color: color-mix(in srgb, var(--destructive) 20%, transparent); }
+}
+
+/* ---------- Dialog ----------
+   <dialog class="dialog">                      (opened with showModal(): focus, Escape and the backdrop come from the browser)
+     <div class="dialog-header"><h2 class="dialog-title">…</h2><p class="dialog-description">…</p></div>
+     …
+     <div class="dialog-footer"><button class="btn btn-outline">Cancel</button><button class="btn">OK</button></div>
+   </dialog> */
+.dialog[open] {
+  position: fixed; inset: 0; margin: auto; height: fit-content;  /* centered (shadcn: fixed top-1/2 left-1/2) */
+  display: grid; gap: var(--space-4); width: 100%; max-width: min(calc(100% - 32px), 384px); max-height: none;
+  padding: var(--space-4); border: 0; border-radius: var(--radius-xl); outline: none;
+  background-color: var(--popover); color: var(--popover-foreground); font-size: var(--text-md);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);
+  animation: sc-pop-in var(--duration-fast) var(--ease-out);
+}
+.dialog::backdrop { background-color: var(--dialog-overlay); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+.dialog > form { display: contents; }  /* <form method="dialog"> wrappers don't break the grid */
+.dialog-header { display: flex; flex-direction: column; gap: var(--space-2); }
+.dialog-title { font-size: var(--text-lg); line-height: var(--leading-none); font-weight: var(--font-weight-medium); }
+.dialog-description { color: var(--muted-foreground); font-size: var(--text-md); }
+.dialog-description a { text-decoration: underline; text-underline-offset: 3px; }
+.dialog-description a:hover { color: var(--foreground); }
+.dialog-footer {
+  display: flex; flex-direction: column-reverse; gap: var(--space-2);
+  margin: 0 calc(-1 * var(--space-4)) calc(-1 * var(--space-4)); padding: var(--space-4);
+  border-top: 1px solid var(--border); border-bottom-left-radius: var(--radius-xl); border-bottom-right-radius: var(--radius-xl);
+  background-color: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+@media (min-width: 640px) { .dialog-footer { flex-direction: row; justify-content: flex-end; } }
+
+/* ---------- Alert ----------
+   <div class="alert [alert-destructive]" role="alert">
+     <svg data-lucide="circle-exclamation-point"></svg>        optional icon, beside the title and description
+     <div class="alert-title">…</div>
+     <div class="alert-description">…</div>
+     <div class="alert-action">…</div>                         optional, pinned top right
+   </div> */
+.alert {
+  position: relative; display: grid; gap: var(--space-0-5); width: 100%;
+  padding: var(--space-2) var(--space-2-5); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background-color: var(--card); color: var(--card-foreground); font-size: var(--text-md); text-align: left;
+}
+.alert[hidden] { display: none; }
+.alert:has(> .alert-action) { padding-right: 72px; }
+.alert:has(> svg) { grid-template-columns: auto 1fr; column-gap: var(--space-2); }
+.alert > svg { grid-row: span 2; width: 16px; height: 16px; color: currentColor; transform: translateY(2px); }
+.alert-title { font-weight: var(--font-weight-medium); }
+.alert:has(> svg) > .alert-title, .alert:has(> svg) > .alert-description { grid-column: 2; }
+.alert-description { color: var(--muted-foreground); font-size: var(--text-md); text-wrap: pretty; }
+.alert-description p:not(:last-child) { margin-bottom: var(--space-4); }
+.alert-action { position: absolute; top: var(--space-2); right: var(--space-2); }
+.alert-destructive { color: var(--destructive); }
+.alert-destructive > .alert-description { color: color-mix(in srgb, var(--destructive) 90%, transparent); }
+/* SafeContext addition: a warning variant (missing permissions, a source that needs attention),
+   tinted like .badge-warning. */
+.alert-warning { background-color: var(--warning-subtle); border-color: var(--warning-border); color: var(--foreground); }
+.alert-warning > svg { color: var(--warning); }
+
+/* ---------- Kbd ----------
+   <kbd class="kbd">K</kbd>     a key;  <span class="kbd-group"><kbd class="kbd">⌘</kbd><kbd class="kbd">K</kbd></span>
+   shadcn's text-xs is 12px, which is this app's --text-sm. shadcn inverts a Kbd inside a Tooltip; this app's
+   tooltips use popover colors, so a Kbd there keeps its normal look. */
+.kbd {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1);
+  width: fit-content; min-width: 20px; height: 20px; padding: 0 var(--space-1); border-radius: var(--radius-sm);
+  background-color: var(--muted); color: var(--muted-foreground);
+  font-family: var(--font-sans); font-size: var(--text-sm); font-weight: var(--font-weight-medium); line-height: 1;
+  pointer-events: none; user-select: none; -webkit-user-select: none;
+}
+.kbd svg { width: 12px; height: 12px; }
+.kbd-group { display: inline-flex; align-items: center; gap: var(--space-1); }
+
+/* ---------- Item ----------
+   <div class="item-group" role="list">
+     <div class="item [item-outline|item-muted] [item-sm|item-xs]" role="listitem">
+       <div class="item-media [item-media-icon]"><svg data-lucide="folder"></svg></div>
+       <div class="item-content"><div class="item-title">…</div><p class="item-description">…</p></div>
+       <div class="item-actions">…</div>
+     </div>
+   </div> */
+.item-group { display: flex; flex-direction: column; gap: var(--space-4); width: 100%; }
+.item-group:has(> .item-sm) { gap: var(--space-2-5); }
+.item-group:has(> .item-xs) { gap: var(--space-2); }
+.item {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2-5); width: 100%;
+  padding: var(--space-2-5) var(--space-3); border: 1px solid transparent; border-radius: var(--radius-lg);
+  font-size: var(--text-md); outline: none; transition: background-color 100ms, border-color 100ms;
+}
+.item:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+a.item:hover { background-color: var(--muted); }
+.item-outline { border-color: var(--border); }
+.item-muted { background-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+.item-xs { gap: var(--space-2); padding: var(--space-2) var(--space-2-5); }
+.item-media { display: flex; flex-shrink: 0; align-items: center; justify-content: center; gap: var(--space-2); }
+.item:has(.item-description) > .item-media { align-self: flex-start; transform: translateY(2px); }
+.item-media svg { pointer-events: none; }
+.item-media-icon svg { width: 16px; height: 16px; }
+.item-content { display: flex; flex: 1; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.item-xs .item-content { gap: 0; }
+.item-title {
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+  width: fit-content; max-width: 100%; font-size: var(--text-md); line-height: 1.375; font-weight: var(--font-weight-medium);
+}
+.item-description {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  color: var(--muted-foreground); font-size: var(--text-md); font-weight: var(--font-weight-regular); line-height: 1.5; text-align: left;
+}
+.item-xs .item-description { font-size: var(--text-sm); }
+.item-actions { display: flex; align-items: center; gap: var(--space-2); }
+
+/* ---------- Table ----------
+   <div class="table-container"><table class="table">
+     <thead><tr><th>…</th></tr></thead>
+     <tbody><tr>…<td>…</td></tr></tbody>
+   </table></div>
+   Rows highlight on hover (and while a menu in them is open). */
+.table-container { position: relative; width: 100%; overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; caption-side: bottom; font-size: var(--text-md); }
+.table thead tr { border-bottom: 1px solid var(--border); }
+.table tbody tr { border-bottom: 1px solid var(--border); transition: background-color var(--duration-fast); }
+.table tbody tr:last-child { border-bottom: 0; }
+.table tbody tr:hover, .table tbody tr:has([aria-expanded="true"]) { background-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+.table tr[data-state="selected"] { background-color: var(--muted); }
+.table th { height: 40px; padding: 0 var(--space-2); text-align: left; vertical-align: middle;
+            font-weight: var(--font-weight-medium); color: var(--foreground); white-space: nowrap; }
+.table td { padding: var(--space-2); vertical-align: middle; white-space: nowrap; }
+.table caption { margin-top: var(--space-4); color: var(--muted-foreground); font-size: var(--text-md); }
+
+/* ---------- Toggle and Toggle Group ----------
+   <div class="toggle-group" role="group">
+     <button class="toggle [toggle-outline] [toggle-sm|toggle-lg]" aria-pressed="true">All</button> …
+   </div>   items 8px apart (shadcn's spacing 2) */
+.toggle {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); flex-shrink: 0;
+  height: var(--control); min-width: var(--control); padding: 0 var(--space-2-5); border-radius: var(--radius-lg);
+  font-size: var(--text-md); font-weight: var(--font-weight-medium); white-space: nowrap; outline: none;
+  border: 1px solid transparent; transition: background-color var(--duration-fast), color var(--duration-fast);
+}
+.toggle:hover { background-color: var(--muted); color: var(--foreground); }
+.toggle[aria-pressed="true"], .toggle[data-state="on"] { background-color: var(--muted); }
+.toggle:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent); }
+.toggle:disabled { pointer-events: none; opacity: .5; }
+.toggle svg { width: 16px; height: 16px; pointer-events: none; flex-shrink: 0; }
+.toggle-outline { border-color: var(--input); }
+.toggle-sm { height: var(--control-sm); min-width: var(--control-sm); border-radius: var(--radius-md); font-size: var(--text-button-sm); }
+.toggle-sm svg { width: 14px; height: 14px; }
+.toggle-lg { height: var(--control-lg); min-width: var(--control-lg); }
+.toggle-group { display: flex; width: fit-content; align-items: center; gap: var(--space-2); border-radius: var(--radius-lg); }
+
+/* ---------- Sonner (toasts) ----------
+   <ol class="toaster" id="toaster" aria-live="polite"></ol>   once, in the page; app.js toast(msg, type) fills it.
+   <li class="toast" data-type="error"><svg data-lucide="octagon-x"></svg><div class="toast-title">…</div></li>
+   Sonner's defaults: bottom right, 24px from the edges, 356px wide, 4 seconds. shadcn's toast uses the popover
+   colors and Nova rounds it to rounded-2xl (the radius × 1.8). Icons (shadcn's): success circle-check,
+   error octagon-x, warning triangle-alert; a plain message has none. */
+.toaster {
+  position: fixed; right: 24px; bottom: 24px; z-index: 100; display: flex; flex-direction: column; gap: var(--space-3-5);
+  width: 356px; max-width: calc(100vw - 48px); padding: 0; list-style: none; pointer-events: none;
+}
+.toast {
+  display: flex; align-items: center; gap: var(--space-1-5); width: 100%; padding: var(--space-4);
+  border: 1px solid var(--border); border-radius: calc(var(--radius-lg) * 1.8);
+  background-color: var(--popover); color: var(--popover-foreground); box-shadow: var(--shadow-toast);
+  font-size: var(--text-base); pointer-events: auto;
+  animation: sc-toast-in var(--duration-slow) var(--ease-out);
+}
+.toast.leaving { opacity: 0; transform: translateY(8px); transition: opacity var(--duration-base), transform var(--duration-base); }
+.toast > svg { width: 16px; height: 16px; flex-shrink: 0; }
+.toast-title { font-weight: var(--font-weight-medium); line-height: 1.5; }
+@keyframes sc-toast-in { from { opacity: 0; transform: translateY(100%); } to { opacity: 1; transform: none; } }
+
+/* ---------- Tooltip ----------
+   Any element with a title="…" gets this instead of the browser's tooltip (components.js moves the title into
+   data-tooltip on hover or keyboard focus and draws one .tooltip at a time). It opens above, or below if there's no room.
+   SafeContext changes: no arrow, and it uses the popover colors (light in light mode, dark in dark mode)
+   with the Dropdown Menu's ring and shadow, instead of shadcn's inverted dark label. */
+.tooltip {
+  position: fixed; z-index: 60; width: fit-content; max-width: 320px; pointer-events: none;
+  display: inline-flex; align-items: center; gap: var(--space-1-5);
+  padding: var(--space-1-5) var(--space-3); border-radius: var(--radius-md);
+  background-color: var(--popover); color: var(--popover-foreground);
+  box-shadow: var(--shadow-menu), 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);
+  font-size: var(--text-sm); line-height: 16px; white-space: normal; text-align: left;
+  animation: sc-pop-in var(--duration-fast) var(--ease-out);
+}
+.tooltip[hidden] { display: none; }
+/* SafeContext addition: a file path's tooltip (data-tooltip-kind="path") is wider and wraps only after a "/" */
+.tooltip-path { max-width: min(560px, calc(100vw - 8px)); overflow-wrap: normal; word-break: normal; }
+
+/* shadcn's open animation (fade-in-0 zoom-in-95) */
+@keyframes sc-pop-in { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: none; } }

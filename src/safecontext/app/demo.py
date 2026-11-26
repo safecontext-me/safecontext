@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 from ..demo.fake_ai_configs import demo_ai_home
 from ..demo.fake_calendar import make_fake_calendar
 from ..demo.fake_dropbox import make_fake_dropbox
+from ..demo.fake_files import demo_files
 from ..demo.fake_gmail import FakeGmail
 from ..demo.fake_messages import demo_imessage_options
 from ..demo.fake_update import demo_updater
@@ -79,6 +80,10 @@ def demo_backend_kwargs(data_dir: Optional[Path] = None) -> Dict[str, Any]:
     calendar = make_fake_calendar(DEMO_ACCOUNT)
     dropbox = make_fake_dropbox(DEMO_ACCOUNT)
     data_dir = data_dir or Path(tempfile.mkdtemp(prefix="safecontext-demo-"))
+    # Files: made-up folders and PDFs beside the demo data. The demo starts with none added (the empty
+    # state); Add folder / Add PDF add the made-up ones in turn instead of opening the real Finder panel.
+    # To start with them added, pass pdf_start=_pdf_start below.
+    _pdf_start, pdf_chooser = demo_files(Path(data_dir) / "demo-files")
     return dict(
         data_dir=data_dir,
         demo=True,
@@ -99,4 +104,5 @@ def demo_backend_kwargs(data_dir: Optional[Path] = None) -> Dict[str, Any]:
         # Check for updates finds a made-up next version; installing goes through the real updater
         # against fakes and never replaces, spawns or opens anything (demo/fake_update.py).
         updater=demo_updater(Path(data_dir)),
+        pdf_chooser=pdf_chooser,
     )

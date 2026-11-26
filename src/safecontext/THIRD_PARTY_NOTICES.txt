@@ -1,7 +1,7 @@
 Third-party notices for SafeContext
 
 The app's interface uses icons from Lucide (https://lucide.dev, https://github.com/lucide-icons/lucide),
-inlined as SVG in src/safecontext/app/ui. Lucide's licence follows, unchanged.
+vendored unchanged as SVG files in src/safecontext/app/ui/vendor/lucide. Lucide's licence follows, unchanged.
 
 ================================================================================
 Lucide

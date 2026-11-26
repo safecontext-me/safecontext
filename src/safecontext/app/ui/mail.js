@@ -189,10 +189,10 @@ function mailCoverageCard(c) {
     el("div", { class: "cov-who" }, el("div", { class: "cov-name" }, c.name),
       el("div", { class: "cov-sub", title: "Dates of the oldest and newest message on this Mac" },
         [c.account, range].filter(Boolean).join(" · "))),
-    el("div", { class: "cov-status" }, el("span", { class: "dot" + (status[0] ? ` ${status[0]}` : "") }), status[1]));
+    el("div", { class: "badge badge-outline cov-status" }, el("span", { class: "dot" + (status[0] ? ` ${status[0]}` : "") }), status[1]));
 
   const tile = (num, label, cls = "", title = "") =>
-    el("div", { class: "cov-tile", title }, el("div", { class: `cov-num ${cls}`.trim() }, num), el("div", { class: "cov-lbl" }, label));
+    el("div", { class: "card card-sm cov-tile", title }, el("div", { class: "card-content" }, el("div", { class: `cov-num ${cls}`.trim() }, num), el("div", { class: "cov-lbl" }, label)));
   const tiles = el("div", { class: "cov-tiles" },
     tile(n(c.kept), "Synced", "ok", "Kept on this Mac, scrubbed"),
     tile(n(c.dropped), "Not synced", "", "Skipped entirely: only the date and reason are kept"),
@@ -212,7 +212,8 @@ function mailCoverageCard(c) {
       (p.per_min ? ` · ${n(Math.round(p.per_min))}/min` : "")) : null));
   }
   card.append(tiles);
-  if (c.last_error) card.append(el("p", { class: "cov-warn" }, c.last_error));
+  if (c.last_error) card.append(el("div", { class: "alert alert-destructive", role: "alert" },
+    icon("circle-exclamation-point"), el("div", { class: "alert-title" }, c.last_error)));
 
   const reasons = el("div", { class: "bars" });
   bars(reasons, c.dropped_by_group);
@@ -230,10 +231,10 @@ function mailCoverageCard(c) {
     row.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
   }
   card.append(el("div", { class: "cov-detail" },
-    el("div", { class: "cov-block" }, el("h4", {}, "Not synced, by reason"), reasons),
-    el("div", { class: "cov-block" }, el("h4", {}, "What's covered"),
+    el("div", { class: "card card-sm cov-block" }, el("div", { class: "card-header" }, el("div", { class: "card-title" }, "Not synced, by reason")), el("div", { class: "card-content" }, reasons)),
+    el("div", { class: "card card-sm cov-block" }, el("div", { class: "card-header" }, el("div", { class: "card-title" }, "What's covered")), el("div", { class: "card-content" },
       el("ul", {}, ...c.notes.map((x) => el("li", {}, x)),
-        el("li", {}, "Not-synced messages keep only their date and the reason. Their text was never stored.")))));
+        el("li", {}, "Not-synced messages keep only their date and the reason. Their text was never stored."))))));
   return card;
 }
 
@@ -319,7 +320,7 @@ async function mailMore() {
   if (gen !== mail.gen) return;
   mail.loading = false;
   if (r.ok) { mail.rows = mail.rows.concat(r.rows); mail.next = r.next; }
-  else { mail.next = null; toast(r.error); }
+  else { mail.next = null; toast(r.error, "error"); }
   mailRender();
 }
 
@@ -366,12 +367,12 @@ function mailRow(r, i) {
       el("div", { class: "mrow-subj" }, el("span", {}, ri.label)),
       el("div", { class: "mrow-bottom" },
         el("span", { class: "mrow-snip" }, r.thread_title ? ["In “", richText(r.thread_title), "”"] : ri.why),
-        el("span", { class: "badge skip" }, "⊘ skipped")));
+        el("span", { class: "badge badge-secondary" }, "⊘ skipped")));
   }
   const isEvent = r.kind === "event";
   const badges = [];
-  if (r.redacted) badges.push(el("span", { class: "badge", title: "Sensitive values blanked out on this Mac" }, `${n(r.redacted)} redacted`));
-  if (r.dropped_in_thread) badges.push(el("span", { class: "badge skip", title: "Messages in this thread that weren't synced" }, `${r.dropped_in_thread} not synced`));
+  if (r.redacted) badges.push(el("span", { class: "badge badge-redacted", title: "Sensitive values blanked out on this Mac" }, `${n(r.redacted)} redacted`));
+  if (r.dropped_in_thread) badges.push(el("span", { class: "badge badge-secondary", title: "Messages in this thread that weren't synced" }, `${r.dropped_in_thread} not synced`));
   // Attachment tag hidden for now (design round 2): r.has_attachments still comes from the backend.
   return el("div", attrs,
     el("div", { class: "mrow-top" },
@@ -568,7 +569,7 @@ function redactionSummary(red) {
   const total = entries.reduce((a, [, v]) => a + v, 0);
   return el("div", { class: "red-sum", title: "Removed on this Mac before saving" },
     `${n(total)} ${total === 1 ? "item" : "items"} redacted:`,
-    ...entries.map(([k, v]) => el("span", { class: "badge" }, `${v} ${REDACTION_NAMES[k] || k.toLowerCase()}`)));
+    ...entries.map(([k, v]) => el("span", { class: "badge badge-redacted" }, `${v} ${REDACTION_NAMES[k] || k.toLowerCase()}`)));
 }
 
 function mailMessageCard(m) {
@@ -600,7 +601,7 @@ function mailDroppedDetail(d) {
       d.thread_title ? el("dt", {}, "Thread") : null, d.thread_title ? el("dd", {}, richText(d.thread_title)) : null),
     el("p", { class: "muted" }, "SafeContext skipped this message entirely: only its date and the reason were saved. " +
       "Its sender, subject and text never touched the disk, so they can't be shown here or reach an AI."),
-    d.link ? el("button", { class: "btn", onclick: () => openLink(d.link) }, "Open in Gmail") : null);
+    d.link ? el("button", { class: "btn btn-outline", onclick: () => openLink(d.link) }, "Open in Gmail") : null);
 }
 
 // ---------- keyboard ----------
