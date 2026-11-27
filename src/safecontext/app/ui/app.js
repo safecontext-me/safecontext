@@ -261,6 +261,7 @@ function show(view) {
   state.view = view;
   markNav();
   for (const v of ["mail", "sources", "source", "mcp", "removed", "review", "sync", "settings", "files"]) $(`view-${v}`).hidden = v !== view;
+  if (view !== "mail") mailForgetSkipped();  // skipped items fetched to show are dropped on leaving Mail
   if (view === "mail") mailShow();
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "source") renderSourcePage();

@@ -152,7 +152,7 @@ def test_window_cannot_reach_internals(backend):
                       "review_set_scan", "review_open", "review_save_report", "permission_log",
                       "permission_log_clear", "window_focused",
                       "pdf_selection", "pdf_add_folder", "pdf_add_file", "pdf_remove", "pdf_pick",
-                      "scrubber_rules", "scrubber_add", "scrubber_set_enabled", "scrubber_delete",
+                      "scrubber_rules", "scrubber_add", "scrubber_set_enabled", "scrubber_delete", "skipped_item", "skipped_previews", "skipped_forget",
                       "scrubber_preview"}
 
 

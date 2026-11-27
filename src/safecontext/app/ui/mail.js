@@ -11,6 +11,9 @@ const mail = {
   rows: [], next: null, loading: false, gen: 0, sel: -1, openKey: null,
   folders: null, coverage: [], reasonList: [], timer: null, lastCovSig: "",
   pages: new Map(),  // first page of each list already seen (source, view, filter, order): shown at once on a switch
+  // Skipped items, fetched live (see "skipped items" below): previews by "source:id" (null while on its way),
+  // rows waiting for one, items already asked for ahead of time. Memory only; forgotten on leaving Mail.
+  skip: new Map(), skipWant: new Set(), skipAhead: new Set(), skipTimer: null, skipGen: 0,
 };
 const MAIL_PAGES_KEPT = 12;
 
@@ -325,6 +328,7 @@ function rowLabels(r) {
 
 function mailSetView(view) {
   mail.view = view;
+  if (view === "synced" || view === "unread") mailForgetSkipped();  // no skipped rows in these lists
   if (view !== "not_synced") mail.reasons = [];
   mailRenderFilter();
   mailPlaceholder();
@@ -417,6 +421,7 @@ function mailRender() {
   }
   spacer.replaceChildren(...nodes);
   if (mail.next && last > total - 40) mailMore();
+  mailWantPreviews(first, last);
 }
 
 function mailRow(r, i) {
@@ -425,14 +430,18 @@ function mailRow(r, i) {
     "data-i": String(i), role: "option", "aria-selected": String(i === mail.sel) };
   if (r.type === "dropped") {
     const ri = r.reason_info;
+    const p = mail.skip.get(skipKey(r));
+    const live = p && !p.error && !p.gone;  // sender, subject and snippet fetched just now, never stored
+    const many = mailManySources() ? el("span", { class: "cnt" }, `· ${sourceName(r.source)}`) : null;
+    const from = live && p.sender && r.source !== "dropbox" ? senderName(p.sender) : live ? sourceName(r.source) : "Not synced";
+    const snip = live ? (p.snippet || "") : p && p.gone ? `Deleted from ${sourceName(r.source)} since it was skipped.`
+      : r.thread_title ? ["In “", richText(r.thread_title), "”"] : ri.why;
     return el("div", attrs,
-      el("div", { class: "mrow-top" },
-        el("span", { class: "mrow-from" }, "Not synced", mailManySources() ? el("span", { class: "cnt" }, `· ${sourceName(r.source)}`) : null),
-        mailWhen(r)),
-      el("div", { class: "mrow-subj" }, el("span", {}, ri.label)),
+      el("div", { class: "mrow-top" }, el("span", { class: "mrow-from" }, from, many), mailWhen(r)),
+      el("div", { class: "mrow-subj" }, el("span", {}, live ? (p.title || "(no subject)") : ri.label)),
       el("div", { class: "mrow-bottom" },
-        el("span", { class: "mrow-snip" }, r.thread_title ? ["In “", richText(r.thread_title), "”"] : ri.why),
-        el("span", { class: "badge badge-secondary" }, "⊘ skipped")));
+        el("span", { class: "mrow-snip" }, snip),
+        el("span", { class: "badge badge-secondary", title: `Not synced: ${ri.label}. ${ri.why}` }, "⊘ skipped")));
   }
   const isEvent = r.kind === "event";
   const unread = r.unread > 0;  // a thread is unread while any of its messages is (as Gmail / Messages show it)
@@ -622,7 +631,7 @@ async function mailOpen(r, show = true) {
   reader.scrollTop = 0;
   mail.thread = null;
   $("mail-tag-menu").hidden = true;
-  if (r.type === "dropped") { mailReaderBar(["Not synced: ", r.reason_info.label], r.link, r.source); reader.replaceChildren(mailDroppedDetail(r)); return; }
+  if (r.type === "dropped") { mailOpenSkipped(r, key); return; }
   const t = await api().mail_thread(r.source, r.thread_id);
   if (mail.openKey !== key) return;
   if (!t.ok) { mailReaderBar(); reader.replaceChildren(el("div", { class: "empty" }, t.error)); return; }
@@ -714,28 +723,140 @@ function mailMessageCard(m) {
   return card;
 }
 
+// A skipped message inside a synced thread: its reason, and a button that fetches it to show here.
 function mailSkippedCard(d) {
   const ri = d.reason_info;
-  return el("article", { class: "msg skipped" },
+  const card = el("article", { class: "msg skipped" },
     el("div", { class: "msg-head" },
       el("div", {},
         el("div", { class: "msg-from" }, "⊘ Not synced · ", ri.label),
         el("div", { class: "msg-meta" }, d.date ? fmtDate(d.date, true) : "Date unknown"))),
     el("p", { class: "skip-why" }, ri.why),
-    el("p", { class: "skip-note" }, "Its sender, subject and text were never stored on this Mac."));
+    el("p", { class: "skip-note" }, "Its sender, subject and text were never stored on this Mac."),
+    el("div", { class: "skip-actions" },
+      el("button", { class: "btn btn-outline btn-sm", onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        e.currentTarget.textContent = `Fetching from ${sourceName(d.source)}…`;
+        const res = await api().skipped_item(d.source, d.id);
+        card.replaceChildren(...skippedView(d, res, true));
+      } }, icon("eye", "btn-ico"), "Show it")));
+  return card;
 }
 
-function mailDroppedDetail(d) {
+// ---------- skipped items, fetched live ----------
+// A skipped item has no stored content: only its date and the reason. While a list with skipped rows is on
+// screen, the rows in view ask their source for sender, subject and a snippet; opening one fetches it whole
+// and fetches the next few ahead, so j / k feel instant. The backend (app/skipped.py) holds what it fetches
+// in memory only: never stored, never searchable, never reachable by an AI app. Leaving Mail forgets it all.
+const skipKey = (r) => `${r.source}:${r.id}`;
+
+function mailWantPreviews(first, last) {
+  for (let i = first; i < last; i++) {
+    const r = mail.rows[i];
+    if (r && r.type === "dropped" && !mail.skip.has(skipKey(r))) mail.skipWant.add(skipKey(r));
+  }
+  if (mail.skipWant.size && !mail.skipTimer) mail.skipTimer = setTimeout(mailFetchPreviews, 120);  // after a scroll settles
+}
+
+async function mailFetchPreviews() {
+  const keys = [...mail.skipWant].slice(0, 40);
+  for (const k of keys) { mail.skipWant.delete(k); mail.skip.set(k, null); }
+  const gen = mail.skipGen;
+  const rows = keys.map((k) => { const at = k.indexOf(":"); return { source: k.slice(0, at), id: k.slice(at + 1) }; });
+  const r = await api().skipped_previews(rows);
+  if (gen !== mail.skipGen) return;  // forgotten meanwhile
+  for (const k of keys) mail.skip.set(k, r.ok ? (r.previews[k] || { error: "" }) : { error: r.error });
+  mail.skipTimer = null;
+  mailRender();  // may queue the rows that scrolled into view meanwhile
+}
+
+// Leaving Mail (or a list without skipped rows): drop every skipped item held here and in the backend.
+function mailForgetSkipped() {
+  if (!mail.skip.size && !mail.skipAhead.size && !mail.skipWant.size) return;
+  mail.skip.clear();
+  mail.skipWant.clear();
+  mail.skipAhead.clear();
+  mail.skipGen++;
+  clearTimeout(mail.skipTimer);
+  mail.skipTimer = null;
+  api().skipped_forget();
+}
+
+// The next few skipped rows below the open one, fetched now so opening them is instant.
+function mailPrefetchSkipped() {
+  let left = 3;
+  for (let i = mail.sel + 1; i < mail.rows.length && left > 0 && i < mail.sel + 30; i++) {
+    const r = mail.rows[i];
+    if (r.type !== "dropped") continue;
+    left--;
+    const k = skipKey(r);
+    if (mail.skipAhead.has(k)) continue;
+    mail.skipAhead.add(k);
+    api().skipped_item(r.source, r.id);  // the backend keeps it in memory for when it's opened
+  }
+}
+
+const skippedTitle = (title) => [el("span", { class: "badge badge-warning mr-skip-badge" }, icon("ban", "sc-svg"), "Skipped"), " ", richText(title)];
+
+async function mailOpenSkipped(r, key) {
+  const reader = $("mail-reader");
+  const p = mail.skip.get(skipKey(r));
+  mailReaderBar(skippedTitle(p && !p.error && !p.gone && p.title ? p.title : r.reason_info.label), r.link, r.source);
+  reader.replaceChildren(skippedBanner(r, ""), el("div", { class: "skip-loading", "aria-label": `Fetching it from ${sourceName(r.source)}` },
+    el("div", { class: "skel-bar w30" }), el("div", { class: "skel-bar w70" }), el("div", { class: "skel-bar w90" }), el("div", { class: "skel-bar w70" })));
+  const res = await api().skipped_item(r.source, r.id);
+  if (mail.openKey !== key) return;
+  mail.skipAhead.add(skipKey(r));
+  const it = res.ok && res.item;
+  if (it) {
+    mail.skip.set(skipKey(r), { sender: it.sender, title: it.title, snippet: (it.body || "").replace(/\s+/g, " ").slice(0, 200) });
+    mailReaderBar(skippedTitle(it.title || "(no subject)"), it.link || r.link, r.source);
+  }
+  reader.replaceChildren(...skippedView(r, res));
+  mailPrefetchSkipped();
+}
+
+// The banner on a skipped item: what it is, and why it was skipped.
+function skippedBanner(d, fetchedFrom) {
   const ri = d.reason_info;
-  return el("div", { class: "mr-dropped" },
-    el("dl", { class: "details" },
-      el("dt", {}, "Date"), el("dd", {}, d.date ? fmtDate(d.date, true) : "Unknown"),
-      el("dt", {}, "Why"), el("dd", {}, ri.why || ri.label),
-      el("dt", {}, "Rule"), el("dd", {}, el("code", {}, ri.code)),
-      d.thread_title ? el("dt", {}, "Thread") : null, d.thread_title ? el("dd", {}, richText(d.thread_title)) : null),
-    el("p", { class: "muted" }, "SafeContext skipped this message entirely: only its date and the reason were saved. " +
-      "Its sender, subject and text never touched the disk, so they can't be shown here or reach an AI."),
-    d.link ? el("button", { class: "btn btn-outline", onclick: () => openLink(d.link) }, "Open in Gmail") : null);
+  return el("div", { class: "alert alert-warning skip-banner", role: "note" },
+    icon("ban"),
+    el("div", { class: "alert-title" }, "Skipped: not saved on this Mac, and AI apps can't see it"),
+    el("div", { class: "alert-description" },
+      el("p", {}, fetchedFrom ? `${d.source === "imessage" ? "Read from Messages on this Mac" : `Fetched from ${fetchedFrom}`} just now so you can read it. ` +
+          "It isn't kept: SafeContext forgets it when you leave Mail."
+        : `Only its date and the reason were saved. Opening it fetches it from ${sourceName(d.source)} to show you, without saving it.`),
+      el("details", { class: "skip-why-more" },
+        el("summary", {}, "Why was this skipped?"),
+        el("p", {}, ri.why || ri.label),
+        el("p", { class: "muted" }, "Rule: ", el("code", {}, ri.code), ". SafeContext skips items like this whole, " +
+          "rather than storing a scrubbed copy, so nothing from them can reach an AI app."))));
+}
+
+// What the reader shows for a skipped item: the banner, then the item as fetched (or why it couldn't be).
+function skippedView(d, res, inThread = false) {
+  const it = res.ok && res.item;
+  const banner = skippedBanner(d, it ? sourceName(d.source) : "");
+  if (!it) {
+    const msg = res.ok ? res.error : res.error || "Couldn't fetch it.";
+    return [banner, el("div", { class: "alert alert-destructive skip-error" }, icon("circle-exclamation-point"),
+        el("div", { class: "alert-title" }, msg),
+        res.needs_reconnect ? el("div", { class: "alert-description" }, "Open Sources to reconnect it.") :
+        res.offline ? el("div", { class: "alert-description" }, "Skipped items aren't saved, so they can only be shown while you're online.") : null),
+      el("dl", { class: "details" },
+        el("dt", {}, "Date"), el("dd", {}, d.date ? fmtDate(d.date, true) : "Unknown"),
+        el("dt", {}, "Why"), el("dd", {}, d.reason_info.why || d.reason_info.label),
+        d.thread_title ? el("dt", {}, "Thread") : null, d.thread_title ? el("dd", {}, richText(d.thread_title)) : null),
+      !inThread && d.link ? el("button", { class: "btn btn-outline", onclick: () => openLink(d.link) }, sourceIcon(d.source, "btn-ico"), OPEN_LABELS[d.source] || "Open original") : null].filter(Boolean);
+  }
+  const m = { ...it, source: d.source };
+  const card = it.kind === "event" ? eventCard(m) : messageCard(m);
+  card.classList.add("skip-content");
+  if (it.note && !it.body) card.querySelector(".msg-body")?.remove();  // a file that can't be shown: the note says so
+  if (inThread && it.title) card.querySelector(".msg-head").prepend(el("div", { class: "skip-subject" }, richText(it.title)));
+  return [banner, card,
+    it.note ? el("p", { class: "muted skip-note" }, it.note) : null,
+    inThread && it.link ? el("button", { class: "btn btn-outline btn-sm", onclick: () => openLink(it.link) }, sourceIcon(d.source, "btn-ico"), OPEN_LABELS[d.source] || "Open original") : null].filter(Boolean);
 }
 
 // ---------- keyboard ----------

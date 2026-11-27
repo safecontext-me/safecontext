@@ -28,12 +28,19 @@ class NotDownloadable(Exception):
     """This file has no bytes Dropbox will return. Keep the name and size only."""
 
 
+class NotFound(Exception):
+    """The file is gone (deleted or moved out of reach)."""
+
+
 class DropboxAPI(Protocol):
     def list_folder(self, cursor: Optional[str]) -> dict:
         """One page. `cursor` None starts a listing; otherwise it continues one."""
 
     def download(self, file_id: str) -> bytes:
         """The file's bytes. Callers decide whether those bytes are text."""
+
+    def get_metadata(self, file_id: str) -> dict:
+        """One file's listing entry (name, path, size). Raises NotFound if it's gone."""
 
 
 class DropboxHTTP:
@@ -65,11 +72,18 @@ class DropboxHTTP:
         req.add_header("Dropbox-API-Arg", json.dumps({"path": file_id}, separators=(",", ":")))
         return self._read(req, download=True)
 
-    def _json(self, url: str, payload: dict) -> bytes:
+    def get_metadata(self, file_id: str) -> dict:
+        url = f"{API}/2/files/get_metadata"
+        try:
+            return json.loads(self._json(url, {"path": file_id}, missing=True).decode("utf-8"))
+        except NotDownloadable:
+            raise NotFound() from None
+
+    def _json(self, url: str, payload: dict, missing: bool = False) -> bytes:
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST")
         req.add_header("Authorization", "Bearer " + self._token_fn())
         req.add_header("Content-Type", "application/json")
-        return self._read(req, download=False)
+        return self._read(req, download=missing)
 
     def _read(self, req: urllib.request.Request, *, download: bool) -> bytes:
         try:
