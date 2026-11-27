@@ -1316,6 +1316,17 @@ class Store:
         out = [self._thread_row(r) for r in sorted(rows, key=lambda r: order[r["rid"]])]
         return {"rows": out, "next": str(offset + limit) if len(rids) == limit else None}
 
+    def dropped_entries(self, source: str, ids: Sequence[str]) -> Dict[str, Dict[str, object]]:
+        """The dropped rows (id, thread, date, reason; never content) for these ids of one source."""
+        ids = list(dict.fromkeys(ids))
+        out: Dict[str, Dict[str, object]] = {}
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            for r in self._read("SELECT rowid AS rid, source, id, thread_id, date_ms, reason, '' AS thread_title "
+                                f"FROM dropped WHERE source=? AND id IN ({self._marks(chunk)})", [source, *chunk]):
+                out[r["id"]] = self._dropped_row(r)
+        return out
+
     def thread_detail(self, source: str, thread_id: str) -> Dict[str, object]:
         """A thread for the reader: every kept item in full and every dropped item's
         reason and date, oldest first."""

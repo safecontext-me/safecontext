@@ -322,6 +322,18 @@ class BaseSource:
     def connect(self, **options: Any) -> str:
         raise NotImplementedError
 
+    # --- showing a skipped item (app/skipped.py) ---------------------------------
+    # A source that can fetch one item again sets this and implements fetch_skipped.
+    can_fetch_skipped = False
+
+    def fetch_skipped(self, ids: Sequence[str], full: bool = True) -> Dict[str, Optional[RawItem]]:
+        """Fetch items the scrubber skipped again from the source, so the app can show them to
+        the user once. id -> RawItem, or None if it's gone at the source. `full` False may return
+        just enough for a list row (sender, title). The result is unscrubbed: callers hold it in
+        memory only and never store, log or hand it to an AI app. Raises auth.NeedsReconnect,
+        TransientError or NeedsPermission like a sync would."""
+        raise NotImplementedError
+
     def disconnect(self, wipe: bool = True, revoke: bool = True) -> None:
         if wipe:
             self.store.wipe_source(self.id)

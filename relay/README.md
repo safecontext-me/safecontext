@@ -179,6 +179,13 @@ limited), sign-ins, requests per link (median, p90), and latency; then requests 
 the period with the top 10 tokens (truncated), requests by app and by tool, outcomes, and
 installs by app version once the update-check counter on safecontext.me is live.
 
+Add `--export` to also save the numbers as JSON in `~/.safecontext-stats` (`daily.json`,
+`usage.json`, `links.json`, `installs.json`). Each export merges with the files already
+there, keeping days older than the query window, so the history outlives Analytics Engine's
+~90 days. These are the files the private "SafeContext usage" dashboard artifact shows; to
+refresh it, run `scripts/stats.py --days 92 --export` and ask Claude to upload the four files
+to that dashboard.
+
 ## Protocol between the relay and the Mac
 
 JSON text frames on the WebSocket:

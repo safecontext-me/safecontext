@@ -10,7 +10,7 @@ from collections import Counter
 from typing import Dict, Optional
 
 from safecontext.auth import NeedsReconnect
-from safecontext.dropbox_api import CursorExpired, NotDownloadable
+from safecontext.dropbox_api import CursorExpired, NotDownloadable, NotFound
 from safecontext.errors import TransientError
 
 
@@ -94,6 +94,14 @@ class FakeDropbox:
             caught = self._full_seq if mode == "full" else self.seq
             nxt = f"v|{caught}|0|inc|0"
         return {"entries": [dict(e) for e in page], "cursor": nxt, "has_more": has_more}
+
+    def get_metadata(self, file_id: str) -> dict:
+        self._check()
+        self.calls["metadata"] += 1
+        e = self.files.get(file_id)
+        if e is None or e.get(".tag") == "deleted":
+            raise NotFound()
+        return dict(e)
 
     def download(self, file_id: str) -> bytes:
         self._check()

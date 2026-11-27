@@ -28,11 +28,11 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Dict, Optional, Sequence
 from urllib.parse import quote
 
 from .. import auth, dropbox_auth
-from ..dropbox_api import CursorExpired, DropboxAPI, NotDownloadable
+from ..dropbox_api import CursorExpired, DropboxAPI, NotDownloadable, NotFound
 from ..errors import TransientError
 from ..scrub import Attachment, RawItem, scrub_item
 from ..scrub.drop import check_sensitive_text, check_subject
@@ -389,6 +389,29 @@ class DropboxSource(BaseSource):
 
     def _syncer(self, progress: Optional[ProgressFn]) -> DropboxSyncer:
         return DropboxSyncer(self.store, self.api_factory(self.account), account=self.account, progress=progress)
+
+    can_fetch_skipped = True
+
+    def fetch_skipped(self, ids: Sequence[str], full: bool = True) -> Dict[str, Optional[RawItem]]:
+        """Read-only get_metadata, then (full) the bytes of a small text file. Other files come
+        back as a name, type and size, the way sync sees them."""
+        api = self.api_factory(self.account)
+        out: Dict[str, Optional[RawItem]] = {}
+        for fid in ids:
+            try:
+                entry = api.get_metadata(fid)
+            except NotFound:
+                out[fid] = None
+                continue
+            body = None
+            if full and should_download(entry):
+                try:
+                    blob = b"" if int(entry.get("size") or 0) == 0 else api.download(fid)
+                    body = None if len(blob) > MAX_TEXT_BYTES else blob
+                except NotDownloadable:
+                    body = None
+            out[fid] = file_to_item(entry, body, account=self.account)
+        return out
 
     def disconnect(self, wipe: bool = True, revoke: bool = True) -> None:
         if self.account:
