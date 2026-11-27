@@ -276,3 +276,19 @@ def test_tools_filter_and_show_labels(store):
     assert {"name": "Receipts", "type": "gmail_label", "source": "gmail", "count": 1} in labels
     assert {"name": "Later", "type": "tag", "source": "safecontext", "count": 1} in labels
     assert ids
+
+
+@pytest.mark.parametrize("labels", [None, "drive", "exists"])
+def test_browse_plans_never_read_every_label(store, labels):
+    """On a 128k-message store the wrong join order took 12 s a page; the right one takes milliseconds.
+    Guard the plans: labels are only ever looked up per item or per label, never by source alone."""
+    ids = _labelled_store(store)
+    lids = None if labels is None else [ids["Receipts"]]
+    store.LABEL_DRIVE_MAX = 10 ** 9 if labels == "drive" else 0
+    plans = []
+    store._read = lambda sql, args=(): plans.extend(
+        r[3] for r in store._rdb.execute("EXPLAIN QUERY PLAN " + sql, args).fetchall()) or []
+    store._kept_threads(["gmail"], None, 150, labels=lids)
+    bad = [p for p in plans if p.endswith("ix_item_labels_item (source=?)") or p.endswith("ix_items_thread (source=?)")
+           or p.startswith("SCAN il") or p.startswith("SCAN c")]
+    assert plans and not bad, plans

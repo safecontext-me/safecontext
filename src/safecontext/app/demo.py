@@ -68,9 +68,18 @@ class SlowFakeGmail(FakeGmail):
         return super().get_messages(ids, fmt)
 
 
+# Demo Gmail labels (ids as Gmail makes them, colours from Gmail's palette), spread over the demo mail.
+_DEMO_LABELS = {"Label_1": {"name": "Receipts", "color": "#16a766"}, "Label_2": {"name": "Work", "color": "#4a86e8"},
+                "Label_3": {"name": "Work/Clients", "color": "#4a86e8"}, "Label_4": {"name": "Family", "color": "#f691b2"},
+                "Label_5": {"name": "Travel", "color": "#ffad47"}}
+_DEMO_LABEL_EVERY = (("Label_2", 5), ("Label_1", 7), ("STARRED", 9), ("Label_4", 11), ("Label_5", 13), ("Label_3", 17))
+
+
 def make_fake_gmail() -> FakeGmail:
     g = SlowFakeGmail(page_size=25, email=DEMO_ACCOUNT)
-    for m in mailbox() + _extra_mail() + demo_mailbox():
+    g.label_defs = dict(_DEMO_LABELS)
+    for n, m in enumerate(mailbox() + _extra_mail() + demo_mailbox()):
+        m.label_ids = list(m.label_ids) + [lid for lid, every in _DEMO_LABEL_EVERY if n % every == 3]
         g.add(m, record=False)
     return g
 

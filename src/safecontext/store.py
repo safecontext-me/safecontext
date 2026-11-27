@@ -169,6 +169,12 @@ TAG_COLORS = ("gray", "red", "orange", "yellow", "green", "teal", "blue", "purpl
 # Order labels are listed and shown in: Gmail's own first (in Gmail's order), then user labels, then tags.
 _SYSTEM_ORDER = {"INBOX": 0, "STARRED": 1, "IMPORTANT": 2, "SENT": 3}
 
+
+
+class TagError(ValueError):
+    """A tag can't be made or changed; the message is shown to the user as is."""
+
+
 GMAIL = "gmail"
 # Schema v1 kept Gmail's sync state in `meta`; v2 moves it to source_state('gmail').
 _V1_GMAIL_META = {"account_email": "account", "sync_mode": "sync_mode", "auth_state": "auth_state",
@@ -722,10 +728,10 @@ class Store:
     def create_tag(self, name: str, color: str = "") -> Dict[str, object]:
         name = scrub_label_name(name)
         if not name:
-            raise ValueError("A tag needs a name.")
+            raise TagError("A tag needs a name.")
         with self._tx() as db:
             if db.execute("SELECT 1 FROM labels WHERE source=? AND lower(name)=lower(?)", (TAG_SOURCE, name)).fetchone():
-                raise ValueError(f"There's already a tag called “{name}”.")
+                raise TagError(f"There's already a tag called “{name}”.")
             n = db.execute("SELECT count(*) FROM labels WHERE source=?", (TAG_SOURCE,)).fetchone()[0]
             color = color if color in TAG_COLORS else TAG_COLORS[(n + 1) % len(TAG_COLORS)]
             nxt = db.execute("SELECT coalesce(max(CAST(substr(ext_id, 5) AS INTEGER)), 0) + 1 FROM labels "
@@ -736,7 +742,7 @@ class Store:
 
     def _tag_row(self, db: sqlite3.Connection, lid: int) -> None:
         if not db.execute("SELECT 1 FROM labels WHERE lid=? AND type='tag'", (int(lid),)).fetchone():
-            raise ValueError("No such tag.")
+            raise TagError("No such tag.")
 
     def update_tag(self, lid: int, name: Optional[str] = None, color: Optional[str] = None) -> None:
         with self._tx() as db:
@@ -744,14 +750,14 @@ class Store:
             if name is not None:
                 name = scrub_label_name(name)
                 if not name:
-                    raise ValueError("A tag needs a name.")
+                    raise TagError("A tag needs a name.")
                 if db.execute("SELECT 1 FROM labels WHERE source=? AND lower(name)=lower(?) AND lid != ?",
                               (TAG_SOURCE, name, int(lid))).fetchone():
-                    raise ValueError(f"There's already a tag called “{name}”.")
+                    raise TagError(f"There's already a tag called “{name}”.")
                 db.execute("UPDATE labels SET name=? WHERE lid=?", (name, int(lid)))
             if color is not None:
                 if color not in TAG_COLORS:
-                    raise ValueError("Unknown colour.")
+                    raise TagError("Unknown colour.")
                 db.execute("UPDATE labels SET color=? WHERE lid=?", (color, int(lid)))
 
     def delete_tag(self, lid: int) -> None:
@@ -769,7 +775,7 @@ class Store:
                            (int(lid), source, thread_id))
                 return
             if not db.execute("SELECT 1 FROM items WHERE source=? AND thread_id=? LIMIT 1", (source, thread_id)).fetchone():
-                raise ValueError("Only synced items can be tagged.")
+                raise TagError("Only synced items can be tagged.")
             db.execute("INSERT OR IGNORE INTO thread_tags (lid, source, thread_id) VALUES (?,?,?)",
                        (int(lid), source, thread_id))
 
@@ -789,8 +795,8 @@ class Store:
     def thread_labels(self, source: str, thread_id: str) -> List[Dict[str, object]]:
         """Labels on any item of a thread, then the thread's tags."""
         rows = self._read(
-            "SELECT il.lid FROM items c JOIN item_labels il ON il.source = c.source AND il.item_id = c.id "
-            "WHERE c.source=? AND c.thread_id=? UNION SELECT lid FROM thread_tags WHERE source=? AND thread_id=?",
+            "SELECT il.lid FROM items c INDEXED BY ix_items_thread CROSS JOIN item_labels il "
+            "ON il.source = c.source AND il.item_id = c.id WHERE c.source=? AND c.thread_id=? UNION SELECT lid FROM thread_tags WHERE source=? AND thread_id=?",
             (source, thread_id, source, thread_id))
         return self._names(r[0] for r in rows)
 
@@ -822,7 +828,8 @@ class Store:
         marks = self._marks(lids)
         own = (f"EXISTS (SELECT 1 FROM item_labels il WHERE il.source = {alias}.source AND il.item_id = {alias}.id "
                f"  AND il.lid IN ({marks}))") if per_item else (
-               f"EXISTS (SELECT 1 FROM items c JOIN item_labels il ON il.source = c.source AND il.item_id = c.id "
+               f"EXISTS (SELECT 1 FROM items c INDEXED BY ix_items_thread CROSS JOIN item_labels il "
+               f"  ON il.source = c.source AND il.item_id = c.id "
                f"  WHERE c.source = {alias}.source AND c.thread_id = {alias}.thread_id AND il.lid IN ({marks}))")
         return (f"({own} "
                 f" OR EXISTS (SELECT 1 FROM thread_tags tt WHERE tt.source = {alias}.source "
@@ -999,8 +1006,11 @@ class Store:
         "(SELECT count(*) FROM dropped d WHERE d.source = m.source AND d.thread_id = m.thread_id) AS n_dropped, "
         "(SELECT coalesce(sum(j.value), 0) FROM items c INDEXED BY ix_items_redacted, json_each(c.redactions) j "
         " WHERE c.source = m.source AND c.thread_id = m.thread_id AND c.redactions != '{}') AS n_redacted, "
-        "(SELECT group_concat(DISTINCT il.lid) FROM items c JOIN item_labels il ON il.source = c.source "
-        " AND il.item_id = c.id WHERE c.source = m.source AND c.thread_id = m.thread_id) AS label_ids, "
+        # CROSS JOIN fixes the order: the thread's few items first, then each one's labels (never the
+        # other way round, which would read every labelled message once per row).
+        "(SELECT group_concat(DISTINCT il.lid) FROM items c INDEXED BY ix_items_thread CROSS JOIN item_labels il "
+        " ON il.source = c.source AND il.item_id = c.id WHERE c.source = m.source AND c.thread_id = m.thread_id) "
+        " AS label_ids, "
         "(SELECT group_concat(tt.lid) FROM thread_tags tt WHERE tt.source = m.source AND tt.thread_id = m.thread_id) "
         " AS tag_ids")
 
@@ -1071,7 +1081,7 @@ class Store:
             lids = list(labels)
             m = self._label_map()
             if sum(int(m[i]["count"]) for i in lids if i in m) <= self.LABEL_DRIVE_MAX:
-                src = (f"FROM (SELECT DISTINCT c.source, c.thread_id FROM item_labels il JOIN items c "
+                src = (f"FROM (SELECT DISTINCT c.source, c.thread_id FROM item_labels il CROSS JOIN items c "
                        f"      ON c.source = il.source AND c.id = il.item_id "
                        f"      WHERE il.lid IN ({self._marks(lids)}) AND il.source IN ({self._marks(sources)}) "
                        f"      UNION SELECT source, thread_id FROM thread_tags "

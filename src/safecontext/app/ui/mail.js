@@ -6,7 +6,8 @@
 const MAIL_ROW_H = 74;      // must match .mrow height in mail.css
 const MAIL_PAGE = 150;
 const mail = {
-  inited: false, view: "all", source: "", query: "", reasons: [], order: "newest",
+  inited: false, view: "all", source: "", query: "", reasons: [], labels: [], order: "newest",
+  labelList: [], tagColors: [], thread: null,  // labels and tags for the Filter menu; the thread in the reader
   rows: [], next: null, loading: false, gen: 0, sel: -1, openKey: null,
   folders: null, coverage: [], reasonList: [], timer: null, lastCovSig: "",
   pages: new Map(),  // first page of each list already seen (source, view, filter, order): shown at once on a switch
@@ -27,18 +28,23 @@ function mailInit() {
   window.addEventListener("resize", () => state.view === "mail" && mailRender());
   // Filter menu (components.js): skip reasons only apply to Not synced, so picking one switches to it.
   const filter = $("mail-filter-list");
-  $("mail-filter").addEventListener("sc-open", () => { filter.reset(); mailLoadReasons(); });
+  $("mail-filter").addEventListener("sc-open", () => { filter.reset(); mailLoadReasons(); mailLoadLabels(); });
   filter.addEventListener("sc-filter-change", (e) => {
     const { category, value, checked } = e.detail;
     if (category === "status") {  // one status at a time; unticking it goes back to all mail
       mailSetView(checked ? value : "all");
+    } else if (category === "label" || category === "tag") {  // labels and tags: threads with any of them
+      const id = Number(value);
+      mail.labels = checked ? [...new Set([...mail.labels, id])] : mail.labels.filter((x) => x !== id);
+      if (mail.view === "not_synced") mailSetView("all"); else mailReload();  // skipped mail has no labels
     } else {  // skip reasons only exist for Not synced, so picking one switches to it
       mail.reasons = checked ? [...new Set([...mail.reasons, value])] : mail.reasons.filter((g) => g !== value);
       if (mail.view !== "not_synced") mailSetView("not_synced"); else mailReload();
     }
     mailRenderFilter();
   });
-  filter.addEventListener("sc-filter-clear", () => { mail.reasons = []; mailSetView("all"); mailRenderFilter(); });
+  filter.addEventListener("sc-filter-clear", () => { mail.reasons = []; mail.labels = []; mailSetView("all"); mailRenderFilter(); });
+  mailTagMenuInit();
   // Display menu: ordering
   $("mail-order").addEventListener("change", (e) => { mail.order = e.target.value; mailReload(); });
   document.addEventListener("keydown", mailKeys);
@@ -141,8 +147,7 @@ function mailPlaceholder() {
 
 // The list's title is the source's name; All / Synced / Not synced are a Status filter (mailRenderFilter).
 function mailRenderFolders() {
-  $("mail-list-title").textContent = mail.source ? sourceName(mail.source) : "All sources";
-  mailRenderFilter();
+  mailRenderFilter();  // it sets the title too
 }
 
 // ---------- Sync status page (account menu, or the sidebar sync card) ----------
@@ -255,9 +260,55 @@ function mailRenderFilter() {
       options: [{ value: "synced", label: "Synced", count: counts.synced },
         { value: "not_synced", label: "Not synced", count: counts.not_synced }] },
     { id: "reason", label: "Skip reason", hint: "Not synced", icon: "ban",
-      options: (mail.reasonList || []).map((x) => ({ value: x.group, label: x.group, count: x.count })) }];
-  list.selected = { status: mail.view === "all" ? [] : [mail.view], reason: mail.reasons };
-  $("mail-filter").count = (mail.view === "all" ? 0 : 1) + mail.reasons.length;
+      options: (mail.reasonList || []).map((x) => ({ value: x.group, label: x.group, count: x.count })) },
+    { id: "label", label: "Label", hint: "Gmail", icon: "tag",
+      options: mail.labelList.filter((l) => l.type === "user" || (l.type === "system" && l.count)).map(labelOption) },
+    { id: "tag", label: "Tag", icon: "tag", options: mail.labelList.filter((l) => l.type === "tag").map(labelOption) }];
+  const picked = mail.labels.map(String);
+  const isTag = new Set(mail.labelList.filter((l) => l.type === "tag").map((l) => String(l.id)));
+  list.selected = { status: mail.view === "all" ? [] : [mail.view], reason: mail.reasons,
+    label: picked.filter((x) => !isTag.has(x)), tag: picked.filter((x) => isTag.has(x)) };
+  $("mail-filter").count = (mail.view === "all" ? 0 : 1) + mail.reasons.length + mail.labels.length;
+  // The list's title names the label or tag being shown: "Gmail · Receipts".
+  const names = mail.labels.map((id) => (mail.labelList.find((l) => l.id === id) || {}).name).filter(Boolean);
+  $("mail-list-title").textContent = (mail.source ? sourceName(mail.source) : "All sources") +
+    (names.length ? ` · ${names.length > 1 ? `${names.length} labels` : names[0]}` : "");
+}
+
+// Nested Gmail labels ("Work/Clients") read as a path, as in Gmail's sidebar.
+const labelOption = (l) => ({ value: String(l.id), label: l.name.split("/").join(" › "), count: l.count });
+
+async function mailLoadLabels() {
+  const r = await api().mail_labels(mail.source);
+  if (!r.ok) return;
+  mail.labelList = r.labels;
+  mail.tagColors = r.colors;
+  const known = new Set(r.labels.map((l) => l.id));
+  if (mail.labels.some((x) => !known.has(x))) { mail.labels = mail.labels.filter((x) => known.has(x)); mailReload(); }
+  mailRenderFilter();
+}
+
+// ---------- labels and tags ----------
+// A small chip: a coloured dot and the name. Gmail labels keep Gmail's colour; tags use the app's tag tokens.
+function labelDot(l) {
+  const c = l.type === "tag" ? (/^[a-z]+$/.test(l.color) ? `var(--tag-${l.color})` : "var(--tag-gray)")
+    : /^#[0-9a-f]{6}$/i.test(l.color) ? l.color : "var(--tag-gray)";
+  return el("span", { class: "lbl-dot", style: `background:${c}`, "aria-hidden": "true" });
+}
+
+function labelChip(l, extra) {
+  const title = l.type === "tag" ? `Tag: ${l.name} (on this Mac only)` : `Gmail label: ${l.name}`;
+  return el("span", { class: `lbl-chip${l.type === "tag" ? " tag" : ""}`, title }, labelDot(l), el("span", { class: "lbl-name" }, l.name), extra || null);
+}
+
+// On a row: the user's labels and tags (Gmail's own, like Inbox, would be on nearly every row), at most two.
+function rowLabels(r) {
+  const shown = (r.labels || []).filter((l) => l.type !== "system");
+  const starred = (r.labels || []).some((l) => l.type === "system" && l.name === "Starred");
+  const out = shown.slice(0, 2).map((l) => labelChip(l));
+  if (shown.length > 2) out.push(el("span", { class: "lbl-more", title: shown.slice(2).map((l) => l.name).join(", ") }, `+${shown.length - 2}`));
+  if (starred) out.unshift(el("span", { class: "lbl-star", title: "Starred in Gmail" }, icon("star", "sc-svg")));
+  return out.length ? el("span", { class: "mrow-labels" }, out) : null;
 }
 
 function mailSetView(view) {
@@ -273,7 +324,7 @@ function mailSetView(view) {
 // ---------- the list (virtualized) ----------
 // Which list is showing. Searches aren't kept: they change with every keystroke.
 function mailPageKey() {
-  return mail.query ? null : JSON.stringify([mail.source, mail.view, mail.reasons, mail.order]);
+  return mail.query ? null : JSON.stringify([mail.source, mail.view, mail.reasons, mail.labels, mail.order]);
 }
 
 function mailRemember(key, rows, next) {
@@ -300,7 +351,7 @@ async function mailReload(keepSelection = false) {
     $("mail-list").scrollTop = 0;
     mailRender();
   }
-  const r = await api().mail_list(mail.view, mail.source, mail.query, mail.reasons, null, MAIL_PAGE, mail.order);
+  const r = await api().mail_list(mail.view, mail.source, mail.query, mail.reasons, null, MAIL_PAGE, mail.order, mail.labels);
   if (gen !== mail.gen) return;  // a newer request superseded this one
   mail.loading = false;
   mail.rows = r.ok ? r.rows : [];
@@ -316,7 +367,7 @@ async function mailMore() {
   const gen = mail.gen;
   mail.loading = true;
   mailRender();
-  const r = await api().mail_list(mail.view, mail.source, mail.query, mail.reasons, mail.next, MAIL_PAGE, mail.order);
+  const r = await api().mail_list(mail.view, mail.source, mail.query, mail.reasons, mail.next, MAIL_PAGE, mail.order, mail.labels);
   if (gen !== mail.gen) return;
   mail.loading = false;
   if (r.ok) { mail.rows = mail.rows.concat(r.rows); mail.next = r.next; }
@@ -338,7 +389,8 @@ function mailRender() {
   if (!total) {
     const syncingFirst = mail.coverage.some((c) => !c.first_sync_done);
     spacer.replaceChildren(el("div", { class: "empty" }, mail.error ||
-      (mail.query ? "No synced mail matches." : mail.view === "not_synced" ? "Nothing was skipped." :
+      (mail.query ? "No synced mail matches." : mail.labels.length ? "Nothing synced has that label or tag." :
+        mail.view === "not_synced" ? "Nothing was skipped." :
         syncingFirst ? "Your mail is still being downloaded and scrubbed…" : "Nothing here yet.")));
     return;
   }
@@ -379,7 +431,7 @@ function mailRow(r, i) {
       el("span", { class: "mrow-from" }, isEvent || !r.sender ? sourceName(r.source) : senderName(r.sender),
         r.count > 1 ? el("span", { class: "cnt" }, String(r.count)) : null),
       mailWhen(r, isEvent)),
-    el("div", { class: "mrow-subj" }, el("span", {}, richText(r.title || "(no subject)"))),
+    el("div", { class: "mrow-subj" }, el("span", {}, richText(r.title || "(no subject)")), rowLabels(r)),
     el("div", { class: "mrow-bottom" },
       el("span", { class: "mrow-snip" }, richText((r.snippet || "").replace(/\s+/g, " "))), ...badges));
 }
@@ -551,16 +603,81 @@ async function mailOpen(r, show = true) {
   mail.openKey = key;
   const reader = $("mail-reader");
   reader.scrollTop = 0;
+  mail.thread = null;
+  $("mail-tag-menu").hidden = true;
   if (r.type === "dropped") { mailReaderBar(["Not synced: ", r.reason_info.label], r.link, r.source); reader.replaceChildren(mailDroppedDetail(r)); return; }
   const t = await api().mail_thread(r.source, r.thread_id);
   if (mail.openKey !== key) return;
   if (!t.ok) { mailReaderBar(); reader.replaceChildren(el("div", { class: "empty" }, t.error)); return; }
+  mail.thread = { source: r.source, thread_id: r.thread_id, labels: t.labels || [] };
+  $("mail-tag-menu").hidden = false;
   const items = t.entries.filter((e) => e.type === "item");
   const first = items[0] || {};
   const link = (items.find((m) => m.link) || t.entries.find((e) => e.link) || {}).link || "";  // the thread in Gmail
   mailReaderBar(richText(first.title || "(no subject)"), link, r.source);
-  reader.replaceChildren(
+  reader.replaceChildren(el("div", { class: "mr-labels", id: "mail-reader-labels" }),
     ...t.entries.map((e) => e.type === "dropped" ? mailSkippedCard(e) : e.kind === "event" ? eventCard(e) : mailMessageCard(e)));
+  mailRenderThreadLabels();
+}
+
+// The open thread's labels and tags, above its first message. A tag's × takes it off.
+function mailRenderThreadLabels() {
+  const box = $("mail-reader-labels");
+  if (!box || !mail.thread) return;
+  box.replaceChildren(...mail.thread.labels.map((l) => l.type !== "tag" ? labelChip(l)
+    : labelChip(l, el("button", { class: "lbl-x", type: "button", "aria-label": `Remove tag ${l.name}`, title: "Remove tag",
+      onclick: () => mailToggleTag(l.id, false) }, icon("x", "sc-svg")))));
+}
+
+// ---------- the reader's Tags menu: tick tags on or off for the open thread, or make a new one ----------
+function mailTagMenuInit() {
+  const menu = $("mail-tag-menu");
+  // Shown at once from the tags already known (so typing goes straight into "New tag…"), then refreshed.
+  menu.addEventListener("sc-open", async () => { mailRenderTagMenu(true); await mailLoadLabels(); if (menu.open) mailRenderTagMenu(true, true); });
+}
+
+// keepTyped: a refresh while the menu is open keeps what's being typed in "New tag…".
+function mailRenderTagMenu(focusNew = false, keepTyped = false) {
+  const panel = $("mail-tag-panel");
+  if (!mail.thread) { panel.replaceChildren(); return; }
+  const typed = keepTyped ? (panel.querySelector(".sc-filter-q") || {}).value || "" : "";
+  const on = new Set(mail.thread.labels.filter((l) => l.type === "tag").map((l) => l.id));
+  const tags = mail.labelList.filter((l) => l.type === "tag");
+  const input = el("input", { class: "sc-filter-q", type: "text", placeholder: "New tag…", "aria-label": "New tag name",
+    autocomplete: "off", spellcheck: "false", maxlength: "60" });
+  input.value = typed;
+  input.addEventListener("keydown", async (e) => {
+    if (e.key !== "Enter" || !input.value.trim()) return;
+    e.preventDefault();
+    const r = await api().tag_create(input.value.trim(), "");
+    if (!r.ok) { toast(r.error, "error"); return; }
+    await mailToggleTag(r.tag.id, true);
+    await mailLoadLabels();
+    mailRenderTagMenu(true);
+  });
+  panel.replaceChildren(
+    el("div", { class: "sc-filter-head" }, input),
+    el("div", { class: "sc-filter-items", role: "menu" }, ...(tags.length ? tags.map((l) =>
+      el("button", { class: "dropdown-menu-item sc-filter-opt", type: "button", role: "menuitemcheckbox", "aria-checked": String(on.has(l.id)),
+        onclick: () => mailToggleTag(l.id, !on.has(l.id)).then(() => mailRenderTagMenu()) },
+      el("span", { class: "sc-check" + (on.has(l.id) ? " on" : "") }, on.has(l.id) ? icon("check", "sc-svg") : null),
+      labelDot(l), el("span", { class: "sc-filter-label" }, l.name)))
+      : [el("div", { class: "sc-empty" }, "No tags yet. Type a name and press Return.")])),
+    el("p", { class: "tag-menu-note" }, "Tags stay on this Mac. Gmail never sees them."));
+  if (focusNew) input.focus();
+}
+
+async function mailToggleTag(id, on) {
+  const t = mail.thread;
+  if (!t) return;
+  const r = await api().tag_thread(id, t.source, t.thread_id, on);
+  if (!r.ok) { toast(r.error, "error"); return; }
+  t.labels = r.labels;
+  mailRenderThreadLabels();
+  // the row in the list shows tags too: update it in place
+  const row = mail.rows.find((x) => x.type === "thread" && x.source === t.source && x.thread_id === t.thread_id);
+  if (row) { row.labels = r.labels; mailRender(); }
+  mail.pages.clear();  // remembered pages may show the old tags
 }
 
 function redactionSummary(red) {
@@ -618,6 +735,7 @@ function mailKeys(e) {
   }
   if (e.key === "/") { e.preventDefault(); q.focus(); return; }
   if (e.key === "f" || e.key === "F") { e.preventDefault(); $("mail-filter").show(); return; }
+  if ((e.key === "t" || e.key === "T") && !$("mail-tag-menu").hidden) { e.preventDefault(); $("mail-tag-menu").show(); return; }
   const inReader = $("mail-reader").contains(document.activeElement);
   const step = { j: 1, k: -1, ...(inReader ? {} : { ArrowDown: 1, ArrowUp: -1 }) }[e.key];  // arrows scroll the reader
   if (step) {
@@ -629,4 +747,44 @@ function mailKeys(e) {
     mailOpen(mail.rows[mail.sel], true);
     $("mail-reader").focus({ preventScroll: true });
   }
+}
+
+// ---------- Settings › Tags: rename, recolour or delete the user's tags ----------
+async function loadTagSettings() {
+  const r = await api().mail_labels("");
+  const box = $("s-tag-list");
+  if (!r.ok) { box.replaceChildren(el("p", { class: "muted" }, r.error)); return; }
+  mail.tagColors = r.colors;
+  const tags = r.labels.filter((l) => l.type === "tag");
+  if (!tags.length) { box.replaceChildren(el("p", { class: "muted tag-admin-empty" }, "No tags yet.")); return; }
+  box.replaceChildren(...tags.map(tagAdminRow));
+}
+
+function tagAdminRow(l) {
+  const save = async (change) => {
+    const r = await api().tag_update(l.id, change.name ?? null, change.color ?? null);
+    if (!r.ok) toast(r.error, "error");
+    mail.pages.clear();
+    loadTagSettings();
+  };
+  const name = el("input", { class: "input tag-admin-name", type: "text", value: l.name, maxlength: "60",
+    "aria-label": `Tag name: ${l.name}` });
+  name.addEventListener("change", () => { if (name.value.trim() && name.value.trim() !== l.name) save({ name: name.value.trim() }); else name.value = l.name; });
+  name.addEventListener("keydown", (e) => { if (e.key === "Enter") name.blur(); if (e.key === "Escape") { name.value = l.name; name.blur(); } });
+  const colors = el("div", { class: "tag-swatches", role: "radiogroup", "aria-label": `Colour for ${l.name}` },
+    ...mail.tagColors.map((c) => el("button", { class: `tag-swatch${c === l.color ? " on" : ""}`, type: "button", role: "radio",
+      "aria-checked": String(c === l.color), "aria-label": c, title: c[0].toUpperCase() + c.slice(1),
+      style: `background:var(--tag-${c})`, onclick: () => c !== l.color && save({ color: c }) })));
+  const del = el("button", { class: "btn btn-ghost btn-sm", type: "button", "data-variant": "destructive",
+    onclick: async () => {
+      const where = l.count === 1 ? "1 conversation" : `${n(l.count)} conversations`;
+      if (!await confirmDialog(`“${l.name}” comes off ${where}. The conversations themselves stay.`, "Delete tag")) return;
+      const r = await api().tag_delete(l.id);
+      if (!r.ok) toast(r.error, "error");
+      mail.labels = mail.labels.filter((x) => x !== l.id);
+      mail.pages.clear();
+      loadTagSettings();
+    } }, "Delete");
+  return el("div", { class: "tag-admin-row" }, labelDot(l), name,
+    el("span", { class: "muted tag-admin-count" }, l.count === 1 ? "1 conversation" : `${n(l.count)} conversations`), colors, del);
 }

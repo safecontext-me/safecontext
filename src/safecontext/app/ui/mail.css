@@ -130,3 +130,38 @@
   .mail-back { display: grid; }
   .cov-detail { grid-template-columns: 1fr; }
 }
+
+/* labels (Gmail's, in Gmail's colour) and tags (the user's own) */
+.mrow-labels { flex: none; display: flex; align-items: center; gap: var(--space-1); max-width: 55%; min-width: 0; }
+.lbl-chip { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; max-width: 140px; height: 18px;
+            padding: 0 var(--space-1-5); border: 1px solid var(--border); border-radius: var(--radius-full);
+            font-size: var(--text-xs); color: var(--muted-foreground); background: var(--card); white-space: nowrap; }
+.lbl-name { overflow: hidden; text-overflow: ellipsis; }
+.lbl-dot { width: 7px; height: 7px; flex: none; border-radius: var(--radius-full); }
+.lbl-more { font-size: var(--text-xs); color: var(--muted-foreground); }
+.lbl-star { display: inline-grid; place-items: center; color: var(--tag-yellow); }
+.lbl-star .sc-svg { width: 13px; height: 13px; fill: currentColor; }
+.mr-labels { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-bottom: var(--space-3); }
+.mr-labels:empty { display: none; }
+.mr-labels .lbl-chip { height: 22px; max-width: 240px; font-size: var(--text-sm); color: var(--foreground); }
+.lbl-x { display: grid; place-items: center; width: 14px; height: 14px; margin-right: calc(var(--space-0-5) * -1); padding: 0;
+         border: 0; border-radius: var(--radius-full); background: transparent; color: var(--muted-foreground); cursor: pointer; }
+.lbl-x:hover { background: var(--hover); color: var(--foreground); }
+.lbl-x .sc-svg { width: 11px; height: 11px; }
+
+/* the reader's Tags menu */
+.tag-menu { width: 260px; }
+.tag-menu .sc-filter-items { max-height: 280px; overflow: auto; }
+.tag-menu-note { margin: 0; padding: var(--space-2) var(--space-3); border-top: 1px solid var(--border);
+                 font-size: var(--text-sm); color: var(--muted-foreground); }
+
+/* Settings › Tags */
+.tag-admin { display: grid; gap: var(--space-1-5); }
+.tag-admin-row { display: flex; align-items: center; gap: var(--space-2-5); }
+.tag-admin-name { flex: 1 1 160px; min-width: 0; height: var(--control-sm); }
+.tag-admin-count { flex: none; font-size: var(--text-sm); }
+.tag-swatches { display: flex; gap: var(--space-1); flex: none; }
+.tag-swatch { width: 16px; height: 16px; padding: 0; border: 0; border-radius: var(--radius-full); cursor: pointer; }
+.tag-swatch.on { box-shadow: 0 0 0 2px var(--background), 0 0 0 3.5px var(--foreground); }
+.tag-swatch:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (max-width: 760px) { .tag-swatches { display: none; } }
