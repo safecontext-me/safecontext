@@ -263,6 +263,7 @@ function show(view) {
   markNav();
   for (const v of ["mail", "sources", "source", "mcp", "removed", "review", "sync", "settings", "files"]) $(`view-${v}`).hidden = v !== view;
   if (view !== "mail") mailForgetSkipped();  // skipped items fetched to show are dropped on leaving Mail
+  if (view !== "removed") dashForgetSkipped();  // and on leaving the Security Dashboard
   if (view === "mail") mailShow();
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "source") renderSourcePage();
@@ -890,7 +891,8 @@ function bars(container, data) {
 // Security Dashboard: a digest line for the period, three stat cards (all-time totals, the period's change and
 // its largest groups), then "Recently protected" (dashboard_feed): skipped items and kept items with blanked-out
 // details, newest first. Skipped rows show only the reason and date: their content was never stored.
-const dash = { period: "week", view: "all", rows: [], next: null, seq: 0, sig: undefined, at: 0 };
+const dash = { period: "week", view: "all", rows: [], next: null, seq: 0, sig: undefined, at: 0,
+  skip: new Map(), skipGen: 0 };  // skip: "source:id" -> live preview of a skipped row (memory only; see app/skipped.py)
 const DASH_PERIODS = { week: "this week", month: "this month", all: "so far" };
 
 async function loadRemoved() {
@@ -965,12 +967,37 @@ async function loadDashFeed(more = false) {
   if (!r.ok) return toast(r.error, "error");
   dash.rows = more ? dash.rows.concat(r.rows) : r.rows;
   dash.next = r.next;
+  dashRender();
+  $("dash-more").hidden = !dash.next;
+  dashFetchPreviews();
+}
+
+function dashRender() {
   const box = $("dash-rows");
-  if (!more) box.replaceChildren();
-  box.append(...r.rows.map(dashRow));
+  box.replaceChildren(...dash.rows.map(dashRow));
   if (!dash.rows.length) box.replaceChildren(el("div", { class: "dash-empty" },
     dash.view === "skipped" ? "Nothing skipped yet." : dash.view === "scrubbed" ? "Nothing blanked out yet." : "Nothing protected yet."));
-  $("dash-more").hidden = !dash.next;
+}
+
+// Skipped rows have no stored content. Like Not synced in Mail, the rows on screen ask their source for
+// sender, subject and a snippet (app/skipped.py: fetched now, kept in memory only, never stored or sent to AI).
+async function dashFetchPreviews() {
+  const want = dash.rows.filter((r) => r.type === "dropped" && !dash.skip.has(skipKey(r))).slice(0, 40);
+  if (!want.length) return;
+  for (const r of want) dash.skip.set(skipKey(r), null);
+  const gen = dash.skipGen;
+  const res = await api().skipped_previews(want.map((r) => ({ source: r.source, id: r.id })));
+  if (gen !== dash.skipGen) return;  // forgotten meanwhile
+  for (const r of want) dash.skip.set(skipKey(r), res.ok ? (res.previews[skipKey(r)] || { error: "" }) : { error: res.error });
+  if (state.view === "removed") dashRender();
+}
+
+// Leaving the dashboard: drop the skipped previews held here and in the backend.
+function dashForgetSkipped() {
+  if (!dash.skip.size) return;
+  dash.skip.clear();
+  dash.skipGen++;
+  api().skipped_forget();
 }
 
 function dashRedactionText(red) {
@@ -984,10 +1011,17 @@ function dashRow(r) {
   const skipped = r.type === "dropped";
   let who, line, tip;
   if (skipped) {
-    const ri = r.reason_info;
-    who = "Sender not kept";
-    line = [el("span", {}, ri.label), r.thread_title ? el("span", { class: "muted" }, "In “", richText(r.thread_title), "”") : null];
+    const ri = r.reason_info, p = dash.skip.get(skipKey(r));
     tip = `Skipped: ${ri.why || ri.label} AI can't see it.`;
+    if (p && !p.error && !p.gone) {  // fetched from the source just now, shown here only
+      who = p.sender ? senderName(p.sender) : sourceName(r.source);
+      const snip = (p.snippet || "").replace(/\s+/g, " ");
+      line = [el("span", {}, p.title || "(no subject)"), snip ? el("span", { class: "muted" }, "— ", snip) : null];
+    } else {
+      who = "Sender not kept";
+      line = [el("span", {}, ri.label), r.thread_title ? el("span", { class: "muted" }, "In “", richText(r.thread_title), "”") : null];
+      if (p && p.gone) tip += " It's no longer at the source.";
+    }
   } else {
     who = r.kind === "event" || !r.sender ? sourceName(r.source) : senderName(r.sender);
     const snip = (r.snippet || "").replace(/\s+/g, " ").replace(/\[[A-Z_:]*$/, "…");  // a token cut short at the end

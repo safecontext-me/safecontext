@@ -196,3 +196,14 @@ def test_rows_never_use_bold_for_skipped_or_scrubbed():
     css = (UI / "app.css").read_text()
     dash = "\n".join(line for line in css.splitlines() if line.startswith((".dash-row", ".dash-who", ".dash-line")))
     assert "font-weight" not in dash
+
+
+def test_skipped_rows_fetch_live_and_are_forgotten_on_leaving():
+    """Skipped rows ask app/skipped.py for a preview (memory only), and leaving the dashboard drops it."""
+    js = (UI / "app.js").read_text()
+    assert "api().skipped_previews(" in js
+    show = js[js.index("function show(view)"):]
+    show = show[:show.index("\n}\n")]
+    assert 'if (view !== "removed") dashForgetSkipped();' in show
+    forget = js[js.index("function dashForgetSkipped"):]
+    assert "api().skipped_forget()" in forget[:forget.index("\n}\n")]
