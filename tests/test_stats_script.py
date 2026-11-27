@@ -87,3 +87,23 @@ def test_needs_account(monkeypatch, capsys):
     monkeypatch.delenv(stats.ACCOUNT_ENV, raising=False)
     assert stats.main([]) == 2
     assert "account ID" in capsys.readouterr().err
+
+
+def test_export_writes_and_merges(tmp_path):
+    from datetime import datetime, timezone
+    installs = [{"day": "2026-11-24 00:00:00", "version": "0.1.10", "n": "5"}]
+    paths = stats.export(tmp_path, 7, ROWS, installs, now=datetime(2026, 11, 27, 12, tzinfo=timezone.utc))
+    assert sorted(p.name for p in paths) == ["daily.json", "installs.json", "links.json", "usage.json"]
+    import json
+    daily = json.loads((tmp_path / "daily.json").read_text())["rows"]
+    assert [d["day"] for d in daily] == ["2026-11-23", "2026-11-24"]
+    assert daily[0]["requests"] == 13 and daily[0]["offline"] == 1 and daily[0]["connects"] == 1
+    assert daily[1]["rate_limited"] == 1 and daily[1]["unauthorized"] == 3
+    links = json.loads((tmp_path / "links.json").read_text())["rows"]
+    assert all(len(r["link"]) == 12 for r in links)
+    # A later export with a 2-day window keeps the older days and replaces the newer ones.
+    later = [row("2026-11-27", A, "mcp_request", "search", n=2)]
+    stats.export(tmp_path, 2, later, None, now=datetime(2026, 11, 28, 12, tzinfo=timezone.utc))
+    daily = json.loads((tmp_path / "daily.json").read_text())["rows"]
+    assert [d["day"] for d in daily] == ["2026-11-23", "2026-11-24", "2026-11-27"]
+    assert json.loads((tmp_path / "installs.json").read_text())["rows"][0]["checks"] == 5  # untouched

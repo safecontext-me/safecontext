@@ -14,6 +14,12 @@ service "safecontext-stats"). Never from a file. The account ID comes from --acc
 CLOUDFLARE_ACCOUNT_ID.
 
     .venv/bin/python scripts/stats.py --days 14
+    .venv/bin/python scripts/stats.py --days 92 --export   # also keep the history (see below)
+
+--export also writes the numbers as JSON files to ~/.safecontext-stats (or --export DIR),
+merged with what earlier exports kept, so the history outlives Analytics Engine's ~90 days.
+These are the files the usage dashboard shows: daily.json, usage.json, links.json,
+installs.json, each {"rows": [...], "meta": [...]}. Link tokens are cut to 12 characters.
 
 Standard library only. Nothing is written anywhere.
 """
@@ -29,6 +35,8 @@ import sys
 import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
 API = "https://api.cloudflare.com/client/v4/accounts/{account}/analytics_engine/sql"
@@ -38,6 +46,8 @@ ACCOUNT_ENV = "CLOUDFLARE_ACCOUNT_ID"
 RELAY_DATASET = "safecontext_relay"
 UPDATES_DATASET = "safecontext_updates"
 REQUEST_EVENTS = ("mcp_request", "mac_offline", "rate_limited")
+DEFAULT_EXPORT_DIR = Path.home() / ".safecontext-stats"
+TOKEN_CHARS = 12
 
 
 class StatsError(Exception):
@@ -223,12 +233,125 @@ def _version_key(v: str):
         return (1, ())
 
 
+# --- export ---------------------------------------------------------------------------------------
+def daily_rows(rows: List[dict]) -> List[dict]:
+    """One row per day: the same figures as the first relay table."""
+    days: Dict[str, Counter] = defaultdict(Counter)
+    per_link: Dict[str, Counter] = defaultdict(Counter)
+    for r in rows:
+        d, n, ev, outcome = _day(r.get("day")), _num(r.get("n")), r.get("event"), r.get("outcome")
+        c = days[d]
+        if ev == "oauth_connect":
+            c["connects"] += n
+            continue
+        if ev not in REQUEST_EVENTS:
+            continue
+        c["requests"] += n
+        per_link[d][r.get("link") or ""] += n
+        if ev == "mac_offline":
+            c["timeouts" if outcome == "timeout" else "offline"] += n
+        elif ev == "rate_limited":
+            c["rate_limited"] += n
+        elif outcome == "ok":
+            c["ok"] += n
+            c["latency_sum"] += _num(r.get("latency_ms"))
+        elif outcome == "unauthorized":
+            c["unauthorized"] += n
+        else:
+            c["errors"] += n
+    out = []
+    for d in sorted(days):
+        c, links = days[d], list(per_link[d].values())
+        out.append({
+            "day": d, "active_links": len(links), "requests": int(c["requests"]), "ok": int(c["ok"]),
+            "errors": int(c["errors"]), "unauthorized": int(c["unauthorized"]), "offline": int(c["offline"]),
+            "timeouts": int(c["timeouts"]), "rate_limited": int(c["rate_limited"]), "connects": int(c["connects"]),
+            "req_per_link_median": float(statistics.median(links)) if links else 0.0,
+            "req_per_link_p90": float(percentile(links, 0.9)),
+            "ok_latency_ms": round(c["latency_sum"] / c["ok"], 1) if c["ok"] else 0.0,
+        })
+    return out
+
+
+def usage_rows(rows: List[dict]) -> List[dict]:
+    """Counts by day, app, tool, event and outcome (no link)."""
+    agg: Counter = Counter()
+    for r in rows:
+        key = (_day(r.get("day")), r.get("app") or "other", r.get("tool") or "", r.get("event") or "", r.get("outcome") or "")
+        agg[key] += _num(r.get("n"))
+    return [{"day": k[0], "app": k[1], "tool": k[2], "event": k[3], "outcome": k[4], "count": int(v)}
+            for k, v in sorted(agg.items())]
+
+
+def link_rows(rows: List[dict]) -> List[dict]:
+    """Requests per link per day, with the token cut short."""
+    agg: Counter = Counter()
+    for r in rows:
+        if r.get("event") in REQUEST_EVENTS:
+            agg[(_day(r.get("day")), (r.get("link") or "")[:TOKEN_CHARS])] += _num(r.get("n"))
+    return [{"day": d, "link": l, "requests": int(v)} for (d, l), v in sorted(agg.items())]
+
+
+def install_rows(rows: List[dict]) -> List[dict]:
+    agg: Counter = Counter()
+    for r in rows:
+        agg[(_day(r.get("day")), r.get("version") or "unknown")] += _num(r.get("n"))
+    return [{"day": d, "version": v, "checks": int(n)} for (d, v), n in sorted(agg.items())]
+
+
+def merge_days(old: List[dict], new: List[dict], window_start: str) -> List[dict]:
+    """Keep old rows for days before the queried window, and for its first (partial) day when
+    the new query has none; the new rows win for every later day."""
+    new_days = {r["day"] for r in new}
+    kept = [r for r in old if r.get("day", "") < window_start
+            or (r.get("day") == window_start and window_start not in new_days)]
+    return sorted(kept + new, key=lambda r: tuple(str(r.get(k, "")) for k in ("day", "app", "tool", "event", "outcome", "link", "version")))
+
+
+def export(out_dir: Path, days: int, relay: List[dict], installs: Optional[List[dict]],
+           now: Optional[datetime] = None) -> List[Path]:
+    now = now or datetime.now(timezone.utc)
+    window_start = (now - timedelta(days=days)).strftime("%Y-%m-%d")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = now.strftime("%Y-%m-%d %H:%M UTC")
+    files = {
+        "daily.json": (daily_rows(relay), relay_sql(days)),
+        "usage.json": (usage_rows(relay), relay_sql(days)),
+        "links.json": (link_rows(relay), relay_sql(days)),
+    }
+    if installs is not None:
+        files["installs.json"] = (install_rows(installs), updates_sql(days))
+    written = []
+    for name, (rows, sql) in files.items():
+        path = out_dir / name
+        old: List[dict] = []
+        if path.exists():
+            try:
+                old = list(json.loads(path.read_text()).get("rows") or [])
+            except (OSError, ValueError, AttributeError):
+                old = []
+        merged = merge_days(old, rows, window_start)
+        meta = [
+            {"label": "Made by", "value": "scripts/stats.py --export"},
+            {"label": "Exported", "value": stamp},
+            {"label": "Query", "value": sql.strip(), "type": "code", "lang": "sql"},
+            {"label": "Kept from earlier exports", "value": f"days before {window_start}"},
+        ]
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"rows": merged, "meta": meta}, indent=0))
+        tmp.replace(path)
+        written.append(path)
+    return written
+
+
 # --- main -----------------------------------------------------------------------------------------
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="SafeContext anonymous usage stats (Cloudflare Analytics Engine).")
     ap.add_argument("--days", type=int, default=14, help="how many days back (default 14; data is kept ~90)")
     ap.add_argument("--account", default=os.environ.get(ACCOUNT_ENV, ""),
                     help=f"Cloudflare account ID (default: ${ACCOUNT_ENV})")
+    ap.add_argument("--export", nargs="?", const=str(DEFAULT_EXPORT_DIR), default=None, metavar="DIR",
+                    help=f"also write JSON files for the dashboard, merged with earlier ones (default {DEFAULT_EXPORT_DIR})")
     args = ap.parse_args(argv)
     if not args.account:
         print(f"Give the Cloudflare account ID with --account or {ACCOUNT_ENV}.", file=sys.stderr)
@@ -238,12 +361,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
     try:
         token = get_token()
-        print(relay_report(run_sql(args.account, token, relay_sql(args.days))))
+        relay = run_sql(args.account, token, relay_sql(args.days))
+        print(relay_report(relay))
         print()
+        installs: Optional[List[dict]] = None
         try:
-            print(updates_report(run_sql(args.account, token, updates_sql(args.days))))
+            installs = run_sql(args.account, token, updates_sql(args.days))
+            print(updates_report(installs))
         except StatsError:
             print("INSTALLS: not available yet (the update-check counter isn't live).")
+        if args.export:
+            paths = export(Path(args.export).expanduser(), args.days, relay, installs)
+            print()
+            print(f"Exported {len(paths)} files to {Path(args.export).expanduser()}")
     except StatsError as e:
         print(e, file=sys.stderr)
         return 1
