@@ -1,10 +1,13 @@
 """Gmail as a source: the connector around sync.Syncer and auth's Gmail sign-in."""
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Sequence
+import html
+from typing import Any, Callable, Dict, Optional, Sequence
 
 from .. import auth
-from ..store import GMAIL, Store
+from ..gmail_parse import parse_gmail_message
+from ..scrub import RawItem
+from ..store import GMAIL, Store, gmail_link
 from ..sync import ProgressFn, Syncer
 from .base import OAUTH_SCOPE, BaseSource, Requirement, SourceStatus
 
@@ -77,9 +80,40 @@ class GmailSource(BaseSource):
         mode = self.mode
         return Syncer(self.store, self.api_factory(self.account, mode), mode=mode, progress=progress)
 
+    can_fetch_skipped = True
+
+    def fetch_skipped(self, ids: Sequence[str], full: bool = True) -> Dict[str, Optional[RawItem]]:
+        """messages.get with the read-only scope Gmail already has (format=metadata for a list row,
+        or in headers-only mode, where the full message isn't allowed)."""
+        metadata = not full or self.mode == "headers"
+        api = self.api_factory(self.account, self.mode)
+        if hasattr(api, "_max_retries"):  # someone is waiting on screen: fail fast, don't back off for minutes
+            api._max_retries = 2
+        found = api.get_messages(list(ids), "metadata" if metadata else "full")
+        out: Dict[str, Optional[RawItem]] = {}
+        for i in ids:
+            res = found.get(i)
+            if res is None:
+                out[i] = None
+                continue
+            item = _as_item(parse_gmail_message(res, metadata_only=metadata), self.account)
+            if not full:  # a list row: Gmail's own short snippet stands in for the text
+                item.text = html.unescape(res.get("snippet") or "")
+            out[i] = item
+        return out
+
     def disconnect(self, wipe: bool = True, revoke: bool = True) -> None:
         if self.account:
             (self.revoke_fn or auth.disconnect)(self.account, revoke=revoke)
         super().disconnect(wipe=wipe)
         if not wipe:
             self.state.set("last_error", None)  # auth_state=needs_reconnect shows RECONNECT_MESSAGE
+
+
+def _as_item(m: Any, account: str) -> RawItem:
+    """A fetched Gmail message (RawMessage) in the shape every other source uses."""
+    people = [x for x in (m.header("to"), m.header("cc")) if x]
+    return RawItem(id=m.id, kind="message", thread_id=m.thread_id, date_ms=m.internal_date_ms,
+                   sender=m.header("from"), participants=people, title=m.header("subject"),
+                   text=m.text_body, html=m.html_body, attachments=list(m.attachments),
+                   link=gmail_link(account, m.header("message-id"), m.thread_id))

@@ -123,7 +123,20 @@
 .msg.skipped .msg-from { color: var(--muted-foreground); }
 .skip-why { font-size: var(--text-base); margin: var(--space-1) 0 0; }
 .skip-note { font-size: var(--text-sm); color: var(--muted-foreground); margin: var(--space-2) 0 0; }
-.mr-dropped dl { margin: var(--space-3) 0; }
+/* a skipped item, fetched live to show (never stored) */
+.skip-banner { margin-bottom: var(--space-3); }
+.skip-banner .alert-description p { margin: 0; }
+.skip-why-more { margin-top: var(--space-1-5); }
+.skip-why-more summary { cursor: pointer; color: var(--foreground); font-size: var(--text-sm); width: fit-content; }
+.skip-why-more summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-sm); }
+.skip-why-more p { margin: var(--space-1) 0 0; font-size: var(--text-sm); }
+.skip-loading { display: grid; gap: var(--space-2-5); padding: var(--space-2) 0; }
+.skip-error { margin-bottom: var(--space-3); }
+.skip-actions { margin-top: var(--space-2-5); display: flex; gap: var(--space-2); }
+.skip-subject { font-weight: var(--font-weight-semibold); margin-bottom: var(--space-1); }
+.msg.skipped .skip-banner { margin-top: var(--space-1); }
+.mr-skip-badge { gap: var(--space-1); vertical-align: 1px; }
+.mr-skip-badge svg { width: 12px; height: 12px; }
 
 /* small windows: list or reader, one at a time */
 @media (max-width: 760px) {

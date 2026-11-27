@@ -47,6 +47,10 @@ class CalendarAPI(Protocol):
         With a sync token, only changes since then (cancelled events included)."""
         ...
 
+    def get_event(self, calendar_id: str, event_id: str) -> Optional[dict]:
+        """One event, or None if it no longer exists (used to show a skipped event once)."""
+        ...
+
 
 class GoogleCalendarAPI:
     def __init__(self, creds, *, max_retries: int = 6, sleep: Callable[[float], None] = time.sleep) -> None:
@@ -111,6 +115,18 @@ class GoogleCalendarAPI:
             token = resp.get("nextPageToken")
             if not token:
                 return out
+
+    def get_event(self, calendar_id, event_id):
+        from googleapiclient.errors import HttpError
+
+        try:
+            return self._execute(self._svc.events().get(calendarId=calendar_id, eventId=event_id))
+        except SyncTokenExpired:  # 410 Gone: the event was deleted
+            return None
+        except HttpError as e:
+            if _status(e) == 404:
+                return None
+            raise
 
     def list_events(self, calendar_id, sync_token, page_token):
         kwargs = {"calendarId": calendar_id, "maxResults": 250, "singleEvents": False}

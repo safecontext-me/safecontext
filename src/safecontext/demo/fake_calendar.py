@@ -92,6 +92,13 @@ class FakeCalendar:
         return page
 
 
+    def get_event(self, calendar_id, event_id):
+        self._check()
+        self.calls["get"] += 1
+        ev = self.events.get(calendar_id, {}).get(event_id)
+        return None if ev is None or ev.get("status") == "cancelled" else dict(ev)
+
+
 def event(eid: str, summary: str, start: str, end: str = "", *, description: str = "", location: str = "",
           organizer: str = "alex@example.org", attendees: Tuple[str, ...] = (), meet: str = "", **more) -> dict:
     """A Calendar API event resource. Dates 'YYYY-MM-DD' make all-day events."""

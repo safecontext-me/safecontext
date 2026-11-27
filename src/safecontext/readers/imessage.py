@@ -492,21 +492,7 @@ class MessagesReader:
         ``include_reactions`` is set, in which case each is a ``Message`` with
         ``reaction`` filled in and empty ``text``.
         """
-        m = lambda col, d="NULL": self._col("message", "m", col, d)  # noqa: E731
-        sql = f"""
-            SELECT m.ROWID AS rowid, m.guid AS guid, {m('text')}, {m('attributedBody')},
-                   {m('service')}, m.date AS date, m.is_from_me AS is_from_me, {m('is_read', '1')},
-                   {m('item_type', '0')}, {m('cache_has_attachments', '0')},
-                   {m('thread_originator_guid')}, {m('associated_message_guid')},
-                   {m('associated_message_type', '0')}, {m('associated_message_emoji')},
-                   {m('date_edited', '0')}, {m('date_retracted', '0')},
-                   h.id AS handle,
-                   (SELECT MIN(cmj.chat_id) FROM chat_message_join cmj
-                     WHERE cmj.message_id = m.ROWID) AS chat_rowid
-            FROM message m LEFT JOIN handle h ON h.ROWID = m.handle_id
-            WHERE m.ROWID > ? AND m.ROWID <= ?
-            ORDER BY m.ROWID
-        """
+        sql = self._message_sql("m.ROWID > ? AND m.ROWID <= ?") + " ORDER BY m.ROWID"
         upper = until_rowid if until_rowid is not None else self.max_rowid()
         chats = self._chat_guids()
         yielded = 0
@@ -524,6 +510,37 @@ class MessagesReader:
                 yielded += 1
                 if limit is not None and yielded >= limit:
                     return
+
+    def _message_sql(self, where: str) -> str:
+        m = lambda col, d="NULL": self._col("message", "m", col, d)  # noqa: E731
+        return f"""
+            SELECT m.ROWID AS rowid, m.guid AS guid, {m('text')}, {m('attributedBody')},
+                   {m('service')}, m.date AS date, m.is_from_me AS is_from_me, {m('is_read', '1')},
+                   {m('item_type', '0')}, {m('cache_has_attachments', '0')},
+                   {m('thread_originator_guid')}, {m('associated_message_guid')},
+                   {m('associated_message_type', '0')}, {m('associated_message_emoji')},
+                   {m('date_edited', '0')}, {m('date_retracted', '0')},
+                   h.id AS handle,
+                   (SELECT MIN(cmj.chat_id) FROM chat_message_join cmj
+                     WHERE cmj.message_id = m.ROWID) AS chat_rowid
+            FROM message m LEFT JOIN handle h ON h.ROWID = m.handle_id
+            WHERE {where}
+        """
+
+    def messages_by_guid(self, guids: Sequence[str]) -> Dict[str, Message]:
+        """The messages with these guids (tapbacks and group events left out), read on demand."""
+        guids = list(dict.fromkeys(guids))
+        if not guids:
+            return {}
+        rows = self.conn.execute(self._message_sql(f"m.guid IN ({','.join('?' * len(guids))})"), guids).fetchall()
+        attachments = self._attachments([r["rowid"] for r in rows if r["cache_has_attachments"]])
+        chats = self._chat_guids()
+        out: Dict[str, Message] = {}
+        for r in rows:
+            msg = self._to_message(r, chats, attachments, False)
+            if msg is not None:
+                out[msg.guid] = msg
+        return out
 
     def _to_message(self, r, chats, attachments, include_reactions) -> Optional[Message]:
         if r["item_type"]:

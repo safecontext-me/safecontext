@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import timezone
-from typing import Callable, Dict, Iterator, List, Optional
+from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from .. import auth
 from ..errors import NeedsPermission
@@ -69,6 +70,7 @@ class IMessageSource(ReaderSource):
         self._convs: Dict[str, reader.Conversation] = {}
         self._name: Callable[[str], Optional[str]] = lambda h: None
         self._unread: Optional[List[str]] = None
+        self._names_cache: Optional[Tuple[float, Callable[[str], Optional[str]]]] = None
 
     # --- access ---------------------------------------------------------------
     def check_access(self) -> None:
@@ -105,6 +107,28 @@ class IMessageSource(ReaderSource):
             # Read state changes without new rows (a chat read on the iPhone), so take the whole
             # unread set each sync from the same open database; ReaderSyncer copies it onto the store.
             self._unread = r.unread_guids()
+
+    can_fetch_skipped = True
+
+    def fetch_skipped(self, ids: Sequence[str], full: bool = True) -> Dict[str, Optional[RawItem]]:
+        """Read these messages again from chat.db on this Mac, by guid. Nothing goes over the network."""
+        self.check_access()
+        try:
+            r = reader.MessagesReader(self.db_path)
+        except reader.MessagesAccessError as e:
+            self._raise_for(e.status)
+            raise
+        with r:
+            found = r.messages_by_guid(ids)
+            self._convs = {c.chat_id: c for c in r.conversations()}
+        now = time.monotonic()
+        if self._names_cache is None or now - self._names_cache[0] > 300:  # browsing skipped texts: once, not per row
+            self._names_cache = (now, self._names_fn())
+        self._name = self._names_cache[1]
+        try:
+            return {i: self.to_item(found[i]) if i in found else None for i in ids}
+        finally:
+            self._convs, self._name = {}, (lambda h: None)
 
     def unread_ids(self) -> Optional[List[str]]:
         unread, self._unread = self._unread, None

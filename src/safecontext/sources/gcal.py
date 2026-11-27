@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Sequence
 from urllib.parse import urlsplit, urlunsplit
 
 from .. import auth
@@ -264,6 +264,20 @@ class GoogleCalendarSource(BaseSource):
 
     def _syncer(self, progress: Optional[ProgressFn]) -> CalendarSyncer:
         return CalendarSyncer(self.store, self.api_factory(self.account), progress=progress)
+
+    can_fetch_skipped = True
+
+    def fetch_skipped(self, ids: Sequence[str], full: bool = True) -> Dict[str, Optional[RawItem]]:
+        """events.get for each id ("<calendar id>/<event id>"), with the read-only scope."""
+        api = self.api_factory(self.account)
+        if hasattr(api, "_max_retries"):  # someone is waiting on screen: fail fast
+            api._max_retries = 2
+        out: Dict[str, Optional[RawItem]] = {}
+        for iid in ids:
+            cid, _, eid = iid.partition("/")
+            ev = api.get_event(cid, eid) if cid and eid else None
+            out[iid] = event_to_item(cid, ev) if ev else None
+        return out
 
     def disconnect(self, wipe: bool = True, revoke: bool = True) -> None:
         if self.account:

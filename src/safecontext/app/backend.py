@@ -31,6 +31,7 @@ from ..store import DEFAULT_DATA_DIR, GMAIL, TAG_COLORS, Store, TagError
 from ..sync import SyncResult, read_heartbeat
 from ..tools import run_tool
 from .mail import MailView
+from .skipped import SkippedView
 
 log = logging.getLogger("safecontext.app")
 
@@ -137,6 +138,7 @@ class Backend:
             migrate.remove_ask_leftovers(self._store)  # the old Ask feature's xAI key, once
         self._grok = (grok_link or GrokLink)(self._store, self._data_dir)
         self._mail = MailView(self._store, self._sources, REASON_LABELS)
+        self._skipped = SkippedView(self._store, self._sources, REASON_LABELS)  # held in memory, never stored
         self._threads: Dict[str, threading.Thread] = {}
         self._sync_lock = threading.Lock()
         self._progress: Dict[str, SyncResult] = {}
@@ -250,6 +252,7 @@ class Backend:
             if t:
                 t.join(timeout=30)
         self._sources.disconnect(source_id, wipe=bool(wipe))
+        self._skipped.forget(source_id)
         self._last_result.pop(source_id, None)
         return {"wiped": bool(wipe)}
 
@@ -452,6 +455,24 @@ class Backend:
     @_safe
     def mail_thread(self, source: str, thread_id: str) -> Dict[str, Any]:
         return self._mail.thread(source, thread_id)
+
+    # --- skipped items, fetched live to show once (app/skipped.py): never stored, never sent to AI ---
+    @_safe
+    def skipped_item(self, source: str, item_id: str) -> Dict[str, Any]:
+        """One skipped item's content, fetched from its source now. Any screen can call it with the
+        source and id of a Not synced row (the Mail reader, the Security Dashboard's feed)."""
+        return self._skipped.item(str(source), str(item_id))
+
+    @_safe
+    def skipped_previews(self, rows: list) -> Dict[str, Any]:
+        """Sender, title and snippet for skipped list rows [{"source", "id"}], fetched now."""
+        return self._skipped.previews([r for r in (rows or []) if isinstance(r, dict)])
+
+    @_safe
+    def skipped_forget(self) -> Dict[str, Any]:
+        """The user left Not synced: drop every skipped item held in memory."""
+        self._skipped.forget()
+        return {}
 
     @_safe
     def mail_reasons(self, source: str = "") -> Dict[str, Any]:
