@@ -50,10 +50,14 @@ class GmailAPI(Protocol):
 
     def list_history(self, start_history_id: str, page_token: Optional[str]) -> dict: ...
 
+    def list_labels(self) -> List[dict]:
+        """The mailbox's labels: {"id", "name", "type" ('system' | 'user'), "color" ('#rrggbb' or '')}."""
+        ...
+
 
 # --- real implementation ---------------------------------------------------
 
-QUOTA_UNITS = {"get": 5, "list": 5, "history": 2, "profile": 1}
+QUOTA_UNITS = {"get": 5, "list": 5, "history": 2, "profile": 1, "labels": 1}
 # Gmail's per-user quota is counted per minute. As of late 2026 new projects get
 # 6,000 units/minute/user (100/s), down from the documented 15,000. Run at 80% of
 # that with no bursts: about 16 messages/second, and no per-minute pauses.
@@ -224,6 +228,11 @@ class GoogleGmailAPI:
             kwargs["q"] = query
         resp = self._execute(self._svc.users().messages().list(**kwargs), QUOTA_UNITS["list"])
         return [m["id"] for m in resp.get("messages") or []], resp.get("nextPageToken")
+
+    def list_labels(self):
+        resp = self._execute(self._svc.users().labels().list(userId="me"), QUOTA_UNITS["labels"])
+        return [{"id": l.get("id", ""), "name": l.get("name", ""), "type": l.get("type", "user"),
+                 "color": (l.get("color") or {}).get("backgroundColor", "")} for l in resp.get("labels") or []]
 
     def list_history(self, start_history_id, page_token):
         from googleapiclient.errors import HttpError

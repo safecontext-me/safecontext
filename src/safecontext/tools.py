@@ -37,13 +37,17 @@ _SENDER = {"type": "string", "description": "Optional sender / organizer filter:
 _AFTER = {**_DATE, "description": "Only items on or after this date (events: ending on or after). "
                                   + _DATE["description"]}
 _BEFORE = {**_DATE, "description": "Only items before this date (events: starting before). " + _DATE["description"]}
+_LABEL = {"type": "string",
+          "description": "Optional: only items with this Gmail label or SafeContext tag, by name (ignoring case), "
+                         "e.g. 'Receipts', 'Starred' or 'Inbox'. A parent label includes its nested ones "
+                         "('Work' covers 'Work/Clients'). Call list_labels to see them."}
 
 
 def _search_schema(with_source: bool) -> Dict[str, Any]:
     props: Dict[str, Any] = {"query": {"type": "string", "description": "Words to search for. All words must match."}}
     if with_source:
         props.update(source=_SOURCE, kind=_KIND)
-    props.update(sender=_SENDER, after=_AFTER, before=_BEFORE,
+    props.update(sender=_SENDER, label=_LABEL, after=_AFTER, before=_BEFORE,
                  limit={"type": "integer", "minimum": 1, "maximum": 50, "default": 10})
     return {"type": "object", "properties": props, "required": ["query"], "additionalProperties": False}
 
@@ -52,7 +56,7 @@ def _list_schema(with_source: bool) -> Dict[str, Any]:
     props: Dict[str, Any] = {}
     if with_source:
         props.update(source=_SOURCE, kind=_KIND)
-    props.update(sender=_SENDER, after=_AFTER, before=_BEFORE)
+    props.update(sender=_SENDER, label=_LABEL, after=_AFTER, before=_BEFORE)
     if with_source:
         props["order"] = {"type": "string", "enum": ["newest", "oldest"], "default": "newest",
                           "description": "newest first (default), or oldest first, e.g. for upcoming events."}
@@ -95,6 +99,15 @@ TOOLS: List[Dict[str, Any]] = [
             "replaced with [REDACTED:TYPE]. No search words needed. For upcoming events use source='gcal', "
             "after=today, order='oldest'."),
         "parameters": _list_schema(True),
+    },
+    {
+        "name": "list_labels",
+        "description": (
+            "The user's Gmail labels (their own, plus Inbox, Starred, Important and Sent) and the tags they "
+            "added in SafeContext, with how many items carry each. Use a name as `label` in search or "
+            "list_items. Names are scrubbed like content. Read-only: cannot send, draft, label, or delete. "
+            "Content is scrubbed; sensitive data is replaced with [REDACTED:TYPE]."),
+        "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
         "name": "list_sources",
@@ -341,18 +354,18 @@ def instructions_for(store: Store) -> str:
             extra = " Other connected sources: " + _source_phrase(others) + "."
         lead = (f"You have read access to the user's email (Gmail, {count_label(gmail['items'], GMAIL)}) "
                 f"and their other connected sources.{extra}")
-        names = "search, read, list_items, list_sources, search_email, and read_email_thread"
+        names = "search, read, list_items, list_sources, list_labels, search_email, and read_email_thread"
     elif any(s["connected"] for s in summaries):
         connected = [s for s in summaries if s["connected"]]
         lead = f"You have read access to the user's connected sources: {_source_phrase(connected)}."
-        names = "search, read, list_items, and list_sources"
+        names = "search, read, list_items, list_sources, and list_labels"
     elif summaries:
         lead = ("No source is connected right now. Scrubbed data already on this Mac can still be searched: "
                 + _source_phrase(summaries) + ".")
-        names = "search, read, list_items, and list_sources"
+        names = "search, read, list_items, list_sources, and list_labels"
     else:
         lead = "No sources are connected yet."
-        names = "search, read, list_items, and list_sources"
+        names = "search, read, list_items, list_sources, and list_labels"
     return (
         f"{lead} Use {names}. list_sources shows what's connected. "
         "Read-only: you cannot send, draft, label, or delete. "
@@ -370,6 +383,28 @@ def source_name(source: str) -> str:
 def _cite(date: str, sender: str, source: str) -> str:
     who = f" · {sender}" if sender else ""
     return f"{date[:10]}{who} · {source_name(source)}"
+
+
+def _with_labels(store: Store, rows: List[Dict[str, Any]], keys: List[tuple]) -> List[Dict[str, Any]]:
+    """Add each result's label and tag names (only where it has some)."""
+    found = store.item_label_names(keys)
+    for row, key in zip(rows, keys):
+        if found.get(key):
+            row["labels"] = found[key]
+    return rows
+
+
+def _label_filter(store: Store, args: Dict[str, Any]) -> Optional[List[int]]:
+    name = _str(args, "label")
+    if name is None:
+        return None
+    return store.find_labels(name)
+
+
+def _no_label_note(args: Dict[str, Any], ids: Optional[List[int]], result: Dict[str, Any]) -> Dict[str, Any]:
+    if ids == []:
+        result["note"] = f"No label or tag is called '{args.get('label')}'. Call list_labels to see them."
+    return result
 
 
 def _hit(h: Hit) -> Dict[str, Any]:
@@ -449,10 +484,12 @@ def _kind(args: Dict[str, Any]) -> Optional[str]:
 
 
 def search(store: Store, args: Dict[str, Any]) -> Dict[str, Any]:
+    labels = _label_filter(store, args)
     hits = store.search(_str(args, "query", True), source=_str(args, "source"), kind=_kind(args),
                         sender=_str(args, "sender"), after=_str(args, "after"), before=_str(args, "before"),
-                        limit=_limit(args, 10, 50))
-    return {"results": [_hit(h) for h in hits], "count": len(hits)}
+                        limit=_limit(args, 10, 50), labels=labels)
+    rows = _with_labels(store, [_hit(h) for h in hits], [(h.source, h.id, h.thread_id) for h in hits])
+    return _no_label_note(args, labels, {"results": rows, "count": len(hits)})
 
 
 def search_mail(store: Store, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -476,7 +513,8 @@ def read(store: Store, args: Dict[str, Any]) -> Dict[str, Any]:
         m = _item(v, budget)
         budget -= len(m["body"])
         items.append(m)
-    out: Dict[str, Any] = {"thread_id": tid, "source": views[0].source, "messages": list(reversed(items))}
+    items = _with_labels(store, list(reversed(items)), [(v.source, v.id, v.thread_id) for v in views])
+    out: Dict[str, Any] = {"thread_id": tid, "source": views[0].source, "messages": items}
     if omitted:
         out["older_messages_omitted"] = omitted
     return out
@@ -486,10 +524,12 @@ def list_items(store: Store, args: Dict[str, Any]) -> Dict[str, Any]:
     order = _str(args, "order") or "newest"
     if order not in ("newest", "oldest"):
         raise ToolError("'order' must be 'newest' or 'oldest'")
+    labels = _label_filter(store, args)
     hits = store.list_items(source=_str(args, "source"), kind=_kind(args), sender=_str(args, "sender"),
                             after=_str(args, "after"), before=_str(args, "before"), limit=_limit(args, 20, 100),
-                            oldest_first=order == "oldest")
-    return {"results": [_hit(h) for h in hits], "count": len(hits)}
+                            oldest_first=order == "oldest", labels=labels)
+    rows = _with_labels(store, [_hit(h) for h in hits], [(h.source, h.id, h.thread_id) for h in hits])
+    return _no_label_note(args, labels, {"results": rows, "count": len(hits)})
 
 
 def read_email_thread(store: Store, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -505,6 +545,12 @@ def list_sources(store: Store, args: Dict[str, Any]) -> Dict[str, Any]:
     return {"sources": [{k: row[k] for k in keys} for row in connected_source_summaries(store)]}
 
 
+def list_labels(store: Store, args: Dict[str, Any]) -> Dict[str, Any]:
+    return {"labels": [{"name": l["name"], "type": "tag" if l["type"] == "tag" else "gmail_label",
+                        "source": "safecontext" if l["type"] == "tag" else l["source"], "count": l["count"]}
+                       for l in store.labels()]}
+
+
 def _iso_ms(ms: Any) -> Optional[str]:
     from .store import _iso
     return _iso(int(ms)) if ms not in (None, "") else None
@@ -512,6 +558,7 @@ def _iso_ms(ms: Any) -> Optional[str]:
 
 _IMPL: Dict[str, Callable[[Store, Dict[str, Any]], Dict[str, Any]]] = {
     "search": search, "read": read, "list_items": list_items, "list_sources": list_sources,
+    "list_labels": list_labels,
     "search_mail": search_mail, "read_thread": read, "list_messages": list_messages,
     "search_email": search_email, "read_email_thread": read_email_thread}
 
@@ -533,7 +580,7 @@ def run_tool(store: Store, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
     except ValueError as e:  # e.g. an unparseable date
         return {"error": f"invalid argument: {e}"}
-    if name != "list_sources":
+    if name not in ("list_sources", "list_labels"):
         source = GMAIL if name in _GMAIL_ONLY_TOOLS else args.get("source") or None
         notice = _notice(store, source if isinstance(source, str) else None)
         if notice:

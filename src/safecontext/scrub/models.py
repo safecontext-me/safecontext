@@ -50,6 +50,18 @@ class ScrubbedMessage:
     attachments: List[Attachment]
     redactions: Dict[str, int]
     scrubber_version: str
+    labels: List[str] = field(default_factory=list)  # Gmail label ids worth showing (see shown_labels)
+
+
+# Gmail's own labels that SafeContext keeps and shows (Gmail's names for them). The rest are either the
+# scrubber's business (SPAM, TRASH, DRAFT, CHAT, CATEGORY_*) or kept elsewhere (UNREAD, the read state).
+# User labels (ids like "Label_12") are always kept.
+SYSTEM_LABEL_NAMES = {"INBOX": "Inbox", "STARRED": "Starred", "IMPORTANT": "Important", "SENT": "Sent"}
+
+
+def shown_labels(label_ids: List[str]) -> List[str]:
+    """The Gmail label ids SafeContext stores with a message: user labels and SYSTEM_LABEL_NAMES."""
+    return [l for l in label_ids if l in SYSTEM_LABEL_NAMES or l.startswith("Label_")]
 
 
 # Kinds of item a source can produce. "message" means email: only email gets

@@ -38,7 +38,7 @@ from typing import Callable, Dict, List, Optional
 from .auth import NeedsReconnect, TransientAuthError
 from .errors import NeedsPermission, TransientError
 from .gmail_api import FULL_MODE_QUERY, GmailAPI, HistoryExpired
-from .gmail_parse import history_message_ids, parse_gmail_message
+from .gmail_parse import HistoryChanges, parse_gmail_message
 from .scrub import Dropped, scrub
 from .store import GMAIL, Store
 
@@ -252,6 +252,7 @@ class Syncer(BaseSyncer):
         self.clock: Callable[[], float] = time.monotonic
 
     def _sync(self) -> None:
+        self._refresh_labels()
         if self.state.get("history_id") is None:
             self._backfill()
         else:
@@ -311,32 +312,37 @@ class Syncer(BaseSyncer):
         self.result.phase = "incremental"
         start = st.get("history_id")
         try:
-            changed, deleted, latest = self._history_since(start)
+            ch, latest = self._history_since(start)
         except HistoryExpired:
             log.info("history id expired; starting full resync")
             st.set("history_id", None)
             st.set("resync", "1")
             self._backfill()
             return
-        if deleted:
-            s.delete(sorted(deleted), GMAIL)
-            self.result.deleted += len(deleted)
-        self._fetch_and_store(sorted(changed - deleted))
+        if ch.deleted:
+            s.delete(sorted(ch.deleted), GMAIL)
+            self.result.deleted += len(ch.deleted)
+        missing = s.set_item_labels(GMAIL, ch.label_only())  # not stored at all: fetch them instead
+        self._fetch_and_store(sorted((ch.changed | missing) - ch.deleted))
         st.set("history_id", latest)
 
     def _history_since(self, start: str):
-        """(changed ids, deleted ids, latest history id) since `start`. Raises HistoryExpired."""
-        changed, deleted = set(), set()
+        """(HistoryChanges, latest history id) since `start`. Raises HistoryExpired."""
+        ch = HistoryChanges()
         latest, token = start, None
         while True:
             page = self.api.list_history(start, token)
-            c, d = history_message_ids(page)
-            changed |= c
-            deleted |= d
+            ch.add_page(page)
             latest = str(page.get("historyId") or latest)
             token = page.get("nextPageToken")
             if not token:
-                return changed, deleted, latest
+                return ch, latest
+
+    def _refresh_labels(self) -> None:
+        """Mirror Gmail's label names and colours (one cheap call per sync). Renames and deletions
+        apply to every stored message at once; nothing is re-fetched."""
+        if hasattr(self.api, "list_labels"):
+            self.store.replace_labels(GMAIL, self.api.list_labels())
 
     def _catch_up(self, start: str) -> str:
         """Mid-backfill: store what changed since `start` and return the new start, so new
@@ -344,7 +350,9 @@ class Syncer(BaseSyncer):
         backfill's final prune keeps it."""
         s, st = self.store, self.state
         try:
-            changed, deleted, latest = self._history_since(start)
+            ch, latest = self._history_since(start)
+            deleted = ch.deleted
+            changed = ch.changed | s.set_item_labels(GMAIL, ch.label_only())
         except HistoryExpired:
             # The backfill outlived Gmail's history (about a week): restart from now and take the
             # newest page, which the backfill passed long ago.

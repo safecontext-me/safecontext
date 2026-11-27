@@ -50,7 +50,7 @@ def test_initialize_and_only_read_only_primary_tools(store):
     assert json.loads(body)["result"]["protocolVersion"] == "2025-06-18"
     _, _, body = h.handle("POST", {}, rpc("tools/list"))
     tools = json.loads(body)["result"]["tools"]
-    assert {t["name"] for t in tools} == {"search", "read", "list_items", "list_sources"}
+    assert {t["name"] for t in tools} == {"search", "read", "list_items", "list_labels", "list_sources"}
     assert all(t["annotations"]["readOnlyHint"] for t in tools)
 
 
@@ -84,7 +84,7 @@ def test_email_aliases_are_on_the_grok_path_only_while_gmail_is_connected(store)
     assert "prompt injection" not in instructions.lower()
     _, _, body = h.handle("POST", {}, rpc("tools/list"))
     tools = json.loads(body)["result"]["tools"]
-    assert {t["name"] for t in tools} == {"search", "read", "list_items", "list_sources",
+    assert {t["name"] for t in tools} == {"search", "read", "list_items", "list_labels", "list_sources",
                                           "search_email", "read_email_thread"}
     search = next(t for t in tools if t["name"] == "search")
     assert "user's Gmail" in search["description"] and "inbox" in search["description"]

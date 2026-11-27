@@ -97,6 +97,42 @@ def parse_gmail_message(resource: dict, metadata_only: bool = False) -> RawMessa
     )
 
 
+# Labels the scrubber decides on: a change to one of these can keep or drop a message, so the message is
+# fetched and scrubbed again. Any other label change is applied in place.
+SCRUB_LABELS = frozenset({"SPAM", "TRASH", "DRAFT", "CHAT", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL",
+                          "CATEGORY_FORUMS"})
+
+
+class HistoryChanges:
+    """What history.list pages say changed, in order. `changed`: messages to fetch (added, or a label the
+    scrubber cares about moved). `labels`: id -> the message's label ids now, for messages whose other
+    label changes can be applied in place (history records carry the message's labels as of that record;
+    later records win, since history comes oldest first)."""
+
+    def __init__(self) -> None:
+        self.changed: Set[str] = set()
+        self.deleted: Set[str] = set()
+        self.labels: Dict[str, List[str]] = {}
+
+    def add_page(self, page: dict) -> None:
+        for h in page.get("history") or []:
+            for item in h.get("messagesAdded") or []:
+                self.changed.add(item["message"]["id"])
+            for key in ("labelsAdded", "labelsRemoved"):
+                for item in h.get(key) or []:
+                    msg = item["message"]
+                    if set(item.get("labelIds") or ()) & SCRUB_LABELS or "labelIds" not in msg:
+                        self.changed.add(msg["id"])
+                    else:
+                        self.labels[msg["id"]] = list(msg["labelIds"])
+            for item in h.get("messagesDeleted") or []:
+                self.deleted.add(item["message"]["id"])
+
+    def label_only(self) -> Dict[str, List[str]]:
+        """Label changes for messages that need nothing else."""
+        return {m: l for m, l in self.labels.items() if m not in self.changed and m not in self.deleted}
+
+
 def history_message_ids(page: dict) -> Tuple[Set[str], Set[str]]:
     """From one history.list page, return (changed_ids, deleted_ids)."""
     changed: Set[str] = set()
