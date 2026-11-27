@@ -235,7 +235,8 @@ def backend(tmp_path):
 def test_backend_folders_list_and_thread(backend):
     f = backend.mail_folders()
     kept_n, dropped_n = backend._store.counts("gmail")
-    assert f["ok"] and f["mailboxes"] == {"all": kept_n + dropped_n, "synced": kept_n, "not_synced": dropped_n}
+    assert f["ok"] and f["mailboxes"] == {"all": kept_n + dropped_n, "synced": kept_n, "not_synced": dropped_n,
+                                         "unread": backend._store.unread_count("gmail")}
     assert [s["id"] for s in f["sources"]] == ["gmail"] and f["sources"][0]["account"] == DEMO_ACCOUNT
 
     page = backend.mail_list("all", limit=20)

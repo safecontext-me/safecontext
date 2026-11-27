@@ -68,9 +68,22 @@ class SlowFakeGmail(FakeGmail):
         return super().get_messages(ids, fmt)
 
 
+def _mark_unread(messages, days: float = 6) -> None:
+    """Recent mail that isn't from Alex starts unread, as it would in a real inbox."""
+    cutoff = time.time() * 1000 - days * 86_400_000
+    for m in messages:
+        if m.internal_date_ms >= cutoff and "SENT" not in m.label_ids and "UNREAD" not in m.label_ids:
+            m.label_ids.append("UNREAD")
+
+
 def make_fake_gmail() -> FakeGmail:
     g = SlowFakeGmail(page_size=25, email=DEMO_ACCOUNT)
-    for m in mailbox() + _extra_mail() + demo_mailbox():
+    extra = _extra_mail()
+    for m in extra[:2]:  # the dinner and planning threads
+        m.label_ids.append("UNREAD")
+    recent = demo_mailbox()
+    _mark_unread(recent)
+    for m in mailbox() + extra + recent:
         g.add(m, record=False)
     return g
 

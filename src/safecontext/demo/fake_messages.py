@@ -21,7 +21,7 @@ CREATE TABLE message (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, guid TEXT UNIQUE 
   attributedBody BLOB, handle_id INTEGER DEFAULT 0, service TEXT, date INTEGER, is_from_me INTEGER DEFAULT 0,
   cache_has_attachments INTEGER DEFAULT 0, item_type INTEGER DEFAULT 0, associated_message_guid TEXT,
   associated_message_type INTEGER DEFAULT 0, associated_message_emoji TEXT, thread_originator_guid TEXT,
-  date_edited INTEGER DEFAULT 0, date_retracted INTEGER DEFAULT 0);
+  date_edited INTEGER DEFAULT 0, date_retracted INTEGER DEFAULT 0, is_read INTEGER DEFAULT 0);
 CREATE TABLE attachment (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, guid TEXT UNIQUE NOT NULL, filename TEXT,
   transfer_name TEXT, mime_type TEXT, uti TEXT);
 CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER, UNIQUE(chat_id, handle_id));
@@ -58,6 +58,8 @@ DEMO_MESSAGES: List[Msg] = [
     ("bank", "72975", "Your verification code is 482913. Don't share it with anyone.", None),
     ("jamie", "+14155550134", "Running 10 min late, grab a table?", None),
 ]
+# Positions (1-based) in DEMO_MESSAGES that Messages still shows as unread.
+DEMO_UNREAD: Tuple[int, ...] = (5, 8)
 
 
 def apple_ns(dt: datetime) -> int:
@@ -66,8 +68,9 @@ def apple_ns(dt: datetime) -> int:
 
 def make_messages_db(path: Path, messages: Sequence[Msg] = DEMO_MESSAGES,
                      chats: Dict[str, Tuple[str, Sequence[str], Optional[str]]] = DEMO_CHATS,
-                     start: Optional[datetime] = None) -> Path:
-    """Write a Messages-style database at `path` (replacing any file there). One minute between messages."""
+                     start: Optional[datetime] = None, unread: Sequence[int] = ()) -> Path:
+    """Write a Messages-style database at `path` (replacing any file there). One minute between messages.
+    Incoming messages are read except those at the 1-based positions in `unread`."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
@@ -93,10 +96,11 @@ def make_messages_db(path: Path, messages: Sequence[Msg] = DEMO_MESSAGES,
         for i, (key, sender, text, attachment) in enumerate(messages, start=1):
             service = chats[key][0]
             rid = conn.execute(
-                "INSERT INTO message (guid, text, handle_id, service, date, is_from_me, cache_has_attachments) "
-                "VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO message (guid, text, handle_id, service, date, is_from_me, cache_has_attachments, "
+                "is_read) VALUES (?,?,?,?,?,?,?,?)",
                 (f"DEMO-{key}-{i}", text, handles.get(sender or "", 0), service,
-                 apple_ns(t0 + timedelta(minutes=i)), 0 if sender else 1, 1 if attachment else 0)).lastrowid
+                 apple_ns(t0 + timedelta(minutes=i)), 0 if sender else 1, 1 if attachment else 0,
+                 0 if sender and i in unread else 1)).lastrowid
             conn.execute("INSERT INTO chat_message_join VALUES (?, ?)", (chat_ids[key], rid))
             if attachment:
                 aid = conn.execute(
@@ -153,7 +157,7 @@ def demo_names() -> Callable[[str], Optional[str]]:
 
 def demo_imessage_options(folder: Path, access: Optional[FakeFullDiskAccess] = None) -> Dict[str, object]:
     """IMessageSource options for demo mode: a synthetic chat.db under `folder`, fake access and contacts."""
-    db = make_messages_db(Path(folder) / "chat.db")
+    db = make_messages_db(Path(folder) / "chat.db", unread=DEMO_UNREAD)
     access = access or FakeFullDiskAccess()
     return {"db_path": db, "access_fn": access.check, "settings_fn": access.open_settings,
             "names_fn": demo_names}

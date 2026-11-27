@@ -83,6 +83,7 @@ def scrub(
         attachments=attachments,
         redactions=counts,
         scrubber_version=SCRUBBER_VERSION,
+        unread="UNREAD" in msg.label_ids,
     )
 
 
@@ -156,4 +157,5 @@ def scrub_item(
         extra=clean_extra,
         redactions=counts,
         scrubber_version=SCRUBBER_VERSION,
+        unread=bool(item.unread),
     )

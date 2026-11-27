@@ -1,6 +1,7 @@
 """The Mail view: browse what's synced like a mail client, and see what isn't.
 
-Kept items come from `items` (already scrubbed). Dropped items come from
+Kept items come from `items` (already scrubbed). Read state is shown as the source
+reports it (Gmail's UNREAD label, Messages' is_read); opening a thread here changes nothing. Dropped items come from
 `dropped`, which holds no content at all: only the id, thread, date and the
 reason code. Nothing here fetches anything; the view only reads the store.
 """
@@ -9,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence
 
 from ..sources import Sources
-from ..store import GMAIL, Store
+from ..store import GMAIL, READ_STATE_SOURCES, Store
 from ..sync import read_heartbeat
 
 ERROR_GROUP = "Couldn't be processed"
@@ -81,14 +82,17 @@ class MailView:
     def folders(self) -> Dict[str, Any]:
         """The Mail sidebar: mailboxes with counts, then each source."""
         srcs = []
-        mail_kept = mail_dropped = 0
+        mail_kept = mail_dropped = mail_unread = 0
         for s in self._browsable():
             kept, dropped = self.store.counts(s.id)
+            unread = self.store.unread_count(s.id) if s.id in READ_STATE_SOURCES else 0
             if "message" in s.kinds:
-                mail_kept, mail_dropped = mail_kept + kept, mail_dropped + dropped
+                mail_kept, mail_dropped, mail_unread = mail_kept + kept, mail_dropped + dropped, mail_unread + unread
             srcs.append({"id": s.id, "name": s.name, "account": s.account, "kinds": list(s.kinds),
-                         "kept": kept, "dropped": dropped, "mail": "message" in s.kinds})
-        return {"mailboxes": {"all": mail_kept + mail_dropped, "synced": mail_kept, "not_synced": mail_dropped},
+                         "kept": kept, "dropped": dropped, "unread": unread,
+                         "read_state": s.id in READ_STATE_SOURCES, "mail": "message" in s.kinds})
+        return {"mailboxes": {"all": mail_kept + mail_dropped, "synced": mail_kept, "not_synced": mail_dropped,
+                              "unread": mail_unread},
                 "sources": srcs}
 
     def reasons(self, source: str = "") -> List[Dict[str, Any]]:
@@ -113,7 +117,8 @@ class MailView:
         if query:
             if view == "not_synced":  # dropped items have no stored text to search
                 return {"rows": [], "next": None, "searched": False}
-            page = self.store.search_threads(query, scope, offset=int(cursor or 0), limit=limit, order=order)
+            page = self.store.search_threads(query, scope, offset=int(cursor or 0), limit=limit, order=order,
+                                             unread_only=view == "unread")
             return {**page, "rows": self._decorate(page["rows"]), "searched": True}
         page = self.store.browse(scope, view=view, reasons=self._codes_for(scope, reasons) if view == "not_synced"
                                  else None, cursor=cursor, limit=limit, order=order)

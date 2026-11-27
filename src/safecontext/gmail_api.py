@@ -50,6 +50,10 @@ class GmailAPI(Protocol):
 
     def list_history(self, start_history_id: str, page_token: Optional[str]) -> dict: ...
 
+    def list_unread_ids(self, page_token: Optional[str]) -> Tuple[List[str], Optional[str]]:
+        """Ids of messages with the UNREAD label (a label filter, so the metadata scope allows it)."""
+        ...
+
 
 # --- real implementation ---------------------------------------------------
 
@@ -222,6 +226,13 @@ class GoogleGmailAPI:
             kwargs["pageToken"] = page_token
         if query:
             kwargs["q"] = query
+        resp = self._execute(self._svc.users().messages().list(**kwargs), QUOTA_UNITS["list"])
+        return [m["id"] for m in resp.get("messages") or []], resp.get("nextPageToken")
+
+    def list_unread_ids(self, page_token):
+        kwargs = dict(userId="me", maxResults=500, includeSpamTrash=False, labelIds=["UNREAD"])
+        if page_token:
+            kwargs["pageToken"] = page_token
         resp = self._execute(self._svc.users().messages().list(**kwargs), QUOTA_UNITS["list"])
         return [m["id"] for m in resp.get("messages") or []], resp.get("nextPageToken")
 
