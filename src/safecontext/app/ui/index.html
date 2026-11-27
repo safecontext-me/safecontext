@@ -313,22 +313,61 @@
 
     <!-- Security Dashboard: what the scrubber removed -->
     <section id="view-removed" class="view page">
-      <!-- Home page header: the SafeContext logo over a centered title -->
-      <div class="home-hero">
-        <svg class="home-hero-logo" data-mark="safecontext"></svg>
-        <h2>Security Dashboard</h2>
-        <p class="muted">Everything below was removed on this Mac before anything was saved.</p>
+      <!-- Home page: a one-line digest of what was kept out of AI's reach, three stat cards, then the
+           newest protected items as an inbox. Period switch: this week, this month, all time. -->
+      <div class="dash-head">
+        <div>
+          <div class="muted dash-kicker" id="dash-kicker">Security Dashboard · this week</div>
+          <h2 class="dash-title" id="dash-title">Kept out of AI's reach</h2>
+          <p class="muted dash-sub" id="dash-sub"></p>
+        </div>
+        <div class="tabs-list dash-period" role="tablist" aria-label="Period" id="dash-period">
+          <button class="tabs-trigger" role="tab" data-period="week" aria-selected="true">This week</button>
+          <button class="tabs-trigger" role="tab" data-period="month" aria-selected="false">This month</button>
+          <button class="tabs-trigger" role="tab" data-period="all" aria-selected="false">All time</button>
+        </div>
       </div>
-      <div class="tiles">
-        <div class="card card-sm tile"><div class="card-content"><div class="num" id="t-kept">0</div><div class="lbl">items kept (scrubbed)</div></div></div>
-        <div class="card card-sm tile"><div class="card-content"><div class="num" id="t-dropped">0</div><div class="lbl">items skipped entirely</div></div></div>
-        <div class="card card-sm tile"><div class="card-content"><div class="num" id="t-redacted">0</div><div class="lbl">sensitive values blanked out</div></div></div>
+      <div class="dash-cards">
+        <div class="card card-sm dash-card"><div class="card-content">
+          <div class="dash-card-lbl">Skipped entirely</div>
+          <div class="dash-card-row"><span class="num" id="t-dropped">0</span><span class="dash-delta" id="d-dropped"></span></div>
+          <div class="dash-mini" id="m-dropped" data-tone="skipped"></div>
+        </div></div>
+        <div class="card card-sm dash-card"><div class="card-content">
+          <div class="dash-card-lbl">Scrubbed, AI can search</div>
+          <div class="dash-card-row"><span class="num" id="t-kept">0</span><span class="dash-delta" id="d-kept"></span></div>
+          <div class="dash-mini" id="m-kept" data-tone="kept"></div>
+        </div></div>
+        <div class="card card-sm dash-card"><div class="card-content">
+          <div class="dash-card-lbl">Details blanked out</div>
+          <div class="dash-card-row"><span class="num" id="t-redacted">0</span><span class="dash-delta" id="d-redacted"></span></div>
+          <div class="dash-mini" id="m-redacted" data-tone="blanked"></div>
+        </div></div>
       </div>
-      <div class="two-col">
-        <div class="card"><div class="card-header"><div class="card-title">Skipped entirely</div></div><div class="card-content"><div id="dropped-bars" class="bars"></div></div></div>
-        <div class="card"><div class="card-header"><div class="card-title">Blanked out inside kept items</div></div><div class="card-content"><div id="redacted-bars" class="bars"></div></div></div>
+      <div class="card dash-feed">
+        <div class="card-header dash-feed-head">
+          <div class="card-title">Recently protected</div>
+          <div class="tabs-list" role="tablist" aria-label="Show" id="dash-filter">
+            <button class="tabs-trigger" role="tab" data-view="all" aria-selected="true">All</button>
+            <button class="tabs-trigger" role="tab" data-view="skipped" aria-selected="false">Skipped</button>
+            <button class="tabs-trigger" role="tab" data-view="scrubbed" aria-selected="false">Scrubbed</button>
+          </div>
+        </div>
+        <div class="card-content">
+          <div id="dash-rows" class="dash-rows" role="list"></div>
+          <button class="btn btn-outline btn-sm dash-more" id="dash-more" hidden>Show more</button>
+        </div>
       </div>
-      <div class="card by-source"><div class="card-header"><div class="card-title">By source</div></div><div class="card-content"><div id="by-source" class="bars"></div></div></div>
+      <details class="card dash-all">
+        <summary class="card-header"><span class="card-title"><svg data-lucide="chevron-right" class="dash-chev"></svg>Every reason, type and source, all time</span></summary>
+        <div class="card-content">
+          <div class="two-col">
+            <div><h3>Skipped entirely</h3><div id="dropped-bars" class="bars"></div></div>
+            <div><h3>Blanked out inside kept items</h3><div id="redacted-bars" class="bars"></div></div>
+          </div>
+          <h3>By source</h3><div id="by-source" class="bars"></div>
+        </div>
+      </details>
       <div class="card" id="scrub-controls">
         <div class="card-header"><div class="card-title">What gets removed from files</div><div class="card-description">These rules run when SafeContext reads text out of a PDF or another file on this Mac. The built-in ones always run. A pattern you add runs after them. Mail and calendar keep the scrubber they already use.</div></div><div class="card-content">
         <ul class="scrub-builtin" id="scrub-builtin"></ul>

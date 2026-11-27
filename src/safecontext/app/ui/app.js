@@ -177,6 +177,7 @@ async function refreshStatus() {
   const r = await api().status();
   if (!r.ok) return;
   state.status = r;
+  dashMaybeRefresh(r);
   $("loading").hidden = true;
   const connected = !!r.account || r.any_connected;
   $("onboarding").hidden = connected;
@@ -262,6 +263,7 @@ function show(view) {
   markNav();
   for (const v of ["mail", "sources", "source", "mcp", "removed", "review", "sync", "settings", "files"]) $(`view-${v}`).hidden = v !== view;
   if (view !== "mail") mailForgetSkipped();  // skipped items fetched to show are dropped on leaving Mail
+  if (view !== "removed") dashForgetSkipped();  // and on leaving the Security Dashboard
   if (view === "mail") mailShow();
   if (view === "sources") renderSources((state.status && state.status.sources) || []);
   if (view === "source") renderSourcePage();
@@ -886,12 +888,19 @@ function bars(container, data) {
   }
 }
 
+// Security Dashboard: a digest line for the period, three stat cards (all-time totals, the period's change and
+// its largest groups), then "Recently protected" (dashboard_feed): skipped items and kept items with blanked-out
+// details, newest first. Skipped rows show only the reason and date: their content was never stored.
+const dash = { period: "week", view: "all", rows: [], next: null, seq: 0, sig: undefined, at: 0,
+  skip: new Map(), skipGen: 0 };  // skip: "source:id" -> live preview of a skipped row (memory only; see app/skipped.py)
+const DASH_PERIODS = { week: "this week", month: "this month", all: "so far" };
+
 async function loadRemoved() {
-  const r = await api().privacy_report();
+  dash.at = Date.now();
+  loadDashboard();
+  loadDashFeed();
+  const r = await api().privacy_report();  // "Every reason, type and source": the full lists, all time
   if (!r.ok) return toast(r.error, "error");
-  $("t-kept").textContent = n(r.kept);
-  $("t-dropped").textContent = n(r.dropped_total);
-  $("t-redacted").textContent = n(Object.values(r.redacted).reduce((a, b) => a + b, 0));
   bars($("dropped-bars"), r.dropped);
   bars($("redacted-bars"), r.redacted);
   const by = {};
@@ -899,6 +908,169 @@ async function loadRemoved() {
   for (const x of r.by_source || []) if (x.dropped) by[`${x.name} · skipped`] = x.dropped;
   bars($("by-source"), by);
   loadScrubber();
+}
+
+function dashMini(container, pairs) {
+  container.replaceChildren();
+  const top = pairs.slice(0, 3);
+  if (!top.length) { container.append(el("div", { class: "dash-mini-row" }, el("span", {}, "Nothing yet."))); return; }
+  const max = Math.max(...top.map(([, v]) => v));
+  for (const [label, v] of top) {
+    const fill = el("div", { class: "bar-fill" });
+    fill.style.width = `${Math.max(4, (v / max) * 100)}%`;
+    container.append(el("div", { class: "dash-mini-row" }, el("span", { title: label }, label),
+      el("div", { class: "bar-track" }, fill), el("span", { class: "bar-n" }, n(v))));
+  }
+}
+
+// "96 items were skipped entirely, mostly newsletters & mailing lists. 41 details, mostly phone numbers, were
+// blanked out of 23 items AI can still search."
+function dashSentence(r) {
+  const p = r.in_period, parts = [];
+  const lower = (s) => s.charAt(0).toLowerCase() + s.slice(1);
+  if (p.dropped) parts.push(`${n(p.dropped)} ${p.dropped === 1 ? "item was" : "items were"} skipped entirely` +
+    (r.skipped.length ? `, mostly ${lower(r.skipped[0][0])}.` : "."));
+  if (p.blanked) parts.push(`${n(p.blanked)} ${p.blanked === 1 ? "detail" : "details"}` +
+    (r.blanked.length ? `, mostly ${lower(r.blanked[0][0])},` : "") +
+    ` ${p.blanked === 1 ? "was" : "were"} blanked out of ${n(p.blanked_items)} ${p.blanked_items === 1 ? "item" : "items"} AI can still search.`);
+  return parts.join(" ");
+}
+
+async function loadDashboard() {
+  const period = dash.period;
+  const r = await api().dashboard(period);
+  if (!r.ok) return toast(r.error, "error");
+  if (period !== dash.period) return;  // the period changed while this loaded
+  const when = DASH_PERIODS[period], p = r.in_period, kept = p.dropped + p.blanked;
+  $("dash-kicker").textContent = `Security Dashboard · ${period === "all" ? "all time" : when}`;
+  $("dash-title").textContent = kept
+    ? `${n(kept)} ${kept === 1 ? "thing" : "things"} kept out of AI's reach ${when}`
+    : (period === "all" ? "Nothing kept out of AI's reach yet" : `Nothing new to keep from AI ${when}`);
+  $("dash-sub").textContent = kept ? dashSentence(r)
+    : `So far, ${n(r.totals.dropped)} items were skipped and ${n(r.totals.blanked)} details blanked out.`;
+  $("t-dropped").textContent = n(r.totals.dropped);
+  $("t-kept").textContent = n(r.totals.kept);
+  $("t-redacted").textContent = n(r.totals.blanked);
+  const delta = (v) => (period === "all" ? "" : `+${n(v)} ${when}`);
+  $("d-dropped").textContent = delta(p.dropped);
+  $("d-kept").textContent = delta(p.kept);
+  $("d-redacted").textContent = delta(p.blanked);
+  dashMini($("m-dropped"), r.skipped);
+  dashMini($("m-kept"), r.kept_by_source);
+  dashMini($("m-redacted"), r.blanked);
+}
+
+async function loadDashFeed(more = false) {
+  const seq = ++dash.seq;
+  const r = await api().dashboard_feed(dash.view, more ? dash.next : null, 25);
+  if (seq !== dash.seq) return;  // a newer load (filter change, reopen) won
+  if (!r.ok) return toast(r.error, "error");
+  dash.rows = more ? dash.rows.concat(r.rows) : r.rows;
+  dash.next = r.next;
+  dashRender();
+  $("dash-more").hidden = !dash.next;
+  dashFetchPreviews();
+}
+
+function dashRender() {
+  const box = $("dash-rows");
+  box.replaceChildren(...dash.rows.map(dashRow));
+  if (!dash.rows.length) box.replaceChildren(el("div", { class: "dash-empty" },
+    dash.view === "skipped" ? "Nothing skipped yet." : dash.view === "scrubbed" ? "Nothing blanked out yet." : "Nothing protected yet."));
+}
+
+// Skipped rows have no stored content. Like Not synced in Mail, the rows on screen ask their source for
+// sender, subject and a snippet (app/skipped.py: fetched now, kept in memory only, never stored or sent to AI).
+async function dashFetchPreviews() {
+  const want = dash.rows.filter((r) => r.type === "dropped" && !dash.skip.has(skipKey(r))).slice(0, 40);
+  if (!want.length) return;
+  for (const r of want) dash.skip.set(skipKey(r), null);
+  const gen = dash.skipGen;
+  const res = await api().skipped_previews(want.map((r) => ({ source: r.source, id: r.id })));
+  if (gen !== dash.skipGen) return;  // forgotten meanwhile
+  for (const r of want) dash.skip.set(skipKey(r), res.ok ? (res.previews[skipKey(r)] || { error: "" }) : { error: res.error });
+  if (state.view === "removed") dashRender();
+}
+
+// Leaving the dashboard: drop the skipped previews held here and in the backend.
+function dashForgetSkipped() {
+  if (!dash.skip.size) return;
+  dash.skip.clear();
+  dash.skipGen++;
+  api().skipped_forget();
+}
+
+function dashRedactionText(red) {
+  return Object.entries(red || {}).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${v} ${REDACTION_NAMES[k] || k.toLowerCase()}`).join(", ");
+}
+
+// One inbox-style line. Skipped: the reason, and the thread's subject when another message in it was kept.
+// Scrubbed: the stored (already scrubbed) sender, title and snippet, blanked spots shown as chips.
+function dashRow(r) {
+  const skipped = r.type === "dropped";
+  let who, line, tip;
+  if (skipped) {
+    const ri = r.reason_info, p = dash.skip.get(skipKey(r));
+    tip = `Skipped: ${ri.why || ri.label} AI can't see it.`;
+    if (p && !p.error && !p.gone) {  // fetched from the source just now, shown here only
+      who = p.sender ? senderName(p.sender) : sourceName(r.source);
+      const snip = (p.snippet || "").replace(/\s+/g, " ");
+      // Blurred here: this is the opening screen, and a code or a balance shouldn't show on launch. Opening the row
+      // shows it in full in the reader.
+      line = [el("span", { class: "dash-veil", "aria-label": "Hidden until opened" },
+        el("span", { "aria-hidden": "true" }, p.title || "(no subject)", snip ? el("span", { class: "muted" }, " — ", snip) : null))];
+      tip += " Open it to read it.";
+    } else {
+      who = "Sender not kept";
+      line = [el("span", {}, ri.label), r.thread_title ? el("span", { class: "muted" }, "In “", richText(r.thread_title), "”") : null];
+      if (p && p.gone) tip += " It's no longer at the source.";
+    }
+  } else {
+    who = r.kind === "event" || !r.sender ? sourceName(r.source) : senderName(r.sender);
+    const snip = (r.snippet || "").replace(/\s+/g, " ").replace(/\[[A-Z_:]*$/, "…");  // a token cut short at the end
+    line = [el("span", {}, richText(r.title || "(no subject)")), snip ? el("span", { class: "muted" }, "— ", richText(snip)) : null];
+    tip = `Scrubbed: ${dashRedactionText(r.redactions)} blanked out. AI sees the rest.`;
+  }
+  return el("button", { class: "dash-row", type: "button", role: "listitem", title: tip, onclick: () => dashOpen(r) },
+    el("span", { class: skipped ? "badge badge-secondary" : "badge badge-redacted" }, skipped ? "Skipped" : "Scrubbed"),
+    el("span", { class: "dash-app", title: sourceName(r.source) }, sourceIcon(r.source, "dash-app-ico")),
+    el("span", { class: skipped ? "dash-who muted" : "dash-who" }, who),
+    el("span", { class: "dash-line" }, ...line),
+    mailWhen(r, r.kind === "event"));
+}
+
+// Open the item in the Mail view's reader, as a search result opens (its details, or why it was skipped).
+function dashOpen(r) {
+  if (mail.source !== r.source) openSource(r.source); else { mailInit(); show("mail"); mailReload(); }
+  mailOpen(r, true);
+}
+
+// While the dashboard is open and a sync brings in more, refresh it, at most every 10 seconds (it's the
+// opening screen, so a first sync would otherwise leave it at zero). A list paged past its first page stays.
+function dashMaybeRefresh(r) {
+  const sig = `${r.kept}:${r.dropped}:${r.total_items}`;
+  if (state.view !== "removed" || sig === dash.sig) return;
+  if (dash.sig === undefined) { dash.sig = sig; return; }
+  if (Date.now() - dash.at < 10000) return;
+  dash.sig = sig;
+  dash.at = Date.now();
+  loadDashboard();
+  if (dash.rows.length <= 25) loadDashFeed();
+}
+
+function dashInit() {
+  for (const b of $("dash-period").querySelectorAll("[data-period]")) b.addEventListener("click", () => {
+    dash.period = b.dataset.period;
+    for (const x of $("dash-period").children) x.setAttribute("aria-selected", String(x === b));
+    loadDashboard();
+  });
+  for (const b of $("dash-filter").querySelectorAll("[data-view]")) b.addEventListener("click", () => {
+    dash.view = b.dataset.view;
+    for (const x of $("dash-filter").children) x.setAttribute("aria-selected", String(x === b));
+    loadDashFeed();
+  });
+  $("dash-more").addEventListener("click", () => loadDashFeed(true));
 }
 
 function renderScrubber(r) {
@@ -1362,6 +1534,7 @@ function wire() {
   $("files-add-file").addEventListener("click", () => addFiles("file"));
   $("ob-connect").addEventListener("click", () => connect($("ob-connect"), $("ob-error")));
   $("reconnect").addEventListener("click", () => connect($("reconnect"), null));
+  dashInit();
   $("scrub-add").addEventListener("submit", async (e) => {
     e.preventDefault();
     const r = await api().scrubber_add($("scrub-name").value, $("scrub-pattern").value);

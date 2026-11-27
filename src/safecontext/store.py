@@ -134,6 +134,12 @@ CREATE INDEX IF NOT EXISTS ix_dropped_sreason ON dropped(source, reason);
 CREATE INDEX IF NOT EXISTS ix_items_redacted  ON items(source, thread_id, redactions) WHERE redactions != '{}';
 """
 
+# The Security Dashboard (added in place, still schema v3): kept items that had something blanked out,
+# by date, so its "recently protected" list and its period totals read only those rows, newest first.
+_DASHBOARD_INDEXES = """
+CREATE INDEX IF NOT EXISTS ix_items_redacted_date ON items(date_ms) WHERE redactions != '{}';
+"""
+
 # Labels and tags (added in place, still schema v3; new tables only, so older stores just gain them).
 #   labels       one row per Gmail label (source 'gmail', ext_id = Gmail's label id) or SafeContext tag
 #                (source '', ext_id 'tag:<n>'). Names are scrubbed before they're stored, like subjects.
@@ -353,7 +359,8 @@ class Store:
             self._migrate_v1()
         self._add_unread_column()
         # indexes and label tables, added in place; idempotent
-        self._db.executescript(_BROWSE_INDEXES + _SWITCH_INDEXES + _UNREAD_INDEXES + _LABEL_SCHEMA)
+        self._db.executescript(_BROWSE_INDEXES + _SWITCH_INDEXES + _UNREAD_INDEXES + _DASHBOARD_INDEXES
+                              + _LABEL_SCHEMA)
         self._requeue_retired_drops()
         version = self.get_meta("schema_version")
         if version is None or (version.isdigit() and int(version) < SCHEMA_VERSION):
@@ -1362,6 +1369,89 @@ class Store:
         return {"kept": kept, "dropped": sum(reasons.values()),
                 "dropped_by_reason": dict(sorted(reasons.items(), key=lambda kv: -kv[1])),
                 "oldest_ms": lo, "newest_ms": hi, "stale": stale}
+
+    # the Security Dashboard -------------------------------------------------------
+    #
+    # Dates are the items' own (sent time, or an event's start), the same date the Mail view shows;
+    # no time of scrubbing is kept. Items dated after `until_ms` (upcoming events) are left out.
+
+    def protected_summary(self, since_ms: Optional[int], until_ms: int) -> Dict[str, object]:
+        """What was kept out of AI's reach among items dated in (since_ms, until_ms], or every
+        item when since_ms is None: skipped counts by reason code, kept counts by source,
+        blanked-out values by type, and how many kept items had any. Counts only; no content."""
+        return copy.deepcopy(self._cached(("protected", since_ms, until_ms),
+                                          lambda: self._protected_summary(since_ms, until_ms)))
+
+    def _protected_summary(self, since_ms: Optional[int], until_ms: int) -> Dict[str, object]:
+        if since_ms is None:
+            span, args = "", []
+            dropped = dict(self._read("SELECT reason, count(*) FROM dropped GROUP BY reason"))
+            kept = dict(self._read("SELECT source, count(*) FROM items GROUP BY source"))
+        else:
+            span, args = "AND date_ms > ? AND date_ms <= ? ", [since_ms, until_ms]
+            dropped = dict(self._read("SELECT reason, count(*) FROM dropped INDEXED BY ix_dropped_date "
+                                      "WHERE date_ms > ? AND date_ms <= ? GROUP BY reason", args))
+            kept = dict(self._read("SELECT source, count(*) FROM items INDEXED BY ix_items_date "
+                                   "WHERE date_ms > ? AND date_ms <= ? GROUP BY source", args))
+        redactions: Dict[str, int] = {}
+        items = 0
+        for (blob,) in self._read("SELECT redactions FROM items INDEXED BY ix_items_redacted_date "
+                                  f"WHERE redactions != '{{}}' {span}", args):
+            items += 1
+            for k, v in json.loads(blob).items():
+                redactions[k] = redactions.get(k, 0) + v
+        return {"dropped_by_reason": dropped, "kept_by_source": kept, "redactions": redactions,
+                "redacted_items": items}
+
+    _FEED_COLS = ("m.rowid AS rid, m.source, m.id, m.thread_id, m.kind, m.date_ms, m.end_ms, m.sender, m.title, "
+                  "m.redactions, coalesce(json_extract(m.extra, '$.When') = 'All day', 0) AS all_day, "
+                  "substr(m.body, 1, 240) AS snip")
+
+    def protected_feed(self, *, until_ms: int, view: str = "all", cursor: Optional[str] = None,
+                       limit: int = 25) -> Dict[str, object]:
+        """Recently protected items, newest first: kept items that had something blanked out
+        ('scrubbed') and skipped items ('dropped'), interleaved by date. view: 'all', 'scrubbed'
+        or 'skipped'. Kept rows carry their scrubbed title, sender and snippet and a count per
+        redaction type; skipped rows only what the dropped table keeps (no content). Keyset-paged
+        like browse(); returns {"rows": [...], "next": cursor | None}."""
+        if view not in ("all", "scrubbed", "skipped"):
+            raise ValueError(f"unknown view {view!r}")
+        limit = max(1, min(int(limit), 200))
+        cur = self.parse_cursor(cursor)
+        merged: List[tuple] = []
+        full = False
+        if view in ("all", "scrubbed"):
+            after, args = self._after("m", 1, cur)
+            kept = self._read(f"SELECT {self._FEED_COLS} FROM items m INDEXED BY ix_items_redacted_date "
+                              f"WHERE m.redactions != '{{}}' AND m.date_ms <= ? {after}"
+                              "ORDER BY m.date_ms DESC, m.rowid DESC LIMIT ?", [until_ms, *args, limit])
+            full |= len(kept) == limit
+            merged += [((r["date_ms"], 1, r["rid"]), self._scrubbed_row(r)) for r in kept]
+        if view in ("all", "skipped"):
+            after, args = self._after("d", 0, cur)
+            dropped = self._read(
+                "SELECT d.rowid AS rid, d.source, d.id, d.thread_id, d.date_ms, d.reason, "
+                "(SELECT i.title FROM items i WHERE i.source = d.source AND i.thread_id = d.thread_id "
+                " ORDER BY i.date_ms LIMIT 1) AS thread_title "
+                "FROM dropped d INDEXED BY ix_dropped_date "
+                f"WHERE d.date_ms > 0 AND d.date_ms <= ? {after}"
+                "ORDER BY d.date_ms DESC, d.rowid DESC LIMIT ?", [until_ms, *args, limit])
+            full |= len(dropped) == limit
+            merged += [((r["date_ms"], 0, r["rid"]), self._dropped_row(r)) for r in dropped]
+        merged.sort(key=lambda kv: kv[0], reverse=True)
+        more = full or len(merged) > limit
+        rows = [row for _, row in merged[:limit]]
+        return {"rows": rows, "next": rows[-1]["cursor"] if more and rows else None}
+
+    @staticmethod
+    def _scrubbed_row(r: sqlite3.Row) -> Dict[str, object]:
+        """A kept item for the dashboard: its stored (already scrubbed) fields only. type 'thread'
+        so the Mail view's reader opens it like a row of its own list."""
+        return {"type": "thread", "source": r["source"], "id": r["id"], "thread_id": r["thread_id"],
+                "kind": r["kind"], "date": _iso(r["date_ms"]), "end": _iso_or_none(r["end_ms"]),
+                "all_day": bool(r["all_day"]), "sender": r["sender"], "title": r["title"],
+                "snippet": r["snip"], "redactions": json.loads(r["redactions"]),
+                "cursor": f"{r['date_ms']}.1.{r['rid']}"}
 
     def dropped_reasons(self, sources: Sequence[str]) -> Dict[str, int]:
         """Dropped counts by reason code across these sources."""
