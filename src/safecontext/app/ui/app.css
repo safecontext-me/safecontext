@@ -367,6 +367,9 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .dash-who.muted { color: var(--muted-foreground); }
 .dash-line .redacted { font-size: var(--text-xs); line-height: var(--leading-snug); padding: 0 var(--space-1); }
 .dash-row .mrow-date { flex: none; font-size: var(--text-sm); }
+/* A skipped item's subject and preview, fetched live: blurred until the row is opened. */
+.dash-veil { filter: blur(4px); user-select: none; transition: filter .15s; }
+.dash-row:hover .dash-veil, .dash-row:focus-visible .dash-veil { filter: blur(3px); }
 .dash-empty { padding: var(--space-4) var(--space-1-5); color: var(--muted-foreground); }
 .dash-more { display: block; margin: var(--space-2) auto 0; }
 .dash-all > summary { cursor: pointer; list-style: none; }

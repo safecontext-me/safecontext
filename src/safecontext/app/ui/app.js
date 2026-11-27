@@ -1016,7 +1016,11 @@ function dashRow(r) {
     if (p && !p.error && !p.gone) {  // fetched from the source just now, shown here only
       who = p.sender ? senderName(p.sender) : sourceName(r.source);
       const snip = (p.snippet || "").replace(/\s+/g, " ");
-      line = [el("span", {}, p.title || "(no subject)"), snip ? el("span", { class: "muted" }, "— ", snip) : null];
+      // Blurred here: this is the opening screen, and a code or a balance shouldn't show on launch. Opening the row
+      // shows it in full in the reader.
+      line = [el("span", { class: "dash-veil", "aria-label": "Hidden until opened" },
+        el("span", { "aria-hidden": "true" }, p.title || "(no subject)", snip ? el("span", { class: "muted" }, " — ", snip) : null))];
+      tip += " Open it to read it.";
     } else {
       who = "Sender not kept";
       line = [el("span", {}, ri.label), r.thread_title ? el("span", { class: "muted" }, "In “", richText(r.thread_title), "”") : null];

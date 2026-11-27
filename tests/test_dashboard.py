@@ -207,3 +207,11 @@ def test_skipped_rows_fetch_live_and_are_forgotten_on_leaving():
     assert 'if (view !== "removed") dashForgetSkipped();' in show
     forget = js[js.index("function dashForgetSkipped"):]
     assert "api().skipped_forget()" in forget[:forget.index("\n}\n")]
+
+
+def test_skipped_previews_are_blurred_until_opened():
+    js, css = (UI / "app.js").read_text(), (UI / "app.css").read_text()
+    row = js[js.index("function dashRow"):]
+    row = row[:row.index("\n}\n")]
+    assert 'class: "dash-veil"' in row and "p.title" in row[row.index("dash-veil") - 200:]
+    assert re.search(r"\.dash-veil \{[^}]*filter: blur", css)
