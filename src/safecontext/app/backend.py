@@ -30,7 +30,7 @@ from ..sources import Sources, default_sources
 from ..store import DEFAULT_DATA_DIR, GMAIL, TAG_COLORS, Store, TagError
 from ..sync import SyncResult, read_heartbeat
 from ..tools import run_tool
-from .mail import MailView
+from .mail import MailView, reason_info
 
 log = logging.getLogger("safecontext.app")
 
@@ -64,6 +64,10 @@ REDACTION_LABELS = {
     "BOOKING_CODE": "Booking & confirmation codes",
     "HEALTH": "Health details", "LEGAL": "Legal matters", "PERSONAL": "Personal matters",
 }
+
+
+# The Security Dashboard's periods: days back, by the items' own dates (None: all time).
+DASHBOARD_PERIODS = {"week": 7, "month": 30, "all": None}
 
 
 _in_app_bundle = env.is_app_launcher
@@ -465,6 +469,50 @@ class Backend:
             if self._is_syncing(sid) and p:
                 live[sid] = {"phase": p.phase, "fetched": p.fetched, "kept": p.kept, "dropped": p.dropped}
         return {"sources": self._mail.coverage(source, live)}
+
+    # --- Security Dashboard: what was kept out of AI's reach, and the newest of it ---------
+    @staticmethod
+    def _minute_now() -> int:
+        """Now, to the minute: a dashboard reopened within the minute reuses the store's cached counts."""
+        return int(time.time() // 60) * 60_000
+
+    @_safe
+    def dashboard(self, period: str = "week") -> Dict[str, Any]:
+        """The dashboard's headline and stat cards. All-time totals, plus the same counts for items
+        dated within the period (the last 7 or 30 days, or all time), largest groups first."""
+        if period not in DASHBOARD_PERIODS:
+            raise ValueError(f"unknown period {period!r}")
+        now = self._minute_now()
+        days = DASHBOARD_PERIODS[period]
+        st = self._store.stats()
+        s = self._store.protected_summary(None if days is None else now - days * 86_400_000, now)
+        skipped: Dict[str, int] = {}
+        for code, n in s["dropped_by_reason"].items():
+            label = REASON_LABELS.get(code, "Couldn't be processed" if code.startswith("error:") else code)
+            skipped[label] = skipped.get(label, 0) + n
+        names = {x.id: x.name for x in self._sources}
+        top = lambda d: [[k, v] for k, v in sorted(d.items(), key=lambda kv: -kv[1])]  # noqa: E731
+        return {
+            "period": period,
+            "totals": {"kept": st["kept"], "dropped": st["dropped"], "blanked": sum(st["redactions"].values())},
+            "in_period": {"kept": sum(s["kept_by_source"].values()), "dropped": sum(s["dropped_by_reason"].values()),
+                          "blanked": sum(s["redactions"].values()), "blanked_items": s["redacted_items"]},
+            "skipped": top(skipped),
+            "kept_by_source": top({names.get(k, k): v for k, v in s["kept_by_source"].items()}),
+            "blanked": top({REDACTION_LABELS.get(k, k): v for k, v in s["redactions"].items()}),
+        }
+
+    @_safe
+    def dashboard_feed(self, view: str = "all", cursor: Optional[str] = None, limit: int = 25) -> Dict[str, Any]:
+        """Recently protected, newest first: kept items with blanked-out details and skipped items.
+        Only what the store keeps: scrubbed titles, senders and snippets, and for skipped items
+        the reason and date. No removed value is ever stored, so none can be shown."""
+        page = self._store.protected_feed(until_ms=self._minute_now() + 60_000, view=view or "all",
+                                          cursor=cursor or None, limit=int(limit or 25))
+        for r in page["rows"]:
+            if r["type"] == "dropped":
+                r["reason_info"] = reason_info(r["reason"], REASON_LABELS)
+        return page
 
     # --- privacy report --------------------------------------------------------
     @_safe

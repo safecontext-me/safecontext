@@ -52,7 +52,8 @@ def test_sources_is_a_parent_with_each_source_under_it():
     assert (nav.index('data-view="removed"') < nav.index('data-view="sources"') < nav.index('id="nav-sources"')
             < nav.index('data-view="files"') < nav.index('data-view="mcp"') < nav.index('data-view="review"'))
     assert 'data-view="mail"' not in nav  # each source opens the browse page instead
-    assert "Security Dashboard" in nav and "<h2>Security Dashboard</h2>" in HTML
+    # The dashboard's headline is its digest ("14 things kept out of AI's reach this week"); the line above names the page.
+    assert "Security Dashboard" in nav and re.search(r'id="dash-kicker">Security Dashboard', HTML)
     assert "What was removed" not in HTML
     assert 'id="scrub-controls"' in HTML and "What gets removed from files" in HTML
 

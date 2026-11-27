@@ -319,7 +319,6 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .home-hero h2 { margin: 0; line-height: var(--leading-tight); }  /* tight: no extra space above or below the title */
 .home-hero p { margin: var(--space-2) 0 0; max-width: 480px; line-height: var(--leading-normal); }
 .onboard-hero { padding: 0 0 var(--space-6); }  /* sign-in: logo, wordmark and tagline above the card */
-.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); margin: var(--space-4) 0; }
 .num { font-size: var(--text-title); font-weight: var(--font-weight-bold); font-variant-numeric: tabular-nums; }
 .lbl { color: var(--muted-foreground); font-size: var(--text-sm); }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
@@ -328,6 +327,58 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
 .bar-track { grid-column: 1 / -1; height: 6px; background: var(--border); border-radius: var(--radius-full); overflow: hidden; }
 .bar-fill { height: 100%; background: var(--primary); border-radius: var(--radius-full); }
 .bar-n { font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
+
+/* Security Dashboard: a digest line, three stat cards, then the newest protected items as an inbox. */
+#view-removed > * + * { margin-top: var(--space-3); }
+.dash-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap;
+             padding: var(--space-2) 0 var(--space-2); }
+.dash-kicker { font-size: var(--text-sm); }
+.dash-title { font-size: var(--text-display); line-height: var(--leading-tight); margin: var(--space-0-5) 0 0; }
+.dash-sub { margin: var(--space-1-5) 0 0; max-width: 680px; line-height: var(--leading-normal); }
+.dash-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.dash-card-lbl { color: var(--muted-foreground); font-size: var(--text-sm); }
+.dash-card-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2);
+                 margin: var(--space-0-5) 0 var(--space-2-5); }
+.dash-delta { font-size: var(--text-sm); color: var(--muted-foreground); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dash-mini { display: grid; gap: var(--space-1-5); }
+.dash-mini-row { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 6fr) auto; gap: var(--space-2); align-items: center;
+                 font-size: var(--text-sm); color: var(--muted-foreground); }
+.dash-mini-row > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-mini-row .bar-track { grid-column: auto; }
+.dash-mini-row .bar-n { color: var(--foreground); min-width: 2ch; text-align: right; }
+.dash-mini[data-tone="skipped"] .bar-fill { background: var(--muted-foreground); }
+.dash-mini[data-tone="blanked"] .bar-fill { background: var(--badge-foreground); }
+.dash-feed-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.dash-rows { display: grid; grid-template-columns: minmax(0, 1fr); }
+/* One line per item, like an inbox row. Every row has the same weight and color (bold means unread in the
+   Mail view); the label at the front is the only difference between skipped and scrubbed. */
+.dash-row { display: flex; align-items: center; gap: var(--space-2-5); min-height: 38px; padding: 0 var(--space-1-5);
+            border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--foreground);
+            font: inherit; font-size: var(--text-base); text-align: left; cursor: pointer; border-radius: var(--radius-md); width: 100%; }
+.dash-row:first-child { border-top-color: transparent; }
+.dash-row:hover { background: var(--hover); }
+.dash-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.dash-row .badge { width: 72px; flex: none; justify-content: center; }
+.dash-app { width: 18px; height: 18px; flex: none; display: grid; place-items: center; }
+.dash-app svg { width: 16px; height: 16px; }
+.dash-who { width: 150px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-line { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-line .muted { margin-left: var(--space-1); }
+.dash-who.muted { color: var(--muted-foreground); }
+.dash-line .redacted { font-size: var(--text-xs); line-height: var(--leading-snug); padding: 0 var(--space-1); }
+.dash-row .mrow-date { flex: none; font-size: var(--text-sm); }
+.dash-empty { padding: var(--space-4) var(--space-1-5); color: var(--muted-foreground); }
+.dash-more { display: block; margin: var(--space-2) auto 0; }
+.dash-all > summary { cursor: pointer; list-style: none; }
+.dash-all > summary::-webkit-details-marker { display: none; }
+.dash-all .card-title { display: flex; align-items: center; gap: var(--space-1-5); }
+.dash-chev { width: 16px; height: 16px; color: var(--muted-foreground); transition: transform .15s; }
+.dash-all[open] .dash-chev { transform: rotate(90deg); }
+.dash-all h3 { margin-top: var(--space-4); }
+@media (max-width: 900px) {
+  .dash-cards { grid-template-columns: 1fr; }
+  .dash-who { width: 96px; }
+}
 
 .scrub-builtin { margin: 8px 0 14px; padding-left: 18px; }
 .scrub-builtin li { margin: 4px 0; }
@@ -402,7 +453,7 @@ mark { background: var(--highlight); color: inherit; border-radius: var(--radius
   .shell.sidebar-open #nav-sidebar { position: relative; z-index: 45; }
 }
 @media (max-width: 900px) {
-  .panes, .two-col, .tiles, .sp-tiles { grid-template-columns: 1fr; }
+  .panes, .two-col, .sp-tiles { grid-template-columns: 1fr; }
 }
 
 /* AI access review: one tab per app; red / yellow / green / grey, always with an icon shape and a word */
