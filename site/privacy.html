@@ -31,19 +31,19 @@
 <h1>SafeContext Privacy Policy</h1>
 <p class="muted">Effective November 27, 2026</p>
 
-<p>SafeContext is a Mac app, developed by Cyrus Karbassiyoon (“we”, “the developer”), that copies your Gmail and, if you add them, your Google Calendar, your Messages history (iMessage, SMS and RCS) and your Dropbox files to your
+<p>SafeContext is a Mac app, developed by Cyrus Karbassiyoon (“we”, “the developer”), that copies your Gmail and, if you add them, your Google Calendar and your Messages history (iMessage, SMS and RCS) to your
 own computer, removes sensitive information from it on your computer, and lets you and AI assistants you choose search the result.
 This policy explains what data SafeContext uses, how it is protected, and where it goes. It applies to the SafeContext app and
 to this website, <a href="https://safecontext.me/">safecontext.me</a>.</p>
 
 <h2>The short version</h2>
 <ul>
-  <li>Your email, events, text messages and Dropbox files are processed and stored <b>only on your Mac</b>. The developer never stores or keeps a copy of them.</li>
+  <li>Your email, events and text messages are processed and stored <b>only on your Mac</b>. The developer never stores or keeps a copy of them.</li>
   <li>Sensitive data is removed <b>before</b> anything is saved.</li>
   <li>None of your data leaves your Mac unless <b>you</b> turn on <b>MCP</b> or connect an AI app, and then only scrubbed results for that AI's searches are shared.</li>
   <li>SafeContext checks safecontext.me for a new version when it opens and every few hours. The check sends none of your data, and you can turn it off.</li>
   <li>With MCP on, those scrubbed results pass through SafeContext's relay on their way to the AI app you connected, such as Grok or Claude. The relay <b>does not store or log</b> them.</li>
-  <li>SafeContext only reads. It cannot send, delete or change email, events, messages or files.</li>
+  <li>SafeContext only reads. It cannot send, delete or change email, events or messages.</li>
   <li>Your Google data is never sold, never used for advertising, and never used to train AI models.</li>
 </ul>
 
@@ -66,32 +66,23 @@ It never downloads the contents of attachments; it records only each attachment'
 <p>The AI access review checks whether ChatGPT, Claude or Grok is installed, by looking for the app in your Applications folders. It doesn't open the apps or read their data.</p>
 <p>If you add folders or PDFs on the <b>Files</b> screen, SafeContext saves the folders and files you chose in its database and lists the names of the PDFs in them, on your Mac only. It doesn't read their contents yet and doesn't share them with AI apps. If you add a folder in Documents, Desktop or Downloads, macOS may ask you to let SafeContext access it.</p>
 
-<h2>Dropbox data SafeContext accesses</h2>
-<p>If you choose to add Dropbox, you sign in to Dropbox in your web browser and SafeContext asks for three read-only Dropbox permissions:</p>
-<ul>
-  <li><code>account_info.read</code>: to learn the email address of the Dropbox account you connect, so it can show which account is connected.</li>
-  <li><code>files.metadata.read</code>: to list the files in your Dropbox (name, folder, size and date) and to notice when they change.</li>
-  <li><code>files.content.read</code>: to download text documents (such as .txt, .md, .csv, .json and .html files up to 1 MB) so they can be scrubbed and searched on your Mac.</li>
-</ul>
-<p>SafeContext lists your whole Dropbox, including folders shared with you, but downloads only text documents. For every other file, such as PDFs, photos and Office documents, it records only the file's name, type and size, never its contents. Files whose name or folder suggests a bank statement, tax form, medical record, identity document, password list or private key are skipped without being downloaded during sync. Text documents that read like a statement or a medical record are skipped too. SafeContext cannot upload, edit, move, share or delete anything in your Dropbox. Dropbox data never goes to Google or to the developer.</p>
-
 <h2>How SafeContext uses your Google data</h2>
-<p>SafeContext uses Gmail, Google Calendar, Messages and Dropbox data only to provide the features you see in the app:</p>
+<p>SafeContext uses Gmail, Google Calendar and Messages data only to provide the features you see in the app:</p>
 <ul>
-  <li>building a scrubbed, searchable copy of your mail, events, messages and Dropbox files on your Mac;</li>
+  <li>building a scrubbed, searchable copy of your mail, events and messages on your Mac;</li>
   <li>letting you browse and search that copy;</li>
-  <li>letting AI apps such as Grok or Claude, when you turn on MCP and connect them, search that copy to answer the questions you ask, with links back to the original messages in Gmail, events in Google Calendar and files in Dropbox; and</li>
+  <li>letting AI apps such as Grok or Claude, when you turn on MCP and connect them, search that copy to answer the questions you ask, with links back to the original messages in Gmail and events in Google Calendar; and</li>
   <li>letting AI apps that you connect on your Mac search that copy on your behalf.</li>
 </ul>
 
 <h2>How your data is processed and stored</h2>
 <ul>
-  <li><b>Scrubbing happens on your Mac, in memory, before storage.</b> Whole messages are skipped if they are spam or trash, promotions, social or forum notifications, bulk mail, security messages (such as verification codes, password resets and notices that an app or device was given access to your account), or come from banking, tax, health or dating-app senders. In the messages that remain, values such as one-time codes, passwords, card and bank numbers, Social Security numbers, API keys, dates of birth, phone numbers, street addresses and booking confirmation codes are replaced with placeholders. Quoted replies and signatures are removed. Text messages from short codes, sender IDs and toll-free numbers (such as banks, pharmacies and sign-in codes), and texts that read like a bank, tax or health notice, are skipped. Dropbox files whose name or folder suggests a bank statement, tax form, medical record, identity document, password list or private key, and text documents that read like a statement or a medical record, are skipped. In the files that remain, the same values are replaced with placeholders.</li>
-  <li>When you look at skipped items in SafeContext (on the Not synced list, when you open one, or on the Security Dashboard's Recently protected list, where they stay blurred until you open them), SafeContext fetches them from their source to show them to you: from Gmail, Google Calendar or Dropbox with the same read-only access it already has, or from Messages on your Mac. They're kept in memory only while you're on that screen. They're never saved, searched or shown to AI apps.</li>
+  <li><b>Scrubbing happens on your Mac, in memory, before storage.</b> Whole messages are skipped if they are spam or trash, promotions, social or forum notifications, bulk mail, security messages (such as verification codes, password resets and notices that an app or device was given access to your account), or come from banking, tax, health or dating-app senders. In the messages that remain, values such as one-time codes, passwords, card and bank numbers, Social Security numbers, API keys, dates of birth, phone numbers, street addresses and booking confirmation codes are replaced with placeholders. Quoted replies and signatures are removed. Text messages from short codes, sender IDs and toll-free numbers (such as banks, pharmacies and sign-in codes), and texts that read like a bank, tax or health notice, are skipped.</li>
+  <li>When you look at skipped items in SafeContext (on the Not synced list, when you open one, or on the Security Dashboard's Recently protected list, where they stay blurred until you open them), SafeContext fetches them from their source to show them to you: from Gmail or Google Calendar with the same read-only access it already has, or from Messages on your Mac. They're kept in memory only while you're on that screen. They're never saved, searched or shown to AI apps.</li>
   <li><b>Only scrubbed items are saved</b>, in a database file on your Mac, in <code>~/Library/Application Support/SafeContext</code>.</li>
   <li>SafeContext also keeps whether each email and message is <b>read or unread</b>, as Gmail and Messages show it, so you can see and filter unread items. It only copies that state: opening something in SafeContext doesn't mark it read, and SafeContext can't mark anything read or unread in Gmail or Messages. When you connect an AI app, it can see whether an item is unread and can ask for only unread items.</li>
   <li><b>Labels and tags.</b> SafeContext also keeps your Gmail label names (your own, like “Receipts” or “Work/Clients”, and Gmail's Inbox, Starred, Important and Sent) and which of your synced messages carry them. It reads them with the same read-only Gmail access and never changes them in Gmail. You can also add your own tags to synced items in SafeContext. Tags are stored only on your Mac and are never sent to Google. Label and tag names are scrubbed like subject lines before they're saved. AI apps you connect can see the labels and tags on items they read, and can search by them (for example, “my Receipts”).</li>
-  <li><b>Your Google and Dropbox sign-in tokens</b> and the private MCP link are stored in your Mac's Keychain, not in a plain file.</li>
+  <li><b>Your Google sign-in token</b> and the private MCP link are stored in your Mac's Keychain, not in a plain file.</li>
   <li>A short <b>activity list</b> of what connected AI apps asked for through the MCP link (time, which app, request and number of results, never the results) is kept on your Mac so you can see it in the app. You can clear it at any time.</li>
   <li>Your answers in the <b>AI access review</b> (which checks you've done, and when) and any report you save are kept on your Mac, in SafeContext's folder. A saved report contains no email addresses, no MCP link and no values from other apps' files.</li>
   <li>SafeContext keeps a <b>history of your AI connections</b> on your Mac: each time an AI app asks to connect through your link and what you answered, when an app's sign-in is made, renewed, expires or is revoked, which apps used your link on each day, changes to your link and its settings, and, if you turned on the AI apps check, which MCP servers and rules were added or removed. It holds no codes, links, sign-in IDs, searches or values from other apps' files. It keeps up to a year (at most the last 500 entries), and you can clear it in <b>AI access review → History</b>.</li>
@@ -102,11 +93,11 @@ It never downloads the contents of attachments; it records only each attachment'
 <p>We want to be precise about this:</p>
 <ul>
   <li>The SafeContext folder and database are created so that <b>only your macOS user account</b> can read or write them.</li>
-  <li>The Google and Dropbox sign-in tokens are protected by the <b>macOS Keychain</b>.</li>
+  <li>The Google sign-in token is protected by the <b>macOS Keychain</b>.</li>
   <li>The database itself is <b>not separately encrypted</b> by SafeContext. It is protected by your Mac's own security: your user account password and, if you turn it on, <b>FileVault</b> disk encryption. We recommend keeping FileVault on.</li>
   <li>Because sensitive values are scrubbed before saving, the stored copy holds less sensitive data than your mailbox and Messages history do.</li>
   <li>When messages are deleted from the database, SafeContext overwrites the deleted content rather than leaving it in free space in the file.</li>
-  <li>Connections to Google, to Dropbox, to SafeContext's relay and from the relay to the AI apps you connect use HTTPS or secure WebSockets (TLS).</li>
+  <li>Connections to Google, to SafeContext's relay and from the relay to the AI apps you connect use HTTPS or secure WebSockets (TLS).</li>
 </ul>
 
 <h2>When data leaves your Mac</h2>
@@ -124,10 +115,9 @@ It never downloads the contents of attachments; it records only each attachment'
   </li>
   <li><b>AI apps you connect on your Mac.</b> If you connect another AI app to SafeContext on your Mac (through the Model Context Protocol), that app can search and read your scrubbed copy when you use it. You choose whether to connect an app, and you can disconnect it at any time. The app handles that data under its own terms.</li>
   <li><b>Opening a message in Gmail</b> opens it in your web browser at Google.</li>
-  <li><b>Opening a file in Dropbox</b> opens it in your web browser at Dropbox.</li>
   <li><b>Update checks.</b> When SafeContext opens, when you come back to its window (at most every 15 minutes), after your Mac wakes, every two hours while it runs, and when you click <b>Check for updates</b>, SafeContext asks safecontext.me whether a newer version exists. The request sends none of your data: no account, email address, device identifier or usage information, only the app version (so the right update can be offered), a fingerprint of the update file it last saw (so an unchanged file isn't downloaded again), and what any web request carries (your IP address, which Cloudflare handles to deliver the site). The site counts each check with only the app version and the date. Nothing is installed until you choose to: <b>Update and restart</b> installs now, and <b>Install when I quit</b> (or the <b>Install updates when I quit</b> setting) installs after you quit SafeContext and does not reopen it. Before installing, SafeContext checks that the new version is signed by SafeContext's developer. Your data folder and Keychain items are not touched. You can turn automatic checks off in Settings.</li>
 </ul>
-<p>The developer never keeps your Google, Messages or Dropbox data. With MCP on, scrubbed results pass through the developer's relay only in transit, as described above.</p>
+<p>The developer never keeps your Google or Messages data. With MCP on, scrubbed results pass through the developer's relay only in transit, as described above.</p>
 
 <h2>Google API Services User Data Policy and Limited Use</h2>
 <p>SafeContext's use and transfer to any other app of information received from Google APIs will adhere to the
@@ -142,7 +132,7 @@ including the Limited Use requirements. In particular:</p>
 
 <h2>Keeping and deleting your data</h2>
 <ul>
-  <li>Your scrubbed copy stays on your Mac until you delete it. On SafeContext's Sources screen you can disconnect each source and delete its local copy. For Gmail, <b>Disconnect and delete local mail</b> also revokes SafeContext's access to your Google account. For Dropbox, <b>Disconnect</b> deletes the local copy of your Dropbox files and revokes SafeContext's access to your Dropbox account. You can also remove SafeContext at any time at <a href="https://www.dropbox.com/account/connected_apps">dropbox.com/account/connected_apps</a>.</li>
+  <li>Your scrubbed copy stays on your Mac until you delete it. On SafeContext's Sources screen you can disconnect each source and delete its local copy. For Gmail, <b>Disconnect and delete local mail</b> also revokes SafeContext's access to your Google account.</li>
   <li>You can turn off SafeContext's Full Disk Access in System Settings at any time, and it stops reading your Messages history.</li>
   <li>You can also revoke access at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
   <li>Uninstalling SafeContext and deleting its folder removes everything it stored.</li>
