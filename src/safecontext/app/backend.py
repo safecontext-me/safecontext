@@ -27,7 +27,7 @@ from ..errors import NeedsPermission
 from ..grok_link import CONNECTOR_PAGES, GrokLink
 from ..pdf_selection import PdfSelection, PdfSelectionError
 from ..sources import Sources, default_sources
-from ..store import DEFAULT_DATA_DIR, GMAIL, Store
+from ..store import DEFAULT_DATA_DIR, GMAIL, TAG_COLORS, Store, TagError
 from ..sync import SyncResult, read_heartbeat
 from ..tools import run_tool
 from .mail import MailView
@@ -81,7 +81,7 @@ def _safe(fn: Callable) -> Callable:
             return {"ok": False, "error": e.message, "needs_permission": True, "requirement": e.requirement}
         except auth.NotConfigured as e:
             return {"ok": False, "error": str(e)}
-        except PdfSelectionError as e:
+        except (PdfSelectionError, TagError) as e:
             return {"ok": False, "error": str(e)}
         except Exception as e:  # never leak a traceback (or mail content) into the UI
             log.exception("app call failed: %s", fn.__name__)
@@ -420,8 +420,34 @@ class Backend:
 
     @_safe
     def mail_list(self, view: str = "all", source: str = "", query: str = "", reasons: Optional[list] = None,
-                  cursor: Optional[str] = None, limit: int = 100, order: str = "newest") -> Dict[str, Any]:
-        return self._mail.list(view, source, query, reasons or None, cursor, limit, order)
+                  cursor: Optional[str] = None, limit: int = 100, order: str = "newest",
+                  labels: Optional[list] = None) -> Dict[str, Any]:
+        return self._mail.list(view, source, query, reasons or None, cursor, limit, order, labels or None)
+
+    # --- labels (mirrored from Gmail) and tags (the user's own, on this Mac only) -----
+    @_safe
+    def mail_labels(self, source: str = "") -> Dict[str, Any]:
+        return {"labels": self._mail.labels(source), "colors": list(TAG_COLORS)}
+
+    @_safe
+    def tag_create(self, name: str, color: str = "") -> Dict[str, Any]:
+        return {"tag": self._store.create_tag(str(name or ""), str(color or ""))}
+
+    @_safe
+    def tag_update(self, tag_id: int, name: Optional[str] = None, color: Optional[str] = None) -> Dict[str, Any]:
+        self._store.update_tag(int(tag_id), name, color)
+        return {}
+
+    @_safe
+    def tag_delete(self, tag_id: int) -> Dict[str, Any]:
+        self._store.delete_tag(int(tag_id))
+        return {}
+
+    @_safe
+    def tag_thread(self, tag_id: int, source: str, thread_id: str, on: bool = True) -> Dict[str, Any]:
+        self._sources.get(source)  # unknown sources raise
+        self._store.tag_thread(int(tag_id), source, str(thread_id), bool(on))
+        return {"labels": self._store.thread_labels(source, str(thread_id))}
 
     @_safe
     def mail_thread(self, source: str, thread_id: str) -> Dict[str, Any]:

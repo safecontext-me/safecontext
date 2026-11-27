@@ -68,6 +68,13 @@ class SlowFakeGmail(FakeGmail):
         return super().get_messages(ids, fmt)
 
 
+# Demo Gmail labels (ids as Gmail makes them, colours from Gmail's palette), spread over the demo mail.
+_DEMO_LABELS = {"Label_1": {"name": "Receipts", "color": "#16a766"}, "Label_2": {"name": "Work", "color": "#4a86e8"},
+                "Label_3": {"name": "Work/Clients", "color": "#4a86e8"}, "Label_4": {"name": "Family", "color": "#f691b2"},
+                "Label_5": {"name": "Travel", "color": "#ffad47"}}
+_DEMO_LABEL_EVERY = (("Label_2", 5), ("Label_1", 7), ("STARRED", 9), ("Label_4", 11), ("Label_5", 13), ("Label_3", 17))
+
+
 def _mark_unread(messages, days: float = 6) -> None:
     """Recent mail that isn't from Alex starts unread, as it would in a real inbox."""
     cutoff = time.time() * 1000 - days * 86_400_000
@@ -78,12 +85,14 @@ def _mark_unread(messages, days: float = 6) -> None:
 
 def make_fake_gmail() -> FakeGmail:
     g = SlowFakeGmail(page_size=25, email=DEMO_ACCOUNT)
+    g.label_defs = dict(_DEMO_LABELS)
     extra = _extra_mail()
     for m in extra[:2]:  # the dinner and planning threads
         m.label_ids.append("UNREAD")
     recent = demo_mailbox()
     _mark_unread(recent)
-    for m in mailbox() + extra + recent:
+    for n, m in enumerate(mailbox() + extra + recent):
+        m.label_ids = list(m.label_ids) + [lid for lid, every in _DEMO_LABEL_EVERY if n % every == 3]
         g.add(m, record=False)
     return g
 

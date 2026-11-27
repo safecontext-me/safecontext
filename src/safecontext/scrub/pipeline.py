@@ -9,7 +9,8 @@ import os
 from typing import Dict, Optional, Union
 
 from .drop import DEFAULT_CONFIG, DropConfig, check_headers, check_security_body, check_sensitive_text, rules_for
-from .models import KIND_MESSAGE, KINDS, Attachment, Dropped, RawItem, RawMessage, ScrubbedItem, ScrubbedMessage
+from .models import (KIND_MESSAGE, KINDS, Attachment, Dropped, RawItem, RawMessage, ScrubbedItem, ScrubbedMessage,
+                     shown_labels)
 from .normalize import html_to_text, normalize_text
 from .prose import NoProseClassifier, ProseClassifier, redact_prose
 from .quotes import strip_quotes_and_signature
@@ -84,7 +85,15 @@ def scrub(
         redactions=counts,
         scrubber_version=SCRUBBER_VERSION,
         unread="UNREAD" in msg.label_ids,
+        labels=shown_labels(msg.label_ids),
     )
+
+
+def scrub_label_name(name: str) -> str:
+    """A label or tag name, scrubbed like a subject line before it's stored (a label can hold a
+    number, an address or a code just like a subject can)."""
+    clean, _ = redact(normalize_text(name or ""))
+    return clean.strip()
 
 
 def scrub_item(

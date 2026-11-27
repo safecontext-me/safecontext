@@ -61,6 +61,8 @@ class FakeGmail:
         self.fail_list_call: Optional[int] = None  # raise TransientError on this list call number
         self.fail_get_call: Optional[int] = None
         self.after_list: Optional[Callable[[int], None]] = None
+        # labels.list: id -> {"name", "type", "color"}; message label ids not listed here still work
+        self.label_defs: Dict[str, dict] = {}
         self.before_get: Optional[Callable[[List[str]], None]] = None
 
     # --- mailbox mutations (each records history like Gmail) -------------
@@ -87,10 +89,12 @@ class FakeGmail:
         for lbl in remove:
             if lbl in labels:
                 labels.remove(lbl)
+        # Like Gmail, each record carries the message's labels as of that change.
+        msg = lambda: {"id": mid, "threadId": self.messages[mid]["threadId"], "labelIds": list(labels)}  # noqa: E731
         if add:
-            self._record(labelsAdded=[{"message": {"id": mid}, "labelIds": list(add)}])
+            self._record(labelsAdded=[{"message": msg(), "labelIds": list(add)}])
         if remove:
-            self._record(labelsRemoved=[{"message": {"id": mid}, "labelIds": list(remove)}])
+            self._record(labelsRemoved=[{"message": msg(), "labelIds": list(remove)}])
 
     def expire_history(self) -> None:
         self.oldest_history_id = self.history_id
@@ -138,6 +142,17 @@ class FakeGmail:
         nxt = str(start + self.page_size) if start + self.page_size < len(unread) else None
         return [r["id"] for r in page], nxt
 
+    def list_label_ids(self, label_id, page_token):
+        self._check_auth()
+        self.calls["list_label"] += 1
+        hits = sorted((r for r in self.messages.values()
+                       if label_id in r["labelIds"] and not set(r["labelIds"]) & {"SPAM", "TRASH"}),
+                      key=lambda r: int(r["internalDate"]), reverse=True)
+        start = int(page_token or 0)
+        page = hits[start:start + self.page_size]
+        nxt = str(start + self.page_size) if start + self.page_size < len(hits) else None
+        return [r["id"] for r in page], nxt
+
     def get_messages(self, ids, fmt):
         self._check_auth()
         self.calls["get_batch"] += 1
@@ -157,6 +172,14 @@ class FakeGmail:
                 res = {**res, "payload": {"headers": res["payload"]["headers"], "mimeType": "multipart/mixed"}}
             out[mid] = res
         return out
+
+    def list_labels(self):
+        self._check_auth()
+        self.calls["labels"] += 1
+        system = [{"id": lid, "name": lid, "type": "system", "color": ""}
+                  for lid in ("INBOX", "SENT", "STARRED", "IMPORTANT", "UNREAD", "SPAM", "TRASH", "DRAFT", "CHAT")]
+        return system + [{"id": lid, "name": d.get("name", lid), "type": d.get("type", "user"),
+                          "color": d.get("color", "")} for lid, d in self.label_defs.items()]
 
     def list_history(self, start_history_id, page_token):
         self._check_auth()

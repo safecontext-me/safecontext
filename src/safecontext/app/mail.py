@@ -111,18 +111,26 @@ class MailView:
         return rows
 
     def list(self, view: str = "all", source: str = "", query: str = "", reasons: Optional[Sequence[str]] = None,
-             cursor: Optional[str] = None, limit: int = 100, order: str = "newest") -> Dict[str, Any]:
+             cursor: Optional[str] = None, limit: int = 100, order: str = "newest",
+             labels: Optional[Sequence[int]] = None) -> Dict[str, Any]:
+        """labels: only threads with one of these Gmail labels or tags (ids from labels())."""
         scope = self._scope(source)
         query = (query or "").strip()
+        lids = [int(x) for x in labels] if labels else None
         if query:
             if view == "not_synced":  # dropped items have no stored text to search
                 return {"rows": [], "next": None, "searched": False}
             page = self.store.search_threads(query, scope, offset=int(cursor or 0), limit=limit, order=order,
+                                             labels=lids,
                                              unread_only=view == "unread")
             return {**page, "rows": self._decorate(page["rows"]), "searched": True}
         page = self.store.browse(scope, view=view, reasons=self._codes_for(scope, reasons) if view == "not_synced"
-                                 else None, cursor=cursor, limit=limit, order=order)
+                                 else None, cursor=cursor, limit=limit, order=order, labels=lids)
         return {**page, "rows": self._decorate(page["rows"]), "searched": False}
+
+    def labels(self, source: str = "") -> List[Dict[str, Any]]:
+        """The Filter menu's labels: the Gmail labels of the sources in view, then every tag."""
+        return self.store.labels(self._scope(source))
 
     def thread(self, source: str, thread_id: str) -> Dict[str, Any]:
         self.sources.get(source)

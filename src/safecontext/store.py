@@ -26,7 +26,8 @@ from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Set, Unio
 from urllib.parse import quote
 
 from . import env as _env
-from .scrub import SCRUBBER_VERSION, Attachment, Dropped, ScrubbedItem, ScrubbedMessage
+from .scrub import SCRUBBER_VERSION, Attachment, Dropped, ScrubbedItem, ScrubbedMessage, scrub_label_name
+from .scrub.models import SYSTEM_LABEL_NAMES, shown_labels
 
 SCHEMA_VERSION = 3
 
@@ -132,6 +133,49 @@ CREATE INDEX IF NOT EXISTS ix_dropped_version ON dropped(source, scrubber_versio
 CREATE INDEX IF NOT EXISTS ix_dropped_sreason ON dropped(source, reason);
 CREATE INDEX IF NOT EXISTS ix_items_redacted  ON items(source, thread_id, redactions) WHERE redactions != '{}';
 """
+
+# Labels and tags (added in place, still schema v3; new tables only, so older stores just gain them).
+#   labels       one row per Gmail label (source 'gmail', ext_id = Gmail's label id) or SafeContext tag
+#                (source '', ext_id 'tag:<n>'). Names are scrubbed before they're stored, like subjects.
+#                type: 'system' (Inbox, Starred, Important, Sent), 'user' (the user's Gmail labels) or 'tag'.
+#                color: Gmail's background colour ('#rrggbb'), or a palette slot name for tags.
+#   item_labels  which Gmail labels each kept message has, mirrored from Gmail (never written back).
+#   thread_tags  which tags the user put on a thread (an email thread, a chat, an event, a file).
+#                Tags live only on this Mac; they're never sent to the source.
+_LABEL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS labels (
+    lid     INTEGER PRIMARY KEY,
+    source  TEXT NOT NULL,
+    ext_id  TEXT NOT NULL,
+    name    TEXT NOT NULL DEFAULT '',
+    type    TEXT NOT NULL,
+    color   TEXT NOT NULL DEFAULT '',
+    UNIQUE (source, ext_id)
+);
+CREATE TABLE IF NOT EXISTS item_labels (
+    lid     INTEGER NOT NULL REFERENCES labels(lid) ON DELETE CASCADE,
+    source  TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    PRIMARY KEY (lid, source, item_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS ix_item_labels_item ON item_labels(source, item_id);
+CREATE TABLE IF NOT EXISTS thread_tags (
+    lid       INTEGER NOT NULL REFERENCES labels(lid) ON DELETE CASCADE,
+    source    TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    PRIMARY KEY (lid, source, thread_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS ix_thread_tags_thread ON thread_tags(source, thread_id);
+"""
+TAG_SOURCE = ""  # labels.source for SafeContext's own tags
+TAG_COLORS = ("gray", "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink")
+# Order labels are listed and shown in: Gmail's own first (in Gmail's order), then user labels, then tags.
+_SYSTEM_ORDER = {"INBOX": 0, "STARRED": 1, "IMPORTANT": 2, "SENT": 3}
+
+
+
+class TagError(ValueError):
+    """A tag can't be made or changed; the message is shown to the user as is."""
 
 # Read state (added in place, still schema v3): only unread rows are indexed, so these stay small.
 # By source and date for the unread counts and lists; by thread for "is this thread unread".
@@ -308,7 +352,8 @@ class Store:
         if self._has_table("messages"):
             self._migrate_v1()
         self._add_unread_column()
-        self._db.executescript(_BROWSE_INDEXES + _SWITCH_INDEXES + _UNREAD_INDEXES)  # indexes only, idempotent
+        # indexes and label tables, added in place; idempotent
+        self._db.executescript(_BROWSE_INDEXES + _SWITCH_INDEXES + _UNREAD_INDEXES + _LABEL_SCHEMA)
         self._requeue_retired_drops()
         version = self.get_meta("schema_version")
         if version is None or (version.isdigit() and int(version) < SCHEMA_VERSION):
@@ -511,6 +556,9 @@ class Store:
             for r in results:
                 db.execute("DELETE FROM items WHERE source=? AND id=?", (source, r.id))
                 db.execute("DELETE FROM dropped WHERE source=? AND id=?", (source, r.id))
+                db.execute("DELETE FROM item_labels WHERE source=? AND item_id=?", (source, r.id))
+                if isinstance(r, ScrubbedMessage) and r.labels:
+                    self._link_labels(db, source, r.id, r.labels)
                 if isinstance(r, Dropped):
                     db.execute("INSERT INTO dropped VALUES (?,?,?,?,?,?)",
                                (source, r.id, r.thread_id, r.date_ms, r.reason, SCRUBBER_VERSION))
@@ -531,6 +579,7 @@ class Store:
             for i in ids:
                 db.execute("DELETE FROM items WHERE source=? AND id=?", (source, i))
                 db.execute("DELETE FROM dropped WHERE source=? AND id=?", (source, i))
+                db.execute("DELETE FROM item_labels WHERE source=? AND item_id=?", (source, i))
 
     def _compact(self) -> None:
         with self._lock, self._rlock:  # no read in flight while VACUUM rewrites the file
@@ -540,7 +589,7 @@ class Store:
     def wipe(self) -> None:
         """Remove every source's items and sync state."""
         with self._tx() as db:
-            for table in ("items", "dropped", "seen", "source_state"):
+            for table in ("items", "dropped", "seen", "source_state", "item_labels", "thread_tags", "labels"):
                 db.execute(f"DELETE FROM {table}")
             # Deleting rows only marks their index entries deleted; the words stay in
             # older FTS segments until merged. Clear the index so no word survives.
@@ -551,7 +600,7 @@ class Store:
     def wipe_source(self, source: str) -> None:
         """Remove one source's items, dropped ids and sync state (used when it's disconnected)."""
         with self._tx() as db:
-            for table in ("items", "dropped", "seen", "source_state"):
+            for table in ("items", "dropped", "seen", "source_state", "item_labels", "thread_tags", "labels"):
                 db.execute(f"DELETE FROM {table} WHERE source=?", (source,))
             # Merge FTS segments so the deleted source's words leave the index too.
             db.execute("INSERT INTO items_fts(items_fts) VALUES('optimize')")
@@ -596,6 +645,8 @@ class Store:
             for table in ("items", "dropped"):
                 n += db.execute(f"DELETE FROM {table} WHERE source=? AND id NOT IN "
                                 "(SELECT id FROM seen WHERE source=?)", (source, source)).rowcount
+            db.execute("DELETE FROM item_labels WHERE source=? AND item_id NOT IN "
+                       "(SELECT id FROM items WHERE source=?)", (source, source))
             db.execute("DELETE FROM seen WHERE source=?", (source,))
         return n
 
@@ -639,6 +690,239 @@ class Store:
         where, args = ("WHERE source=? AND unread = 1", [source]) if source else ("WHERE unread = 1", [])
         return self._cached(("unread", source), lambda: self._read(
             f"SELECT count(*) FROM items INDEXED BY ix_items_unread_date {where}", args)[0][0])
+
+    # labels and tags -------------------------------------------------------------
+    #
+    # Gmail labels are mirrored from Gmail: their names and colours from labels.list, and which messages
+    # carry them from each fetched message and from history label changes (updated in place: no re-fetch,
+    # no re-scrub, the FTS index untouched). Tags are the user's own and stay on this Mac.
+
+    _HEX = re.compile(r"#[0-9a-fA-F]{6}")
+
+    @staticmethod
+    def _label_type(ext_id: str) -> str:
+        return "system" if ext_id in SYSTEM_LABEL_NAMES else "user"
+
+    def _link_labels(self, db: sqlite3.Connection, source: str, item_id: str, ext_ids: Iterable[str]) -> None:
+        """Give one stored item these source labels (inside a transaction). A label id not listed yet
+        gets a nameless placeholder row; the next labels.list fills in its name."""
+        for ext in shown_labels(list(ext_ids)):
+            db.execute("INSERT OR IGNORE INTO labels (source, ext_id, name, type) VALUES (?,?,?,?)",
+                       (source, ext, SYSTEM_LABEL_NAMES.get(ext, ""), self._label_type(ext)))
+            db.execute("INSERT OR IGNORE INTO item_labels (lid, source, item_id) "
+                       "SELECT lid, ?, ? FROM labels WHERE source=? AND ext_id=?", (source, item_id, source, ext))
+
+    def replace_labels(self, source: str, labels: Iterable[Dict[str, str]]) -> None:
+        """Mirror a source's label list ({"id", "name", "type"?, "color"?} per label, as Gmail's
+        labels.list gives them). Renames apply everywhere at once (rows are keyed by the label's id);
+        a label that's gone is removed from every item. Names are scrubbed before they're stored."""
+        keep: Dict[str, tuple] = {}
+        for l in labels:
+            ext = str(l.get("id") or "")
+            if not ext or not shown_labels([ext]):
+                continue
+            name = SYSTEM_LABEL_NAMES.get(ext) or scrub_label_name(str(l.get("name") or ""))
+            color = str(l.get("color") or "")
+            keep[ext] = (name, self._label_type(ext), color if self._HEX.fullmatch(color) else "")
+        with self._tx() as db:
+            for ext, (name, typ, color) in keep.items():
+                db.execute("INSERT INTO labels (source, ext_id, name, type, color) VALUES (?,?,?,?,?) "
+                           "ON CONFLICT(source, ext_id) DO UPDATE SET name=excluded.name, type=excluded.type, "
+                           "color=excluded.color", (source, ext, name, typ, color))
+            # Gmail's own labels always exist (and have fixed names); only user labels can go away.
+            gone = [lid for (lid,) in db.execute(
+                "SELECT lid FROM labels WHERE source=? AND type = 'user'", (source,)).fetchall()]
+            ext_of = dict(db.execute("SELECT lid, ext_id FROM labels WHERE source=?", (source,)).fetchall())
+            for lid in gone:
+                if ext_of.get(lid) not in keep:
+                    db.execute("DELETE FROM item_labels WHERE lid=?", (lid,))
+                    db.execute("DELETE FROM labels WHERE lid=?", (lid,))
+
+    def set_item_labels(self, source: str, changes: Dict[str, Sequence[str]]) -> Set[str]:
+        """Set the labels of stored items in place: {item id: the item's label ids now}. Returns the
+        ids stored nowhere (neither kept nor dropped), which the caller may want to fetch instead.
+        A dropped item gets no labels (labels are only kept for synced mail)."""
+        unknown: Set[str] = set()
+        if not changes:
+            return unknown
+        with self._tx() as db:
+            for item_id, ext_ids in changes.items():
+                if db.execute("SELECT 1 FROM items WHERE source=? AND id=?", (source, item_id)).fetchone():
+                    db.execute("DELETE FROM item_labels WHERE source=? AND item_id=?", (source, item_id))
+                    self._link_labels(db, source, item_id, ext_ids)
+                elif db.execute("SELECT 1 FROM dropped WHERE source=? AND id=?", (source, item_id)).fetchone() is None:
+                    unknown.add(item_id)
+        return unknown
+
+    def label_ext_ids(self, source: str) -> List[str]:
+        """The source's own ids of its stored labels (Gmail's, e.g. 'INBOX', 'Label_3')."""
+        return [r[0] for r in self._read("SELECT ext_id FROM labels WHERE source=? AND type != 'tag' ORDER BY lid",
+                                         (source,))]
+
+    def replace_label_members(self, source: str, ext_id: str, item_ids: Iterable[str]) -> int:
+        """Make exactly these of a source's stored items carry this label (a source that lists a label's
+        whole membership at once). Ids not stored are ignored. Returns how many items carry it now."""
+        with self._tx() as db:
+            row = db.execute("SELECT lid FROM labels WHERE source=? AND ext_id=?", (source, ext_id)).fetchone()
+            if row is None:
+                return 0
+            lid = row[0]
+            db.execute("CREATE TEMP TABLE IF NOT EXISTS label_ids (id TEXT PRIMARY KEY)")
+            db.execute("DELETE FROM label_ids")
+            db.executemany("INSERT OR IGNORE INTO label_ids VALUES (?)", ((i,) for i in item_ids))
+            db.execute("DELETE FROM item_labels WHERE lid=? AND source=? AND item_id NOT IN (SELECT id FROM label_ids)",
+                       (lid, source))
+            db.execute("INSERT OR IGNORE INTO item_labels (lid, source, item_id) SELECT ?, ?, i.id FROM label_ids l "
+                       "JOIN items i ON i.source=? AND i.id=l.id", (lid, source, source))
+            db.execute("DELETE FROM label_ids")
+            return db.execute("SELECT count(*) FROM item_labels WHERE lid=?", (lid,)).fetchone()[0]
+
+    def _label_rows(self) -> List[Dict[str, object]]:
+        """Every named label and tag, with how many items (Gmail labels) or threads (tags) carry it."""
+        rows = self._read(
+            "SELECT l.lid, l.source, l.ext_id, l.name, l.type, l.color, "
+            " CASE WHEN l.type = 'tag' THEN (SELECT count(*) FROM thread_tags t WHERE t.lid = l.lid) "
+            "      ELSE (SELECT count(*) FROM item_labels i WHERE i.lid = l.lid) END AS n "
+            "FROM labels l WHERE l.name != ''")
+        out = [{"id": r["lid"], "source": r["source"], "name": r["name"], "type": r["type"], "color": r["color"],
+                "count": r["n"], "_ext": r["ext_id"]} for r in rows]
+        rank = {"system": 0, "user": 1, "tag": 2}
+        out.sort(key=lambda l: (rank.get(l["type"], 3), _SYSTEM_ORDER.get(l["_ext"], 9), l["name"].lower()))
+        for l in out:
+            del l["_ext"]
+        return out
+
+    def labels(self, sources: Optional[Sequence[str]] = None, tags: bool = True) -> List[Dict[str, object]]:
+        """Labels of these sources (all if None), then tags if `tags`: {id, source, name, type, color,
+        count}, Gmail's own first, then the user's labels A to Z, then tags A to Z. Reused until
+        something changes."""
+        rows = self._cached(("labels",), self._label_rows)
+        return [dict(l) for l in rows
+                if (l["type"] == "tag" and tags) or (l["type"] != "tag" and (sources is None or l["source"] in sources))]
+
+    def _label_map(self) -> Dict[int, Dict[str, object]]:
+        return {l["id"]: l for l in self._cached(("labels",), self._label_rows)}
+
+    def find_labels(self, name: str, sources: Optional[Sequence[str]] = None) -> List[int]:
+        """Label and tag ids matching a name, ignoring case. A parent matches its nested labels too,
+        as in Gmail: 'Work' finds 'Work' and 'Work/Clients'."""
+        n = (name or "").strip().strip("/").lower()
+        if not n:
+            return []
+        return [l["id"] for l in self.labels(sources)
+                if l["name"].lower() == n or l["name"].lower().startswith(n + "/")]
+
+    # tags: the user's own, on this Mac only
+
+    def create_tag(self, name: str, color: str = "") -> Dict[str, object]:
+        name = scrub_label_name(name)
+        if not name:
+            raise TagError("A tag needs a name.")
+        with self._tx() as db:
+            if db.execute("SELECT 1 FROM labels WHERE source=? AND lower(name)=lower(?)", (TAG_SOURCE, name)).fetchone():
+                raise TagError(f"There's already a tag called “{name}”.")
+            n = db.execute("SELECT count(*) FROM labels WHERE source=?", (TAG_SOURCE,)).fetchone()[0]
+            color = color if color in TAG_COLORS else TAG_COLORS[(n + 1) % len(TAG_COLORS)]
+            nxt = db.execute("SELECT coalesce(max(CAST(substr(ext_id, 5) AS INTEGER)), 0) + 1 FROM labels "
+                             "WHERE source=?", (TAG_SOURCE,)).fetchone()[0]
+            lid = db.execute("INSERT INTO labels (source, ext_id, name, type, color) VALUES (?,?,?,?,?)",
+                             (TAG_SOURCE, f"tag:{nxt}", name, "tag", color)).lastrowid
+        return {"id": lid, "source": TAG_SOURCE, "name": name, "type": "tag", "color": color, "count": 0}
+
+    def _tag_row(self, db: sqlite3.Connection, lid: int) -> None:
+        if not db.execute("SELECT 1 FROM labels WHERE lid=? AND type='tag'", (int(lid),)).fetchone():
+            raise TagError("No such tag.")
+
+    def update_tag(self, lid: int, name: Optional[str] = None, color: Optional[str] = None) -> None:
+        with self._tx() as db:
+            self._tag_row(db, lid)
+            if name is not None:
+                name = scrub_label_name(name)
+                if not name:
+                    raise TagError("A tag needs a name.")
+                if db.execute("SELECT 1 FROM labels WHERE source=? AND lower(name)=lower(?) AND lid != ?",
+                              (TAG_SOURCE, name, int(lid))).fetchone():
+                    raise TagError(f"There's already a tag called “{name}”.")
+                db.execute("UPDATE labels SET name=? WHERE lid=?", (name, int(lid)))
+            if color is not None:
+                if color not in TAG_COLORS:
+                    raise TagError("Unknown colour.")
+                db.execute("UPDATE labels SET color=? WHERE lid=?", (color, int(lid)))
+
+    def delete_tag(self, lid: int) -> None:
+        with self._tx() as db:
+            self._tag_row(db, lid)
+            db.execute("DELETE FROM thread_tags WHERE lid=?", (int(lid),))
+            db.execute("DELETE FROM labels WHERE lid=?", (int(lid),))
+
+    def tag_thread(self, lid: int, source: str, thread_id: str, on: bool = True) -> None:
+        """Put a tag on a thread, or take it off. Only threads with something kept can be tagged."""
+        with self._tx() as db:
+            self._tag_row(db, lid)
+            if not on:
+                db.execute("DELETE FROM thread_tags WHERE lid=? AND source=? AND thread_id=?",
+                           (int(lid), source, thread_id))
+                return
+            if not db.execute("SELECT 1 FROM items WHERE source=? AND thread_id=? LIMIT 1", (source, thread_id)).fetchone():
+                raise TagError("Only synced items can be tagged.")
+            db.execute("INSERT OR IGNORE INTO thread_tags (lid, source, thread_id) VALUES (?,?,?)",
+                       (int(lid), source, thread_id))
+
+    # reading labels back
+
+    def _names(self, lids: Iterable[int]) -> List[Dict[str, object]]:
+        """Label dicts for these ids, in display order; unknown or nameless ones are left out."""
+        m = self._label_map()
+        order = {l["id"]: n for n, l in enumerate(self._cached(("labels",), self._label_rows))}
+        got = {int(x) for x in lids if int(x) in m}
+        return [{k: m[i][k] for k in ("id", "name", "type", "color")} for i in sorted(got, key=lambda i: order[i])]
+
+    @staticmethod
+    def _split_ids(text: Optional[str]) -> List[int]:
+        return [int(x) for x in (text or "").split(",") if x]
+
+    def thread_labels(self, source: str, thread_id: str) -> List[Dict[str, object]]:
+        """Labels on any item of a thread, then the thread's tags."""
+        rows = self._read(
+            "SELECT il.lid FROM items c INDEXED BY ix_items_thread CROSS JOIN item_labels il "
+            "ON il.source = c.source AND il.item_id = c.id WHERE c.source=? AND c.thread_id=? UNION SELECT lid FROM thread_tags WHERE source=? AND thread_id=?",
+            (source, thread_id, source, thread_id))
+        return self._names(r[0] for r in rows)
+
+    def item_label_names(self, keys: Sequence[tuple]) -> Dict[tuple, List[str]]:
+        """{(source, id, thread_id): [label and tag names]} for search and list results (the MCP tools):
+        the item's own labels, then its thread's tags."""
+        out: Dict[tuple, List[str]] = {}
+        keys = list(keys)
+        for i in range(0, len(keys), 300):
+            chunk = keys[i:i + 300]
+            parts, args = [], []
+            for source, item_id, thread_id in chunk:
+                parts.append("SELECT ? AS k, lid FROM item_labels WHERE source=? AND item_id=? "
+                             "UNION ALL SELECT ?, lid FROM thread_tags WHERE source=? AND thread_id=?")
+                k = f"{source}\x00{item_id}\x00{thread_id}"
+                args += [k, source, item_id, k, source, thread_id]
+            found: Dict[str, List[int]] = {}
+            for r in self._read(" UNION ALL ".join(parts), args):
+                found.setdefault(r[0], []).append(r[1])
+            for key in chunk:
+                lids = found.get("\x00".join(key))
+                if lids:
+                    out[key] = [str(l["name"]) for l in self._names(lids)]
+        return out
+
+    def _label_cond(self, alias: str, lids: Sequence[int], per_item: bool = False) -> tuple:
+        """SQL (and args) for: some item of `alias`'s thread (or, per_item, the item itself) has one of
+        these labels, or the thread has one of these tags."""
+        marks = self._marks(lids)
+        own = (f"EXISTS (SELECT 1 FROM item_labels il WHERE il.source = {alias}.source AND il.item_id = {alias}.id "
+               f"  AND il.lid IN ({marks}))") if per_item else (
+               f"EXISTS (SELECT 1 FROM items c INDEXED BY ix_items_thread CROSS JOIN item_labels il "
+               f"  ON il.source = c.source AND il.item_id = c.id "
+               f"  WHERE c.source = {alias}.source AND c.thread_id = {alias}.thread_id AND il.lid IN ({marks}))")
+        return (f"({own} "
+                f" OR EXISTS (SELECT 1 FROM thread_tags tt WHERE tt.source = {alias}.source "
+                f"  AND tt.thread_id = {alias}.thread_id AND tt.lid IN ({marks})))", [*lids, *lids])
 
     def stale_ids(self, version: str = SCRUBBER_VERSION, source: str = GMAIL) -> List[str]:
         """Ids scrubbed under an older version; sync re-fetches these. Reads only the
@@ -742,11 +1026,18 @@ class Store:
 
     def search(self, query: str, *, source: Optional[str] = None, kind: Optional[str] = None,
                sender: Optional[str] = None, after: DateLike = None, before: DateLike = None,
-               limit: int = 20, unread: Optional[bool] = None) -> List[Hit]:
+               limit: int = 20, unread: Optional[bool] = None,
+               labels: Optional[Sequence[int]] = None) -> List[Hit]:
+        """labels: only items with one of these labels (or in a thread with one of these tags).
+        An empty list matches nothing."""
         q = fts_query(query)
-        if not q:
+        if not q or (labels is not None and not labels):
             return []
         where, args = self._filters(sender, after, before, source=source, kind=kind, unread=unread)
+        if labels:
+            cond, cargs = self._label_cond("m", list(labels), per_item=True)
+            where.append(cond)
+            args += cargs
         sql = (
             "SELECT m.*, snippet(items_fts, 1, '«', '»', ' … ', 24) AS snip "
             "FROM items_fts JOIN items m ON m.rowid = items_fts.rowid "
@@ -775,8 +1066,15 @@ class Store:
 
     def list_items(self, *, source: Optional[str] = None, kind: Optional[str] = None,
                    sender: Optional[str] = None, after: DateLike = None, before: DateLike = None,
-                   limit: int = 50, oldest_first: bool = False, unread: Optional[bool] = None) -> List[Hit]:
+                   limit: int = 50, oldest_first: bool = False, unread: Optional[bool] = None,
+                   labels: Optional[Sequence[int]] = None) -> List[Hit]:
+        if labels is not None and not labels:
+            return []
         where, args = self._filters(sender, after, before, source=source, kind=kind, unread=unread)
+        if labels:
+            cond, cargs = self._label_cond("m", list(labels), per_item=True)
+            where.append(cond)
+            args += cargs
         sql = ("SELECT m.* FROM items m " + ("WHERE " + " AND ".join(where) + " " if where else "")
                + f"ORDER BY m.date_ms {'ASC' if oldest_first else 'DESC'} LIMIT ?")
         rows = self._read(sql, [*args, max(1, min(limit, 200))])
@@ -804,7 +1102,14 @@ class Store:
         "(SELECT coalesce(sum(j.value), 0) FROM items c INDEXED BY ix_items_redacted, json_each(c.redactions) j "
         " WHERE c.source = m.source AND c.thread_id = m.thread_id AND c.redactions != '{}') AS n_redacted, "
         "(SELECT count(*) FROM items u INDEXED BY ix_items_unread_thread "
-        " WHERE u.source = m.source AND u.thread_id = m.thread_id AND u.unread = 1) AS n_unread")
+        " WHERE u.source = m.source AND u.thread_id = m.thread_id AND u.unread = 1) AS n_unread, "
+        # CROSS JOIN fixes the order: the thread's few items first, then each one's labels (never the
+        # other way round, which would read every labelled message once per row).
+        "(SELECT group_concat(DISTINCT il.lid) FROM items c INDEXED BY ix_items_thread CROSS JOIN item_labels il "
+        " ON il.source = c.source AND il.item_id = c.id WHERE c.source = m.source AND c.thread_id = m.thread_id) "
+        " AS label_ids, "
+        "(SELECT group_concat(tt.lid) FROM thread_tags tt WHERE tt.source = m.source AND tt.thread_id = m.thread_id) "
+        " AS tag_ids")
 
     @staticmethod
     def parse_cursor(cursor: Optional[str]):
@@ -848,6 +1153,7 @@ class Store:
                 "snippet": snippet if snippet is not None else r["snip"],
                 "count": r["n_items"], "dropped_in_thread": r["n_dropped"], "redacted": r["n_redacted"],
                 "has_attachments": bool(r["attachment_names"]),
+                "labels": self._names(self._split_ids(r["label_ids"]) + self._split_ids(r["tag_ids"])),
                 "unread": r["n_unread"],  # unread items in the thread: a thread is unread if any of them is
                 "cursor": f"{r['date_ms']}.1.{r['rid']}"}
 
@@ -864,13 +1170,37 @@ class Store:
     # sorts their threads; above it, unread threads are common enough that walking the date index
     # and checking each thread fills a page sooner.
     UNREAD_DRIVE_MAX = 8_000  # measured: the two plans cross near here on a 112k-message mailbox
+    # The same for labels: below this many labelled items, a label's page starts from its rows and sorts
+    # their threads; above it (Inbox, say), walking the date index and checking each thread is sooner.
+    LABEL_DRIVE_MAX = 20_000
+
+    _UNREAD_EXISTS = ("EXISTS (SELECT 1 FROM items u INDEXED BY ix_items_unread_thread "
+                      "WHERE u.source = m.source AND u.thread_id = m.thread_id AND u.unread = 1) ")
 
     def _kept_threads(self, sources: Sequence[str], cur, limit: int, oldest: bool = False,
-                      unread_only: bool = False) -> List[sqlite3.Row]:
+                      unread_only: bool = False, labels: Optional[Sequence[int]] = None) -> List[sqlite3.Row]:
         after, args = self._after("m", 1, cur, oldest)
         way = "ASC" if oldest else "DESC"
         head = f"SELECT {self._THREAD_COLS}, substr(m.body, 1, {self._SNIPPET_CHARS}) AS snip "
-        if unread_only and sum(self.unread_count(s) for s in sources) <= self.UNREAD_DRIVE_MAX:
+        if labels:  # a label or tag picked (with Unread on top, if that's picked too)
+            lids = list(labels)
+            m = self._label_map()
+            if sum(int(m[i]["count"]) for i in lids if i in m) <= self.LABEL_DRIVE_MAX:
+                src = (f"FROM (SELECT DISTINCT c.source, c.thread_id FROM item_labels il CROSS JOIN items c "
+                       f"      ON c.source = il.source AND c.id = il.item_id "
+                       f"      WHERE il.lid IN ({self._marks(lids)}) AND il.source IN ({self._marks(sources)}) "
+                       f"      UNION SELECT source, thread_id FROM thread_tags "
+                       f"      WHERE lid IN ({self._marks(lids)}) AND source IN ({self._marks(sources)})) lt "
+                       "JOIN items m INDEXED BY ix_items_thread ON m.source = lt.source AND m.thread_id = lt.thread_id "
+                       "WHERE 1 ")
+                params: List[object] = [*lids, *sources, *lids, *sources]
+            else:
+                cond, cargs = self._label_cond("m", lids)
+                src = f"FROM items m WHERE m.source IN ({self._marks(sources)}) AND {cond} "
+                params = [*sources, *cargs]
+            if unread_only:
+                src += "AND " + self._UNREAD_EXISTS
+        elif unread_only and sum(self.unread_count(s) for s in sources) <= self.UNREAD_DRIVE_MAX:
             # Each unread thread's newest item straight from the thread index (one seek per thread,
             # however long the chat), then only those heads are sorted.
             src = (f"FROM (SELECT DISTINCT source, thread_id FROM items INDEXED BY ix_items_unread_thread "
@@ -881,10 +1211,11 @@ class Store:
                    "WHERE 1 ")
             sql = head + src + after + f"ORDER BY m.date_ms {way}, m.rowid {way} LIMIT ?"
             return self._read(sql, [*sources, *args, limit])
-        src = f"FROM items m WHERE m.source IN ({self._marks(sources)}) "
-        if unread_only:
-            src += ("AND EXISTS (SELECT 1 FROM items u INDEXED BY ix_items_unread_thread "
-                    "WHERE u.source = m.source AND u.thread_id = m.thread_id AND u.unread = 1) ")
+        else:
+            src = f"FROM items m WHERE m.source IN ({self._marks(sources)}) "
+            params = list(sources)
+            if unread_only:
+                src += "AND " + self._UNREAD_EXISTS
         sql = (head + src + after +
                # The thread's newest item stands for it. `x.date_ms >= m.date_ms` lets the probe seek
                # straight to newer items in the thread index instead of walking the whole thread,
@@ -892,7 +1223,7 @@ class Store:
                "AND NOT EXISTS (SELECT 1 FROM items x WHERE x.source = m.source AND x.thread_id = m.thread_id "
                "  AND x.date_ms >= m.date_ms AND (x.date_ms > m.date_ms OR x.rowid > m.rowid)) "
                f"ORDER BY m.date_ms {way}, m.rowid {way} LIMIT ?")
-        return self._read(sql, [*sources, *args, limit])
+        return self._read(sql, [*params, *args, limit])
 
     def _dropped_items(self, sources: Sequence[str], reasons: Optional[Sequence[str]], cur,
                        limit: int, oldest: bool = False) -> List[sqlite3.Row]:
@@ -910,11 +1241,13 @@ class Store:
         return self._read(sql, [*params, *args, limit])
 
     def browse(self, sources: Sequence[str], *, view: str = "all", reasons: Optional[Sequence[str]] = None,
-               cursor: Optional[str] = None, limit: int = 100, order: str = "newest") -> Dict[str, object]:
+               cursor: Optional[str] = None, limit: int = 100, order: str = "newest",
+               labels: Optional[Sequence[int]] = None) -> Dict[str, object]:
         """One page of the Mail view's list. view: 'all' (kept threads and dropped items,
         interleaved by date), 'synced' (kept threads), 'unread' (kept threads with an unread item)
         or 'not_synced' (dropped items, optionally only these reason codes). order: 'newest'
-        (default) or 'oldest' first. Returns {"rows": [...], "next": cursor | None}."""
+        (default) or 'oldest' first. labels: only threads with one of these labels or tags; dropped
+        items have none, so a label filter shows kept threads only. Returns {"rows": [...], "next": cursor | None}."""
         if view not in ("all", "synced", "unread", "not_synced"):
             raise ValueError(f"unknown view {view!r}")
         if order not in ("newest", "oldest"):
@@ -922,13 +1255,18 @@ class Store:
         oldest = order == "oldest"
         limit = max(1, min(int(limit), 500))
         sources = list(sources)
-        if not sources or (reasons is not None and not reasons):
+        if not sources or (reasons is not None and not reasons) or (labels is not None and not labels):
             return {"rows": [], "next": None}
+        if labels:
+            if view == "not_synced":
+                return {"rows": [], "next": None}
+            if view == "all":
+                view = "synced"
         cur = self.parse_cursor(cursor)
         merged: List[tuple] = []
         full = False
         if view in ("all", "synced", "unread"):
-            kept = self._kept_threads(sources, cur, limit, oldest, unread_only=view == "unread")
+            kept = self._kept_threads(sources, cur, limit, oldest, unread_only=view == "unread", labels=labels)
             full |= len(kept) == limit
             merged += [((r["date_ms"], 1, r["rid"]), self._thread_row(r)) for r in kept]
         if view in ("all", "not_synced"):
@@ -941,24 +1279,26 @@ class Store:
         return {"rows": rows, "next": rows[-1]["cursor"] if more and rows else None}
 
     def search_threads(self, query: str, sources: Sequence[str], *, offset: int = 0,
-                       limit: int = 100, order: str = "newest", unread_only: bool = False) -> Dict[str, object]:
+                       limit: int = 100, order: str = "newest", unread_only: bool = False,
+                       labels: Optional[Sequence[int]] = None) -> Dict[str, object]:
         """Threads with an item matching `query` (FTS), newest (or oldest) first; each row shows the
         thread's newest matching item with a highlighted snippet. Offset-paged. unread_only: only
         threads with an unread item."""
         q = fts_query(query)
         sources = list(sources)
         limit, offset = max(1, min(int(limit), 500)), max(0, int(offset))
-        if not q or not sources:
+        if not q or not sources or (labels is not None and not labels):
             return {"rows": [], "next": None}
+        cond, cargs = self._label_cond("m", list(labels)) if labels else ("1", [])
         # A bare column next to max() takes its value from the row holding the max (SQLite).
         sql = ("SELECT m.rowid AS rid, max(m.date_ms) AS last FROM items_fts JOIN items m ON m.rowid = items_fts.rowid "
-               f"WHERE items_fts MATCH ? AND m.source IN ({self._marks(sources)}) "
+               f"WHERE items_fts MATCH ? AND m.source IN ({self._marks(sources)}) AND {cond} "
                + ("AND EXISTS (SELECT 1 FROM items u INDEXED BY ix_items_unread_thread WHERE u.source = m.source "
                   "AND u.thread_id = m.thread_id AND u.unread = 1) " if unread_only else "")
                + "GROUP BY m.source, m.thread_id "
                + ("ORDER BY last ASC, rid ASC " if order == "oldest" else "ORDER BY last DESC, rid DESC ")
                + "LIMIT ? OFFSET ?")
-        rids = [r["rid"] for r in self._read(sql, [q, *sources, limit, offset])]
+        rids = [r["rid"] for r in self._read(sql, [q, *sources, *cargs, limit, offset])]
         if not rids:
             return {"rows": [], "next": None}
         rows = self._read(
@@ -988,7 +1328,8 @@ class Store:
         for r in dropped:
             entries.append((r["date_ms"], self._dropped_row(r)))
         entries.sort(key=lambda kv: kv[0])
-        return {"source": source, "thread_id": thread_id, "entries": [e for _, e in entries]}
+        return {"source": source, "thread_id": thread_id, "entries": [e for _, e in entries],
+                "labels": self.thread_labels(source, thread_id)}
 
     def coverage(self, source: str) -> Dict[str, object]:
         """What's on this Mac for one source: counts, dropped reasons, date range, and how

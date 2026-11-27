@@ -54,7 +54,7 @@ def test_initialize_and_list(store):
     # Mail is stored, but Gmail has no account, so this is not a live mailbox connection.
     assert "read access to the user's email" not in r[0]["result"]["instructions"]
     tools = r[1]["result"]["tools"]
-    assert [t["name"] for t in tools] == ["search", "read", "list_items", "list_sources",
+    assert [t["name"] for t in tools] == ["search", "read", "list_items", "list_labels", "list_sources",
                                           "search_mail", "read_thread", "list_messages"]  # v1 names still work
     assert "search_email" not in [t["name"] for t in tools]
     search = next(t for t in tools if t["name"] == "search")

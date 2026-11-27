@@ -385,6 +385,12 @@
         </div>
         <p class="hint">Google Calendar and other sources are on the <a href="#" data-goto="sources">Sources</a> screen.</p>
       </div></div>
+      <div class="card setting" id="s-tags">
+        <div class="card-header"><div class="card-title">Tags</div></div><div class="card-content">
+        <p class="hint">Your own tags for mail, messages, events and files. Add them from the tag button above a conversation.
+          They stay on this Mac and are never added to Gmail. AI apps see them with each item, like Gmail labels.</p>
+        <div class="tag-admin" id="s-tag-list"></div>
+      </div></div>
       <div class="card setting" id="s-updates">
         <div class="card-header"><div class="card-title">Updates</div></div><div class="card-content">
         <div class="row"><span class="muted">Version</span><span id="u-current">—</span></div>
@@ -453,6 +459,10 @@
               <div class="mail-bar mail-reader-head">
                 <button class="mail-back" id="mail-back" aria-label="Back to the list">←</button>
                 <h2 class="mail-reader-title" id="mail-reader-title"></h2>
+                <!-- Tags for the open thread: the user's own, kept on this Mac (mail.js mailTagMenu) -->
+                <sc-menu id="mail-tag-menu" icon="tag" label="Tags" hotkey="T" align="end" hidden>
+                  <div class="tag-menu" id="mail-tag-panel"></div>
+                </sc-menu>
                 <button class="btn btn-outline btn-sm mail-open-orig" id="mail-open-orig" hidden></button>
               </div>
               <div class="mail-reader" id="mail-reader" tabindex="-1"><div class="empty">Select a conversation to read it.</div></div>

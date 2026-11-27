@@ -123,9 +123,21 @@ def test_read_on_gmail_updates_in_place_without_fetching(store, gmail):
     assert store.search(body.split()[0], source="gmail")  # FTS untouched by the in-place update
 
 
-def test_other_label_changes_still_fetch_and_bring_read_state(store, gmail):
+def test_other_label_changes_apply_in_place_with_read_state(store, gmail):
+    # Labels the scrubber doesn't decide on (here Starred) are applied in place too (see test_labels.py)
     run(store, gmail)
     gmail.relabel("m0003", add=["STARRED"], remove=["UNREAD"])
+    before = gmail.fetched["m0003"]
+    run(store, gmail)
+    assert gmail.fetched["m0003"] == before and "m0003" not in unread_ids(store)
+    assert "Starred" in [l["name"] for l in store.thread_labels("gmail", "t0003")]
+
+
+def test_scrubber_label_changes_still_fetch_and_bring_read_state(store, gmail):
+    run(store, gmail)
+    gmail.relabel("m0003", add=["TRASH"])
+    run(store, gmail)
+    gmail.relabel("m0003", remove=["TRASH", "UNREAD"])
     before = gmail.fetched["m0003"]
     run(store, gmail)
     assert gmail.fetched["m0003"] == before + 1 and "m0003" not in unread_ids(store)
@@ -167,7 +179,7 @@ def test_sync_never_asks_gmail_to_change_anything(store, gmail):
     gmail.relabel("m0002", remove=["UNREAD"])
     run(store, gmail)
     store.read_thread(store.read_item("m0003").thread_id)
-    assert set(gmail.calls) <= {"profile", "list", "get_batch", "history", "list_unread"}
+    assert set(gmail.calls) <= {"profile", "list", "get_batch", "history", "list_unread", "labels", "list_label"}
     assert "UNREAD" in gmail.messages["m0003"]["labelIds"]  # reading it here didn't mark it read
 
 

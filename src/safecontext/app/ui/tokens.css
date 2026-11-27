@@ -52,6 +52,16 @@
   --badge: #ece9fb;                /* "1 redacted" style badges */
   --badge-foreground: #4b3aa8;
   --highlight: #fff1a8;            /* search-match highlight */
+  /* Tag colours (the dot on a tag; store.TAG_COLORS names them). Gmail labels use Gmail's own colour. */
+  --tag-gray: #8a8984;
+  --tag-red: #d9534f;
+  --tag-orange: #e8833a;
+  --tag-yellow: #d4a72c;
+  --tag-green: #3f9d5f;
+  --tag-teal: #2b9b93;
+  --tag-blue: #3f6fd8;
+  --tag-purple: #8a5cd1;
+  --tag-pink: #d1588f;
   --switch-thumb: #ffffff;
   --overlay: rgba(0, 0, 0, .35);   /* behind the floating sidebar on narrow windows */
   --dialog-overlay: rgba(0, 0, 0, .1);  /* shadcn bg-black/10: behind dialogs (blurred too) */
@@ -170,5 +180,14 @@
     --badge: #352f55;
     --badge-foreground: #cfc6ff;
     --highlight: #5b5020;
+    --tag-gray: #9d9c97;
+    --tag-red: #ff7a6b;
+    --tag-orange: #ffa25c;
+    --tag-yellow: #e6c35c;
+    --tag-green: #5cc78a;
+    --tag-teal: #4fc4ba;
+    --tag-blue: #7c9cff;
+    --tag-purple: #b296ff;
+    --tag-pink: #ff8fbf;
   }
 }
