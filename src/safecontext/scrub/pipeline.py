@@ -107,8 +107,7 @@ def scrub_item(
     drop rules for the item's kind (see drop.rules_for), then inline redaction
     of everything written by a person: title, text, extra fields and
     attachment names. Quote and signature stripping is for email only, and
-    `strip_quotes=False` skips it for a "message" that is really a document (a
-    Dropbox file), where a "--" line or a "> " blockquote is content.
+    `strip_quotes=False` skips it for a "message" that is really a document, where a "--" line or a "> " blockquote is content.
     Raises ValueError for a kind the drop rules don't know, so no item
     skips the rules meant for it."""
     if item.kind not in KINDS:

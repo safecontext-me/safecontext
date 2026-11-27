@@ -59,8 +59,6 @@ REQUIREMENT_KINDS = (OAUTH_SCOPE, MACOS_PERMISSION, FILE, FOLDER)
 NOT_CONNECTED, CONNECTED, SYNCING = "not_connected", "connected", "syncing"
 NEEDS_RECONNECT, NEEDS_PERMISSION, ERROR, COMING_SOON = (
     "needs_reconnect", "needs_permission", "error", "coming_soon")
-# A shipped connector this build can't use (e.g. no Dropbox app key was bundled).
-UNAVAILABLE = "unavailable"
 
 
 @dataclass(frozen=True)

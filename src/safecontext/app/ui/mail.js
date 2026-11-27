@@ -145,7 +145,7 @@ function mailCounts() {
   return s ? { all: s.kept + s.dropped, synced: s.kept, not_synced: s.dropped, unread: s.unread } : f.mailboxes;
 }
 
-// Whether the list showing has a read state to filter on (Gmail, iMessage; not Calendar or Dropbox).
+// Whether the list showing has a read state to filter on (Gmail, iMessage; not Calendar).
 function mailHasReadState() {
   const f = mail.folders;
   if (!f) return false;
@@ -433,7 +433,7 @@ function mailRow(r, i) {
     const p = mail.skip.get(skipKey(r));
     const live = p && !p.error && !p.gone;  // sender, subject and snippet fetched just now, never stored
     const many = mailManySources() ? el("span", { class: "cnt" }, `· ${sourceName(r.source)}`) : null;
-    const from = live && p.sender && r.source !== "dropbox" ? senderName(p.sender) : live ? sourceName(r.source) : "Not synced";
+    const from = live && p.sender ? senderName(p.sender) : live ? sourceName(r.source) : "Not synced";
     const snip = live ? (p.snippet || "") : p && p.gone ? `Deleted from ${sourceName(r.source)} since it was skipped.`
       : r.thread_title ? ["In “", richText(r.thread_title), "”"] : ri.why;
     return el("div", attrs,

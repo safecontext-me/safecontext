@@ -2,7 +2,7 @@
 
 The scrubber skips some items whole (bank mail, security codes, health texts...), and the store
 keeps only their id, thread, date and reason. When the user browses Not synced, this fetches those
-items again from where they live (Gmail, Google Calendar and Dropbox over their read-only APIs;
+items again from where they live (Gmail and Google Calendar over their read-only APIs;
 Messages from chat.db on this Mac) so the user can see them, clearly marked as skipped.
 
 What's fetched is unscrubbed, so it stays in this process's memory only:
@@ -40,7 +40,7 @@ PREVIEW_BATCH = 40         # most list rows one call fetches
 SNIPPET_CHARS = 200
 MAX_BODY_CHARS = 200_000   # a pathological message is shortened on screen; "Open in ..." has the rest
 
-OPEN_IN = {"gmail": "Gmail", "gcal": "Google Calendar", "dropbox": "Dropbox", "imessage": "Messages"}
+OPEN_IN = {"gmail": "Gmail", "gcal": "Google Calendar", "imessage": "Messages"}
 
 
 def _iso(ms: Optional[int]) -> Optional[str]:
@@ -67,8 +67,6 @@ def _full(raw: RawItem, source: str, headers_only: bool) -> Dict[str, Any]:
     note = ""
     if headers_only:
         note = "Gmail is connected in headers-only mode, so only the sender, recipients and subject can be shown."
-    elif source == "dropbox" and not body and raw.attachments:
-        note = "Only text files can be shown here. Open it in Dropbox to see it."
     return {
         "id": raw.id, "kind": raw.kind, "thread_id": raw.thread_id,
         "date": _iso(raw.date_ms), "end": _iso(raw.end_ms),
