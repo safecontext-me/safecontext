@@ -15,11 +15,11 @@ const REDACTION_NAMES = {
 const BADGE_TONES = { ok: "badge-success", busy: "badge-info", warn: "badge-warning" };
 const REQ_KINDS = { oauth_scope: "Google permission", macos_permission: "Mac permission", file: "File", folder: "Folder" };
 const SOURCE_ICONS = { gmail: "✉️", gcal: "📅", imessage: "💬", whatsapp: "🟢", recordings: "🎙️", dropbox: "📦" };
-const OPEN_LABELS = { gmail: "Open in Gmail", gcal: "Open in Calendar", dropbox: "Open in Dropbox" };
+const OPEN_LABELS = { gmail: "Open in Gmail", gcal: "Open in Calendar" };
 const STATE_LABELS = {
   connected: ["Connected", "ok"], syncing: ["Syncing…", "busy"], needs_reconnect: ["Needs reconnecting", "warn"],
   needs_permission: ["Needs permission", "warn"], error: ["Will retry", "warn"], not_connected: ["Not connected", ""],
-  coming_soon: ["Coming soon", ""], unavailable: ["Not available in this build", ""],
+  coming_soon: ["Coming soon", ""],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -49,7 +49,7 @@ function el(tag, attrs = {}, ...children) {
 // and (optionally) Gmail links made clickable. Everything else stays plain text.
 function richText(text, { links = false } = {}) {
   const frag = document.createDocumentFragment();
-  const re = /\[REDACTED:([A-Z_]+)\]|«([^»]*)»|(https:\/\/(?:mail\.google\.com\/mail\/|www\.google\.com\/calendar\/|www\.dropbox\.com\/home\/)[^\s)\]]+)/g;
+  const re = /\[REDACTED:([A-Z_]+)\]|«([^»]*)»|(https:\/\/(?:mail\.google\.com\/mail\/|www\.google\.com\/calendar\/)[^\s)\]]+)/g;
   let last = 0, m;
   while ((m = re.exec(text))) {
     frag.append(document.createTextNode(text.slice(last, m.index)));
@@ -60,7 +60,7 @@ function richText(text, { links = false } = {}) {
       frag.append(el("mark", {}, m[2]));
     } else if (links) {
       const url = m[3];
-      frag.append(el("a", { onclick: () => openLink(url) }, url.includes("dropbox.com/") ? "Open in Dropbox" : url.includes("/calendar/") ? "Open in Calendar" : "Open in Gmail"));
+      frag.append(el("a", { onclick: () => openLink(url) }, url.includes("/calendar/") ? "Open in Calendar" : "Open in Gmail"));
     } else {
       frag.append(document.createTextNode(m[3]));
     }
@@ -546,7 +546,7 @@ function renderSources(list) {
 
 // The Sources grid shows only icon, name, description and status; everything else is on the source's page.
 function sourceTile(x) {
-  return el("button", { class: "card card-sm src-tile" + (x.state === "coming_soon" || x.state === "unavailable" ? " soon" : ""), type: "button",
+  return el("button", { class: "card card-sm src-tile" + (x.state === "coming_soon" ? " soon" : ""), type: "button",
     onclick: () => openSourcePage(x.id) },
   el("span", { class: "card-content src-tile-body" },
     sourceIcon(x.id, "src-icon lg"),
@@ -597,12 +597,12 @@ function renderSourcePage() {
   const page = $("view-source");
   if (!x) { page.replaceChildren(); return; }
   const [label, tone, perm] = sourceStatus(x);
-  const soon = x.state === "coming_soon" || x.state === "unavailable";
+  const soon = x.state === "coming_soon";
   const connected = !!x.account && !soon;
 
   const actions = el("div", { class: "sp-actions" });
   if (soon) {
-    actions.append(el("button", { class: "btn btn-outline btn-lg", disabled: "" }, x.state === "unavailable" ? "Not available" : "Coming soon"));
+    actions.append(el("button", { class: "btn btn-outline btn-lg", disabled: "" }, "Coming soon"));
   } else if (perm) {
     // The permission box carries Open System Settings; here: try again, or back out.
     actions.append(el("button", { class: "btn btn-outline", onclick: (e) => connectSource(x, e.target) }, "Check again"));
@@ -674,7 +674,7 @@ async function connectSource(x, btn) {
   state.sourcesBusy = true;
   btn.disabled = true;
   btn.textContent = x.requirements.some((q) => q.kind === "oauth_scope")
-    ? (x.id === "dropbox" ? "Waiting for Dropbox sign-in…" : "Waiting for Google sign-in…")
+    ? "Waiting for Google sign-in…"
     : x.requirements.some((q) => q.kind === "macos_permission") ? "Checking access…" : "Connecting…";
   const opts = x.id === "gmail" ? { mode: (state.status && state.status.mode) || "full" } : {};
   const r = await api().connect_source(x.id, opts);

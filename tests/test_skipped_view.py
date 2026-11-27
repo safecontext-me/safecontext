@@ -22,18 +22,15 @@ def app(tmp_path):
     # The demo's pauses (so a person can watch progress) left out.
     kw["connect_fn"] = lambda mode, email: DEMO_ACCOUNT
     kw["calendar_connect_fn"] = lambda email: DEMO_ACCOUNT
-    kw["source_options"]["dropbox"]["connect_fn"] = lambda email: DEMO_ACCOUNT
     kw["gmail_factory"]("", "full").__class__ = FakeGmail
-    fakes = {"gmail": kw["gmail_factory"]("", "full"), "gcal": kw["calendar_factory"](""),
-             "dropbox": kw["source_options"]["dropbox"]["api_factory"]("")}
+    fakes = {"gmail": kw["gmail_factory"]("", "full"), "gcal": kw["calendar_factory"]("")}
     # One item per cloud source that the scrubber skips whole, each carrying MARK in its content.
     fakes["gmail"].add(msg(9001, frm="Chase <alerts@chase.com>", subject="Your statement is ready",
                            text=f"Balance due {MARK}gmail. Card ending 4242."), record=False)
     fakes["gcal"].put(event("evskip", "Lab results review", "2026-12-10T15:00:00Z", "2026-12-10T15:30:00Z",
                             description=f"Bring insurance card {MARK}gcal"))
-    fakes["dropbox"].add("id:skip-notes", "notes.txt", "/Taxes/notes.txt", f"AGI 81,200 {MARK}dropbox".encode())
     b = Backend(**kw)
-    for sid in ("gmail", "gcal", "dropbox"):
+    for sid in ("gmail", "gcal"):
         assert b.connect_source(sid, {})["ok"]
     b.open_source_settings("imessage")  # demo Full Disk Access: turned on by the button
     assert b.connect_source("imessage", {})["ok"]
@@ -43,8 +40,7 @@ def app(tmp_path):
     return b
 
 
-SKIPPED = {"gmail": "m9001", "gcal": "alex@example.org/evskip", "dropbox": "id:skip-notes",
-           "imessage": "DEMO-bank-7"}
+SKIPPED = {"gmail": "m9001", "gcal": "alex@example.org/evskip", "imessage": "DEMO-bank-7"}
 
 
 def stored_bytes(data_dir: Path) -> bytes:
@@ -81,25 +77,14 @@ def test_calendar_item_is_an_event(app):
     assert item["kind"] == "event" and item["title"] == "Lab results review" and item["end"]
 
 
-def test_dropbox_non_text_file_says_open_it_in_dropbox(app):
-    assert app._store.dropped_entries("dropbox", ["id:demo-passport"])
-    item = app.skipped_item("dropbox", "id:demo-passport")["item"]
-    assert item["body"] == "" and "Open it in Dropbox" in item["note"]
-    assert item["link"].startswith("https://www.dropbox.com/home/")
-    assert "id:demo-passport" not in app.fakes["dropbox"].downloaded  # an image is never downloaded
-
-
 def test_previews_give_sender_title_and_snippet(app):
     rows = [{"source": s, "id": i} for s, i in SKIPPED.items()]
-    downloads = len(app.fakes["dropbox"].downloaded)
     p = app.skipped_previews(rows)["previews"]
     assert p["gmail:m9001"]["title"] == "Your statement is ready"
     assert p["gmail:m9001"]["sender"].startswith("Chase")
     assert p["gcal:alex@example.org/evskip"]["title"] == "Lab results review"
-    assert p["dropbox:id:skip-notes"]["title"] == "notes.txt"
     assert "482913" in p["imessage:DEMO-bank-7"]["snippet"]
     assert app.fakes["gmail"].formats["metadata"] >= 1  # a list row asks Gmail for headers, not the whole message
-    assert len(app.fakes["dropbox"].downloaded) == downloads  # nor Dropbox for the file
 
 
 def test_nothing_fetched_reaches_the_disk_or_the_logs(app, caplog):
@@ -115,8 +100,8 @@ def test_nothing_fetched_reaches_the_disk_or_the_logs(app, caplog):
     assert b"482913" not in after
     assert MARK not in caplog.text and "482913" not in caplog.text
     # the dropped rows are unchanged: still only id, thread, date and reason
-    rows = app._store._read("SELECT * FROM dropped WHERE id IN (?,?,?,?)", list(SKIPPED.values()))
-    assert len(rows) == 4 and all(set(r.keys()) == {"source", "id", "thread_id", "date_ms", "reason",
+    rows = app._store._read("SELECT * FROM dropped WHERE id IN (?,?,?)", list(SKIPPED.values()))
+    assert len(rows) == 3 and all(set(r.keys()) == {"source", "id", "thread_id", "date_ms", "reason",
                                                     "scrubber_version"} for r in rows)
 
 
@@ -157,15 +142,14 @@ def test_second_open_comes_from_memory_not_the_source(app):
 
 def test_deleted_at_the_source(app):
     app.fakes["gmail"].delete("m9001", record=False)
-    app.fakes["dropbox"].remove("id:skip-notes")
     app.fakes["gcal"].cancel("evskip")
-    for s in ("gmail", "dropbox", "gcal"):
+    for s in ("gmail", "gcal"):
         out = app.skipped_item(s, SKIPPED[s])
         assert out["ok"] and out["item"] is None and out["gone"] and "no longer in" in out["error"]
 
 
 def test_revoked_access_asks_to_reconnect(app):
-    for s in ("gmail", "gcal", "dropbox"):
+    for s in ("gmail", "gcal"):
         app.fakes[s].revoked = True
         out = app.skipped_item(s, SKIPPED[s])
         assert out["item"] is None and out["needs_reconnect"] and "Reconnect" in out["error"]
@@ -182,7 +166,7 @@ def test_offline_says_so(app):
 
 
 def test_disconnecting_a_source_forgets_its_items(app):
-    app.skipped_item("dropbox", SKIPPED["dropbox"])
+    app.skipped_item("gcal", SKIPPED["gcal"])
     app.skipped_item("gmail", "m9001")
-    app.disconnect_source("dropbox", True)
+    app.disconnect_source("gcal", True)
     assert app._skipped._full.keys() == {("gmail", "m9001")}

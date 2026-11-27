@@ -207,7 +207,7 @@ class Backend:
         for x in out:
             if self._is_syncing(x["id"]):
                 x["syncing"] = True
-                if x["state"] not in ("coming_soon", "unavailable", "not_connected"):
+                if x["state"] not in ("coming_soon", "not_connected"):
                     x["state"] = "syncing"
             res = self._last_result.get(x["id"])
             x["last_result"] = None if not res else {"status": res.status, "message": res.message}
@@ -410,7 +410,7 @@ class Backend:
         # Only ever open the kinds of deep link our sources generate (Gmail, Google Calendar...),
         # never a URL taken from the content of a message or event.
         if not self._sources.link_allowed(url):
-            return {"ok": False, "error": "Only links back to the original (Gmail, Google Calendar, Dropbox) can be opened."}
+            return {"ok": False, "error": "Only links back to the original (Gmail, Google Calendar) can be opened."}
         webbrowser.open(url)
         return {}
 

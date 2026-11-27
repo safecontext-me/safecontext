@@ -3,7 +3,6 @@
     python -m safecontext connect [--headers-only] [--email you@gmail.com]   # Gmail
     python -m safecontext connect --source gcal [--email you@gmail.com]      # Google Calendar
     python -m safecontext connect --source imessage   # Messages on this Mac (needs Full Disk Access)
-    python -m safecontext connect --source dropbox   # Dropbox (read-only; app key from dropbox_app.json or SAFECONTEXT_DROPBOX_APP_KEY)
     python -m safecontext sync [--source gcal]       # every connected source, or one
     python -m safecontext status
     python -m safecontext sources
@@ -157,7 +156,7 @@ def main(argv=None) -> int:
     # Run by the update helper after "Install when I quit" (see updater.run_self_test). Not for people.
     p.add_argument("--update-self-test", action="store_true", help=argparse.SUPPRESS)
     sub = p.add_subparsers(dest="cmd")
-    source_ids = ["gmail", "gcal", "imessage", "dropbox"]
+    source_ids = ["gmail", "gcal", "imessage"]
     c = sub.add_parser("connect")
     c.add_argument("--source", choices=source_ids, default="gmail")
     c.add_argument("--headers-only", action="store_true", help="Gmail: use gmail.metadata, no message bodies")

@@ -9,7 +9,7 @@ set -eu
 APP="${1:-build/safecontext/macos/app/SafeContext.app}"
 PLIST="$APP/Contents/Info.plist"
 [ -f "$PLIST" ] || { echo "No Info.plist at $PLIST" >&2; exit 1; }
-# A release without the Google client or the Dropbox app key must not get signed.
+# A release without the Google client must not get signed.
 "$(dirname "$0")/check_bundle_config.sh" "$APP"
 VERSION=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/safecontext/__init__.py)
 PYPROJECT=$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | sort -u)
