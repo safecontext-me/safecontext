@@ -21,7 +21,8 @@ NULL, so older databases still read.
   ``service`` ("iMessage", "SMS", "RCS" since macOS 15), ``date``
   (nanoseconds since 2001-01-01 UTC since 10.13; seconds before),
   ``is_from_me``, ``cache_has_attachments``.
-  Optional: ``item_type`` (non-zero = group event such as a rename),
+  Optional: ``is_read`` (1 once read on any of the user's devices; only
+  meaningful for incoming messages), ``item_type`` (non-zero = group event such as a rename),
   ``thread_originator_guid`` (inline reply, macOS 11+),
   ``associated_message_guid`` / ``associated_message_type`` (tapbacks:
   2000-2007 add, 3000-3007 remove), ``associated_message_emoji`` (custom
@@ -155,6 +156,7 @@ class Message:
     attachments: Tuple[Attachment, ...] = ()
     edited: bool = False
     reaction: Optional[Reaction] = None  # set only with include_reactions=True
+    is_read: bool = True  # Messages' own read state; always True for my own messages
 
 
 # --------------------------------------------------------------------------
@@ -432,6 +434,14 @@ class MessagesReader:
     def max_rowid(self) -> int:
         return self.conn.execute("SELECT COALESCE(MAX(ROWID), 0) FROM message").fetchone()[0]
 
+    def unread_guids(self) -> List[str]:
+        """guids of incoming messages Messages still shows as unread (read state syncs across the
+        user's devices). Only reads; nothing here can mark anything read."""
+        if "is_read" not in self._cols["message"]:
+            return []
+        return [r[0] for r in self.conn.execute(
+            "SELECT guid FROM message WHERE is_read = 0 AND is_from_me = 0")]
+
     def conversations(self) -> List[Conversation]:
         c = lambda col: self._col("chat", "c", col)  # noqa: E731
         rows = self.conn.execute(
@@ -485,7 +495,7 @@ class MessagesReader:
         m = lambda col, d="NULL": self._col("message", "m", col, d)  # noqa: E731
         sql = f"""
             SELECT m.ROWID AS rowid, m.guid AS guid, {m('text')}, {m('attributedBody')},
-                   {m('service')}, m.date AS date, m.is_from_me AS is_from_me,
+                   {m('service')}, m.date AS date, m.is_from_me AS is_from_me, {m('is_read', '1')},
                    {m('item_type', '0')}, {m('cache_has_attachments', '0')},
                    {m('thread_originator_guid')}, {m('associated_message_guid')},
                    {m('associated_message_type', '0')}, {m('associated_message_emoji')},
@@ -544,6 +554,7 @@ class MessagesReader:
             attachments=files,
             edited=bool(r["date_edited"]),
             reaction=reaction,
+            is_read=from_me or bool(r["is_read"]),
         )
 
     def _attachments(self, rowids: Sequence[int]) -> Dict[int, List[Attachment]]:

@@ -86,6 +86,11 @@
 .mrow-bottom { display: flex; align-items: center; gap: var(--space-1-5); min-width: 0; }  /* preview, then tags on the right */
 .mrow-snip { flex: 1; min-width: 0; color: var(--muted-foreground); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mrow-snip .redacted { font-size: var(--text-xs); line-height: var(--leading-snug); padding: 0 var(--space-1); }
+.mrow-dot { position: absolute; left: var(--space-1); top: 50%; width: 6px; height: 6px; margin-top: -3px;
+            border-radius: var(--radius-full); background: var(--primary); }
+.mrow-dot-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.mrow.unread .mrow-from, .mrow.unread .mrow-subj > span:first-child { font-weight: var(--font-weight-semibold); }
+.mrow.unread .mrow-date { color: var(--foreground); font-weight: var(--font-weight-medium); }
 .mrow.dropped { background: repeating-linear-gradient(135deg, transparent 0 9px, color-mix(in srgb, var(--border) 35%, transparent) 9px 10px); }
 .mrow.dropped.sel { background: var(--active); }
 .mrow.dropped .mrow-from { color: var(--muted-foreground); }

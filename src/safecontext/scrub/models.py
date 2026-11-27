@@ -50,6 +50,7 @@ class ScrubbedMessage:
     attachments: List[Attachment]
     redactions: Dict[str, int]
     scrubber_version: str
+    unread: bool = False  # Gmail's UNREAD label: metadata mirrored from Gmail, never changed by SafeContext
 
 
 # Kinds of item a source can produce. "message" means email: only email gets
@@ -91,6 +92,7 @@ class RawItem:
     headers: Dict[str, str] = field(default_factory=dict)  # keys lower-cased
     labels: List[str] = field(default_factory=list)
     sender_handle: Optional[str] = None
+    unread: bool = False  # the source's own read state, for sources that have one (iMessage)
 
     @property
     def label_ids(self) -> List[str]:  # same shape as RawMessage for the label rule
@@ -122,6 +124,7 @@ class ScrubbedItem:
     extra: Dict[str, str]
     redactions: Dict[str, int]
     scrubber_version: str
+    unread: bool = False
 
 
 @dataclass(frozen=True)

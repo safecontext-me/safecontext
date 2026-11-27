@@ -44,6 +44,8 @@ _RETIRED = "retired"
 #   title    subject / event title;  body: the scrubbed text
 #   link     deep link back to the original (Gmail, Google Calendar, ...)
 #   extra    short labelled fields shown with the item (JSON), e.g. Location
+#   unread   1 while the source shows the item as unread (Gmail's UNREAD label, Messages' is_read).
+#            Mirrored from the source on every sync; SafeContext never sets or changes it there.
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 
@@ -72,6 +74,7 @@ CREATE TABLE IF NOT EXISTS items (
     extra             TEXT NOT NULL DEFAULT '{}',
     redactions        TEXT NOT NULL DEFAULT '{}',
     scrubber_version  TEXT NOT NULL,
+    unread            INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (source, id)
 );
 CREATE INDEX IF NOT EXISTS ix_items_thread ON items(source, thread_id, date_ms);
@@ -130,6 +133,16 @@ CREATE INDEX IF NOT EXISTS ix_dropped_sreason ON dropped(source, reason);
 CREATE INDEX IF NOT EXISTS ix_items_redacted  ON items(source, thread_id, redactions) WHERE redactions != '{}';
 """
 
+# Read state (added in place, still schema v3): only unread rows are indexed, so these stay small.
+# By source and date for the unread counts and lists; by thread for "is this thread unread".
+_UNREAD_INDEXES = """
+CREATE INDEX IF NOT EXISTS ix_items_unread_date   ON items(source, date_ms) WHERE unread = 1;
+CREATE INDEX IF NOT EXISTS ix_items_unread_thread ON items(source, thread_id) WHERE unread = 1;
+"""
+
+# Sources whose items have a read state. Others (calendar, files) are never unread.
+READ_STATE_SOURCES = ("gmail", "imessage")
+
 GMAIL = "gmail"
 # Schema v1 kept Gmail's sync state in `meta`; v2 moves it to source_state('gmail').
 _V1_GMAIL_META = {"account_email": "account", "sync_mode": "sync_mode", "auth_state": "auth_state",
@@ -161,6 +174,7 @@ class Hit:
     source: str = GMAIL
     kind: str = "message"
     end: Optional[str] = None
+    unread: bool = False
 
     @property
     def subject(self) -> str:
@@ -181,6 +195,7 @@ class ItemView:
     kind: str = "message"
     end: Optional[str] = None
     extra: Dict[str, str] = field(default_factory=dict)
+    unread: bool = False
 
     @property
     def subject(self) -> str:
@@ -292,7 +307,8 @@ class Store:
         self._db.executescript(_SCHEMA + _FTS_TRIGGERS)
         if self._has_table("messages"):
             self._migrate_v1()
-        self._db.executescript(_BROWSE_INDEXES + _SWITCH_INDEXES)  # v2 -> v3: indexes only, idempotent
+        self._add_unread_column()
+        self._db.executescript(_BROWSE_INDEXES + _SWITCH_INDEXES + _UNREAD_INDEXES)  # indexes only, idempotent
         self._requeue_retired_drops()
         version = self.get_meta("schema_version")
         if version is None or (version.isdigit() and int(version) < SCHEMA_VERSION):
@@ -417,6 +433,14 @@ class Store:
             db.execute("DROP TABLE messages")
             db.execute("INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
 
+    def _add_unread_column(self) -> None:
+        """Stores made before read state get the column in place (instant: SQLite only records the
+        default). Everything starts read; each source's next sync fills in its read state."""
+        with self._lock:
+            cols = {r[1] for r in self._db.execute("PRAGMA table_info(items)")}
+            if "unread" not in cols:
+                self._db.execute("ALTER TABLE items ADD COLUMN unread INTEGER NOT NULL DEFAULT 0")
+
     def _requeue_retired_drops(self) -> None:
         """Mark mail dropped by a rule that no longer exists as stale, so sync
         re-fetches and re-scrubs just those messages instead of the whole
@@ -469,12 +493,13 @@ class Store:
                     json.dumps([dataclasses.asdict(a) for a in r.attachments]),
                     " ".join(a.filename for a in r.attachments),
                     gmail_link(account, r.message_id_header, r.thread_id), "{}",
-                    json.dumps(r.redactions), r.scrubber_version)
+                    json.dumps(r.redactions), r.scrubber_version, int(bool(r.unread)))
         return (source, r.id, account, r.kind, r.thread_id, r.date_ms, r.end_ms, r.sender, _handle(r.sender),
                 ", ".join(p for p in r.participants if p), r.title, r.body,
                 json.dumps([dataclasses.asdict(a) for a in r.attachments]),
                 " ".join(a.filename for a in r.attachments), r.link,
-                json.dumps(r.extra, ensure_ascii=False), json.dumps(r.redactions), r.scrubber_version)
+                json.dumps(r.extra, ensure_ascii=False), json.dumps(r.redactions), r.scrubber_version,
+                int(bool(r.unread)))
 
     def put_many(self, results: Iterable[StoreResult], source: str = GMAIL, account: Optional[str] = None) -> None:
         """Insert or replace one source's results. An item can move between kept
@@ -493,7 +518,7 @@ class Store:
                     db.execute(
                         "INSERT INTO items (source, id, account, kind, thread_id, date_ms, end_ms, sender,"
                         " sender_email, participants, title, body, attachments, attachment_names, link, extra,"
-                        " redactions, scrubber_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        " redactions, scrubber_version, unread) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         self._row(r, source, account))
                 else:  # never let anything else (e.g. a RawMessage / RawItem) reach disk
                     raise TypeError(f"refusing to store {type(r).__name__}")
@@ -574,6 +599,47 @@ class Store:
             db.execute("DELETE FROM seen WHERE source=?", (source,))
         return n
 
+    # read state ---------------------------------------------------------------
+    #
+    # Only ever copied from the source. These update the flag in place: no re-fetch, no re-scrub,
+    # and the FTS index isn't touched (it has no update trigger). An id that was dropped, or was
+    # never stored, gets no row: an UPDATE can't bring back something the scrubber dropped.
+
+    def set_unread(self, source: str, changes: Dict[str, bool]) -> Set[str]:
+        """Set the read state of stored items: {id: unread}. Returns the ids stored nowhere
+        (neither kept nor dropped), which the caller may want to fetch instead."""
+        unknown: Set[str] = set()
+        if not changes:
+            return unknown
+        with self._tx() as db:
+            for item_id, unread in changes.items():
+                n = db.execute("UPDATE items SET unread=? WHERE source=? AND id=?",
+                               (int(bool(unread)), source, item_id)).rowcount
+                if not n and db.execute("SELECT 1 FROM dropped WHERE source=? AND id=?",
+                                        (source, item_id)).fetchone() is None:
+                    unknown.add(item_id)
+        return unknown
+
+    def replace_unread(self, source: str, unread_ids: Iterable[str]) -> int:
+        """Make exactly these of a source's stored items unread and every other one read (a source
+        that reports its whole unread set at once). Returns how many rows changed."""
+        with self._tx() as db:
+            db.execute("CREATE TEMP TABLE IF NOT EXISTS unread_ids (id TEXT PRIMARY KEY)")
+            db.execute("DELETE FROM unread_ids")
+            db.executemany("INSERT OR IGNORE INTO unread_ids VALUES (?)", ((i,) for i in unread_ids))
+            n = db.execute("UPDATE items SET unread=0 WHERE source=? AND unread = 1 "
+                           "AND id NOT IN (SELECT id FROM unread_ids)", (source,)).rowcount
+            n += db.execute("UPDATE items SET unread=1 WHERE source=? AND unread = 0 "
+                            "AND id IN (SELECT id FROM unread_ids)", (source,)).rowcount
+            db.execute("DELETE FROM unread_ids")
+        return n
+
+    def unread_count(self, source: Optional[str] = None) -> int:
+        """Unread items (not threads), through the partial index. Reused until something changes."""
+        where, args = ("WHERE source=? AND unread = 1", [source]) if source else ("WHERE unread = 1", [])
+        return self._cached(("unread", source), lambda: self._read(
+            f"SELECT count(*) FROM items INDEXED BY ix_items_unread_date {where}", args)[0][0])
+
     def stale_ids(self, version: str = SCRUBBER_VERSION, source: str = GMAIL) -> List[str]:
         """Ids scrubbed under an older version; sync re-fetches these. Reads only the
         (source, scrubber_version) indexes, so it's quick even with nothing stale."""
@@ -631,19 +697,23 @@ class Store:
 
     def _hit(self, r: sqlite3.Row, snippet: str) -> Hit:
         return Hit(id=r["id"], thread_id=r["thread_id"], title=r["title"], snippet=snippet,
-                   citation=self._citation(r), source=r["source"], kind=r["kind"], end=_iso_or_none(r["end_ms"]))
+                   citation=self._citation(r), source=r["source"], kind=r["kind"], end=_iso_or_none(r["end_ms"]),
+                   unread=bool(r["unread"]))
 
     def _view(self, row: sqlite3.Row) -> ItemView:
         return ItemView(
             id=row["id"], thread_id=row["thread_id"], title=row["title"], participants=row["participants"],
             body=row["body"], attachments=[Attachment(**a) for a in json.loads(row["attachments"])],
             redactions=json.loads(row["redactions"]), citation=self._citation(row), source=row["source"],
-            kind=row["kind"], end=_iso_or_none(row["end_ms"]), extra=json.loads(row["extra"] or "{}"))
+            kind=row["kind"], end=_iso_or_none(row["end_ms"]), extra=json.loads(row["extra"] or "{}"),
+            unread=bool(row["unread"]))
 
     @staticmethod
     def _filters(sender: Optional[str], after: DateLike, before: DateLike, alias: str = "m",
-                 source: Optional[str] = None, kind: Optional[str] = None):
+                 source: Optional[str] = None, kind: Optional[str] = None, unread: Optional[bool] = None):
         where, args = [], []
+        if unread is not None:  # literal 1 / 0, so the planner can use the partial unread indexes
+            where.append(f"{alias}.unread = {1 if unread else 0}")
         if source:
             where.append(f"{alias}.source = ?")
             args.append(source)
@@ -672,11 +742,11 @@ class Store:
 
     def search(self, query: str, *, source: Optional[str] = None, kind: Optional[str] = None,
                sender: Optional[str] = None, after: DateLike = None, before: DateLike = None,
-               limit: int = 20) -> List[Hit]:
+               limit: int = 20, unread: Optional[bool] = None) -> List[Hit]:
         q = fts_query(query)
         if not q:
             return []
-        where, args = self._filters(sender, after, before, source=source, kind=kind)
+        where, args = self._filters(sender, after, before, source=source, kind=kind, unread=unread)
         sql = (
             "SELECT m.*, snippet(items_fts, 1, '«', '»', ' … ', 24) AS snip "
             "FROM items_fts JOIN items m ON m.rowid = items_fts.rowid "
@@ -705,8 +775,8 @@ class Store:
 
     def list_items(self, *, source: Optional[str] = None, kind: Optional[str] = None,
                    sender: Optional[str] = None, after: DateLike = None, before: DateLike = None,
-                   limit: int = 50, oldest_first: bool = False) -> List[Hit]:
-        where, args = self._filters(sender, after, before, source=source, kind=kind)
+                   limit: int = 50, oldest_first: bool = False, unread: Optional[bool] = None) -> List[Hit]:
+        where, args = self._filters(sender, after, before, source=source, kind=kind, unread=unread)
         sql = ("SELECT m.* FROM items m " + ("WHERE " + " AND ".join(where) + " " if where else "")
                + f"ORDER BY m.date_ms {'ASC' if oldest_first else 'DESC'} LIMIT ?")
         rows = self._read(sql, [*args, max(1, min(limit, 200))])
@@ -732,7 +802,9 @@ class Store:
         "(SELECT count(*) FROM items c WHERE c.source = m.source AND c.thread_id = m.thread_id) AS n_items, "
         "(SELECT count(*) FROM dropped d WHERE d.source = m.source AND d.thread_id = m.thread_id) AS n_dropped, "
         "(SELECT coalesce(sum(j.value), 0) FROM items c INDEXED BY ix_items_redacted, json_each(c.redactions) j "
-        " WHERE c.source = m.source AND c.thread_id = m.thread_id AND c.redactions != '{}') AS n_redacted")
+        " WHERE c.source = m.source AND c.thread_id = m.thread_id AND c.redactions != '{}') AS n_redacted, "
+        "(SELECT count(*) FROM items u INDEXED BY ix_items_unread_thread "
+        " WHERE u.source = m.source AND u.thread_id = m.thread_id AND u.unread = 1) AS n_unread")
 
     @staticmethod
     def parse_cursor(cursor: Optional[str]):
@@ -776,6 +848,7 @@ class Store:
                 "snippet": snippet if snippet is not None else r["snip"],
                 "count": r["n_items"], "dropped_in_thread": r["n_dropped"], "redacted": r["n_redacted"],
                 "has_attachments": bool(r["attachment_names"]),
+                "unread": r["n_unread"],  # unread items in the thread: a thread is unread if any of them is
                 "cursor": f"{r['date_ms']}.1.{r['rid']}"}
 
     def _dropped_row(self, r: sqlite3.Row) -> Dict[str, object]:
@@ -787,11 +860,32 @@ class Store:
                 "link": gmail_link(self.account, "", r["thread_id"]) if r["source"] == GMAIL else "",
                 "cursor": f"{r['date_ms']}.0.{r['rid']}"}
 
-    def _kept_threads(self, sources: Sequence[str], cur, limit: int, oldest: bool = False) -> List[sqlite3.Row]:
+    # Below this many unread items, an Unread page starts from the unread rows (partial index) and
+    # sorts their threads; above it, unread threads are common enough that walking the date index
+    # and checking each thread fills a page sooner.
+    UNREAD_DRIVE_MAX = 8_000  # measured: the two plans cross near here on a 112k-message mailbox
+
+    def _kept_threads(self, sources: Sequence[str], cur, limit: int, oldest: bool = False,
+                      unread_only: bool = False) -> List[sqlite3.Row]:
         after, args = self._after("m", 1, cur, oldest)
         way = "ASC" if oldest else "DESC"
-        sql = (f"SELECT {self._THREAD_COLS}, substr(m.body, 1, {self._SNIPPET_CHARS}) AS snip FROM items m "
-               f"WHERE m.source IN ({self._marks(sources)}) {after}"
+        head = f"SELECT {self._THREAD_COLS}, substr(m.body, 1, {self._SNIPPET_CHARS}) AS snip "
+        if unread_only and sum(self.unread_count(s) for s in sources) <= self.UNREAD_DRIVE_MAX:
+            # Each unread thread's newest item straight from the thread index (one seek per thread,
+            # however long the chat), then only those heads are sorted.
+            src = (f"FROM (SELECT DISTINCT source, thread_id FROM items INDEXED BY ix_items_unread_thread "
+                   f"      WHERE source IN ({self._marks(sources)}) AND unread = 1) ut "
+                   "JOIN items m ON m.rowid = (SELECT h.rowid FROM items h INDEXED BY ix_items_thread "
+                   "  WHERE h.source = ut.source AND h.thread_id = ut.thread_id "
+                   "  ORDER BY h.date_ms DESC, h.rowid DESC LIMIT 1) "
+                   "WHERE 1 ")
+            sql = head + src + after + f"ORDER BY m.date_ms {way}, m.rowid {way} LIMIT ?"
+            return self._read(sql, [*sources, *args, limit])
+        src = f"FROM items m WHERE m.source IN ({self._marks(sources)}) "
+        if unread_only:
+            src += ("AND EXISTS (SELECT 1 FROM items u INDEXED BY ix_items_unread_thread "
+                    "WHERE u.source = m.source AND u.thread_id = m.thread_id AND u.unread = 1) ")
+        sql = (head + src + after +
                # The thread's newest item stands for it. `x.date_ms >= m.date_ms` lets the probe seek
                # straight to newer items in the thread index instead of walking the whole thread,
                # which matters for long chats and recurring events.
@@ -818,10 +912,10 @@ class Store:
     def browse(self, sources: Sequence[str], *, view: str = "all", reasons: Optional[Sequence[str]] = None,
                cursor: Optional[str] = None, limit: int = 100, order: str = "newest") -> Dict[str, object]:
         """One page of the Mail view's list. view: 'all' (kept threads and dropped items,
-        interleaved by date), 'synced' (kept threads) or 'not_synced' (dropped items,
-        optionally only these reason codes). order: 'newest' (default) or 'oldest' first.
-        Returns {"rows": [...], "next": cursor | None}."""
-        if view not in ("all", "synced", "not_synced"):
+        interleaved by date), 'synced' (kept threads), 'unread' (kept threads with an unread item)
+        or 'not_synced' (dropped items, optionally only these reason codes). order: 'newest'
+        (default) or 'oldest' first. Returns {"rows": [...], "next": cursor | None}."""
+        if view not in ("all", "synced", "unread", "not_synced"):
             raise ValueError(f"unknown view {view!r}")
         if order not in ("newest", "oldest"):
             raise ValueError(f"unknown order {order!r}")
@@ -833,8 +927,8 @@ class Store:
         cur = self.parse_cursor(cursor)
         merged: List[tuple] = []
         full = False
-        if view in ("all", "synced"):
-            kept = self._kept_threads(sources, cur, limit, oldest)
+        if view in ("all", "synced", "unread"):
+            kept = self._kept_threads(sources, cur, limit, oldest, unread_only=view == "unread")
             full |= len(kept) == limit
             merged += [((r["date_ms"], 1, r["rid"]), self._thread_row(r)) for r in kept]
         if view in ("all", "not_synced"):
@@ -847,9 +941,10 @@ class Store:
         return {"rows": rows, "next": rows[-1]["cursor"] if more and rows else None}
 
     def search_threads(self, query: str, sources: Sequence[str], *, offset: int = 0,
-                       limit: int = 100, order: str = "newest") -> Dict[str, object]:
+                       limit: int = 100, order: str = "newest", unread_only: bool = False) -> Dict[str, object]:
         """Threads with an item matching `query` (FTS), newest (or oldest) first; each row shows the
-        thread's newest matching item with a highlighted snippet. Offset-paged."""
+        thread's newest matching item with a highlighted snippet. Offset-paged. unread_only: only
+        threads with an unread item."""
         q = fts_query(query)
         sources = list(sources)
         limit, offset = max(1, min(int(limit), 500)), max(0, int(offset))
@@ -858,7 +953,9 @@ class Store:
         # A bare column next to max() takes its value from the row holding the max (SQLite).
         sql = ("SELECT m.rowid AS rid, max(m.date_ms) AS last FROM items_fts JOIN items m ON m.rowid = items_fts.rowid "
                f"WHERE items_fts MATCH ? AND m.source IN ({self._marks(sources)}) "
-               "GROUP BY m.source, m.thread_id "
+               + ("AND EXISTS (SELECT 1 FROM items u INDEXED BY ix_items_unread_thread WHERE u.source = m.source "
+                  "AND u.thread_id = m.thread_id AND u.unread = 1) " if unread_only else "")
+               + "GROUP BY m.source, m.thread_id "
                + ("ORDER BY last ASC, rid ASC " if order == "oldest" else "ORDER BY last DESC, rid DESC ")
                + "LIMIT ? OFFSET ?")
         rids = [r["rid"] for r in self._read(sql, [q, *sources, limit, offset])]
@@ -887,7 +984,7 @@ class Store:
                 "type": "item", "id": v.id, "kind": v.kind, "source": v.source, "date": v.citation.date,
                 "end": v.end, "sender": v.citation.sender, "participants": v.participants, "title": v.title,
                 "body": v.body, "attachments": [dataclasses.asdict(a) for a in v.attachments],
-                "redactions": v.redactions, "link": v.citation.link, "details": v.extra}))
+                "redactions": v.redactions, "link": v.citation.link, "details": v.extra, "unread": v.unread}))
         for r in dropped:
             entries.append((r["date_ms"], self._dropped_row(r)))
         entries.sort(key=lambda kv: kv[0])

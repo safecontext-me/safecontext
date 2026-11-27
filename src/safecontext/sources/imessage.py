@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import timezone
-from typing import Callable, Dict, Iterator, Optional
+from typing import Callable, Dict, Iterator, List, Optional
 
 from .. import auth
 from ..errors import NeedsPermission
@@ -68,6 +68,7 @@ class IMessageSource(ReaderSource):
         self.permission_help = {FULL_DISK_ACCESS: full_disk_access_help("your Messages history")}
         self._convs: Dict[str, reader.Conversation] = {}
         self._name: Callable[[str], Optional[str]] = lambda h: None
+        self._unread: Optional[List[str]] = None
 
     # --- access ---------------------------------------------------------------
     def check_access(self) -> None:
@@ -99,7 +100,15 @@ class IMessageSource(ReaderSource):
             self._convs = {c.chat_id: c for c in r.conversations()}
             self._name = self._names_fn()
             end = r.max_rowid()  # messages that arrive during this sync wait for the next one
+            self._unread = None
             yield from r.messages(since_rowid=int(cursor or 0), until_rowid=end)
+            # Read state changes without new rows (a chat read on the iPhone), so take the whole
+            # unread set each sync from the same open database; ReaderSyncer copies it onto the store.
+            self._unread = r.unread_guids()
+
+    def unread_ids(self) -> Optional[List[str]]:
+        unread, self._unread = self._unread, None
+        return unread
 
     def cursor_of(self, m: reader.Message) -> str:
         return str(m.rowid)
@@ -149,4 +158,5 @@ class IMessageSource(ReaderSource):
             attachments=[Attachment(a.name or "attachment", a.mime_type or "", 0) for a in m.attachments],
             extra=extra,
             sender_handle=handle,
+            unread=not m.is_from_me and not m.is_read,
         )

@@ -30,13 +30,15 @@ def _text(rng: random.Random, n: int) -> str:
     return " ".join(rng.choice(WORDS) for _ in range(n))
 
 
-def _item(source, i, kind, thread, date, sender, title, body, end=None, red="{}", account="alex@example.org"):
+def _item(source, i, kind, thread, date, sender, title, body, end=None, red="{}", account="alex@example.org",
+          unread=False):
     return (source, f"{source}-{i}", account, kind, thread, date, end, sender, sender.lower(), "", title, body,
-            "[]", "", "", "{}", red, SCRUBBER_VERSION)
+            "[]", "", "", "{}", red, SCRUBBER_VERSION, int(unread))
 
 
 def build(data_dir: Path, gmail: int, imessage: int, gcal: int, seed: int = 7,
-          body_words: tuple = (40, 600)) -> Path:
+          body_words: tuple = (40, 600), unread: float = 0.03) -> Path:
+    """`unread`: share of Gmail and incoming iMessage items left unread, at random dates."""
     rng = random.Random(seed)
     store = Store(data_dir / "mail.db")
     items, dropped = [], []
@@ -54,7 +56,8 @@ def build(data_dir: Path, gmail: int, imessage: int, gcal: int, seed: int = 7,
             else:
                 red = json.dumps({"EMAIL": 1}) if rng.random() < 0.2 else "{}"
                 items.append(_item("gmail", i, "message", thread, t, f"Person {i % 900} <p{i % 900}@example.com>",
-                                   _text(rng, 5), _text(rng, rng.randint(*body_words)), red=red))
+                                   _text(rng, 5), _text(rng, rng.randint(*body_words)), red=red,
+                                   unread=rng.random() < unread))
             i += 1
     # iMessage: a few hundred chats, most of the traffic in a few of them.
     chats = [f"chat-{c}" for c in range(300)]
@@ -64,7 +67,8 @@ def build(data_dir: Path, gmail: int, imessage: int, gcal: int, seed: int = 7,
         t -= rng.randint(10_000, 3_600_000)
         chat = rng.choices(chats, weights)[0]
         red = json.dumps({"PHONE": 1}) if rng.random() < 0.1 else "{}"
-        items.append(_item("imessage", j, "chat", chat, t, f"+1555{j % 300:07d}", "", _text(rng, 12), red=red))
+        items.append(_item("imessage", j, "chat", chat, t, f"+1555{j % 300:07d}", "", _text(rng, 12), red=red,
+                           unread=rng.random() < unread))
         if rng.random() < 0.03:
             dropped.append(("imessage", f"imessage-d{j}", chat, t - 1, "business_sender", SCRUBBER_VERSION))
     # Calendar: weekly series from 2018 into 2031, plus one-offs.
@@ -85,7 +89,7 @@ def build(data_dir: Path, gmail: int, imessage: int, gcal: int, seed: int = 7,
     with store._tx() as db:
         db.executemany("INSERT INTO items (source, id, account, kind, thread_id, date_ms, end_ms, sender, sender_email,"
                        " participants, title, body, attachments, attachment_names, link, extra, redactions,"
-                       " scrubber_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", items)
+                       " scrubber_version, unread) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", items)
         db.executemany("INSERT INTO dropped VALUES (?,?,?,?,?,?)", dropped)
     for src, extra in (("gmail", {"history_id": "1", "sync_mode": "full"}), ("imessage", {}), ("gcal", {})):
         store.set_state(src, "account", "alex@example.org" if src != "imessage" else "This Mac")
@@ -102,7 +106,8 @@ if __name__ == "__main__":
     ap.add_argument("--gmail", type=int, default=128_000)
     ap.add_argument("--imessage", type=int, default=40_000)
     ap.add_argument("--gcal", type=int, default=9_000)
+    ap.add_argument("--unread", type=float, default=0.03, help="share of mail and chats left unread")
     a = ap.parse_args()
     t0 = time.time()
-    path = build(a.data_dir, a.gmail, a.imessage, a.gcal)
+    path = build(a.data_dir, a.gmail, a.imessage, a.gcal, unread=a.unread)
     print(f"built {path} in {time.time() - t0:.1f}s")

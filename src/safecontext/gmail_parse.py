@@ -97,6 +97,38 @@ def parse_gmail_message(resource: dict, metadata_only: bool = False) -> RawMessa
     )
 
 
+UNREAD = "UNREAD"
+
+
+class HistoryChanges:
+    """What history.list pages say changed, in order. A message whose only change was its UNREAD
+    label goes to `unread` (id -> unread now) and needs no fetch; anything else that touched it
+    (added, another label, ...) puts it in `changed`, and the fetch brings its read state along."""
+
+    def __init__(self) -> None:
+        self.changed: Set[str] = set()
+        self.deleted: Set[str] = set()
+        self.unread: Dict[str, bool] = {}
+
+    def add_page(self, page: dict) -> None:
+        for h in page.get("history") or []:
+            for item in h.get("messagesAdded") or []:
+                self.changed.add(item["message"]["id"])
+            for key, now in (("labelsAdded", True), ("labelsRemoved", False)):
+                for item in h.get(key) or []:
+                    mid = item["message"]["id"]
+                    if set(item.get("labelIds") or ()) == {UNREAD}:
+                        self.unread[mid] = now  # later records win: history comes oldest first
+                    else:
+                        self.changed.add(mid)
+            for item in h.get("messagesDeleted") or []:
+                self.deleted.add(item["message"]["id"])
+
+    def unread_only(self) -> Dict[str, bool]:
+        """Read-state changes for messages that need nothing else."""
+        return {m: u for m, u in self.unread.items() if m not in self.changed and m not in self.deleted}
+
+
 def history_message_ids(page: dict) -> Tuple[Set[str], Set[str]]:
     """From one history.list page, return (changed_ids, deleted_ids)."""
     changed: Set[str] = set()
