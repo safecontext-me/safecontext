@@ -23,7 +23,13 @@ Gmail's state lives in source_state('gmail'):
   backfill_start_history_id, backfill_page_token, resync (in progress),
   history_id (set once backfill completes), auth_state, last_sync_ms,
   mailbox_total (Gmail's message count when the backfill started),
-  sync_heartbeat (JSON progress of a running sync, readable by any process)
+  sync_heartbeat (JSON progress of a running sync, readable by any process),
+  read_state ('1' once the stored read state was taken from Gmail's whole UNREAD list),
+  labels_state ('1' once each label's messages were listed and copied onto the stored mail)
+
+Read state: each message's UNREAD label is stored with it. After that, a history
+record that only adds or removes UNREAD updates that flag in place (no fetch, no
+re-scrub). SafeContext only reads it: gmail.readonly can't mark anything read.
 """
 from __future__ import annotations
 
@@ -59,6 +65,8 @@ class SyncResult:
 
 ProgressFn = Callable[[SyncResult], None]
 HEARTBEAT_KEY = "sync_heartbeat"
+READ_STATE_KEY = "read_state"
+LABELS_STATE_KEY = "labels_state"  # '1' once every label's members were listed (see _refresh_label_members)
 CATCH_UP_SECONDS = 5 * 60  # during a backfill, fetch new mail this often
 
 
@@ -258,6 +266,10 @@ class Syncer(BaseSyncer):
         else:
             self._incremental()
         self._refresh_stale()
+        if self.state.get("history_id") is not None and self.state.get(LABELS_STATE_KEY) != "1":
+            self._refresh_label_members()
+        if self.state.get("history_id") is not None and self.state.get(READ_STATE_KEY) != "1":
+            self._refresh_unread()
 
     # --- phases -----------------------------------------------------------
 
@@ -317,12 +329,14 @@ class Syncer(BaseSyncer):
             log.info("history id expired; starting full resync")
             st.set("history_id", None)
             st.set("resync", "1")
+            st.set(LABELS_STATE_KEY, None)  # label-only changes in the missed history: list members again
             self._backfill()
             return
         if ch.deleted:
             s.delete(sorted(ch.deleted), GMAIL)
             self.result.deleted += len(ch.deleted)
-        missing = s.set_item_labels(GMAIL, ch.label_only())  # not stored at all: fetch them instead
+        # Label-only changes (read state included) apply in place; ids stored nowhere are fetched instead.
+        missing = s.set_unread(GMAIL, ch.unread_only()) | s.set_item_labels(GMAIL, ch.label_only())
         self._fetch_and_store(sorted((ch.changed | missing) - ch.deleted))
         st.set("history_id", latest)
 
@@ -338,6 +352,37 @@ class Syncer(BaseSyncer):
             if not token:
                 return ch, latest
 
+    def _refresh_unread(self) -> None:
+        """Once per store: copy Gmail's whole UNREAD list onto the stored mail (stores synced before
+        read state existed). Ids only, a page of 500 per call; nothing is fetched or re-scrubbed."""
+        if not hasattr(self.api, "list_unread_ids"):
+            return
+        ids, token = [], None
+        while True:
+            page, token = self.api.list_unread_ids(token)
+            ids += page
+            if not token:
+                break
+        changed = self.store.replace_unread(GMAIL, ids)
+        self.state.set(READ_STATE_KEY, "1")
+        log.info("read state: %d unread in Gmail, %d stored rows updated", len(ids), changed)
+
+    def _refresh_label_members(self) -> None:
+        """Once per store (and after a resync): list each label's messages and copy that onto the stored
+        mail. Stores synced before labels were kept get them this way; ids only, a page of 500 per call,
+        nothing fetched or re-scrubbed."""
+        if not hasattr(self.api, "list_label_ids"):
+            return
+        for ext in self.store.label_ext_ids(GMAIL):
+            ids, token = [], None
+            while True:
+                page, token = self.api.list_label_ids(ext, token)
+                ids += page
+                if not token:
+                    break
+            self.store.replace_label_members(GMAIL, ext, ids)
+        self.state.set(LABELS_STATE_KEY, "1")
+
     def _refresh_labels(self) -> None:
         """Mirror Gmail's label names and colours (one cheap call per sync). Renames and deletions
         apply to every stored message at once; nothing is re-fetched."""
@@ -352,7 +397,7 @@ class Syncer(BaseSyncer):
         try:
             ch, latest = self._history_since(start)
             deleted = ch.deleted
-            changed = ch.changed | s.set_item_labels(GMAIL, ch.label_only())
+            changed = ch.changed | s.set_unread(GMAIL, ch.unread_only()) | s.set_item_labels(GMAIL, ch.label_only())
         except HistoryExpired:
             # The backfill outlived Gmail's history (about a week): restart from now and take the
             # newest page, which the backfill passed long ago.

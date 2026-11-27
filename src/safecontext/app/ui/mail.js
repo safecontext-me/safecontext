@@ -122,7 +122,8 @@ async function mailRefreshMeta(force, returning = false) {
   // Keep the list fresh as the store changes: while a sync fills it (only if the reader is at the
   // top, not mid-scroll or searching), and always on coming back to the page. Right after a switch
   // (lastCovSig null) there's nothing to compare with, and the list is being loaded anyway.
-  const sig = c.ok ? mailCovSig(c.sources) : "";
+  // Read state changes without new mail (read on the phone), so the unread counts are part of it too.
+  const sig = c.ok ? mailCovSig(c.sources) + (f.ok ? `|${f.sources.map((x) => x.unread).join()}` : "") : "";
   const changed = mail.lastCovSig !== null && sig !== mail.lastCovSig;
   if (changed && (returning || (!force && $("mail-list").scrollTop < MAIL_ROW_H && !mail.query))) mailReload(true);
   mail.lastCovSig = sig;
@@ -138,7 +139,15 @@ function mailCovSig(sources) {
 function mailCounts() {
   const f = mail.folders;
   const s = mail.source && f.sources.find((x) => x.id === mail.source);
-  return s ? { all: s.kept + s.dropped, synced: s.kept, not_synced: s.dropped } : f.mailboxes;
+  return s ? { all: s.kept + s.dropped, synced: s.kept, not_synced: s.dropped, unread: s.unread } : f.mailboxes;
+}
+
+// Whether the list showing has a read state to filter on (Gmail, iMessage; not Calendar or Dropbox).
+function mailHasReadState() {
+  const f = mail.folders;
+  if (!f) return false;
+  const s = mail.source && f.sources.find((x) => x.id === mail.source);
+  return s ? !!s.read_state : f.sources.some((x) => x.mail && x.read_state);
 }
 
 function mailPlaceholder() {
@@ -251,13 +260,16 @@ async function mailLoadReasons() {
 }
 
 // The filter menu's categories, what's picked, and the count badge on its button.
-// Filter menu: Status (Synced or Not synced; neither = all mail) and, for Not synced, the skip reasons.
+// Filter menu: Status (Unread, Synced or Not synced; none = all mail) and, for Not synced, the skip reasons.
+// Unread is as the source shows it (Gmail, Messages); sources without a read state don't offer it.
 function mailRenderFilter() {
   const list = $("mail-filter-list");
   const counts = mail.folders ? mailCounts() : {};
+  const unread = mailHasReadState() || mail.view === "unread"
+    ? [{ value: "unread", label: "Unread", count: counts.unread || 0 }] : [];
   list.categories = [
     { id: "status", label: "Status", icon: "check",
-      options: [{ value: "synced", label: "Synced", count: counts.synced },
+      options: [...unread, { value: "synced", label: "Synced", count: counts.synced },
         { value: "not_synced", label: "Not synced", count: counts.not_synced }] },
     { id: "reason", label: "Skip reason", hint: "Not synced", icon: "ban",
       options: (mail.reasonList || []).map((x) => ({ value: x.group, label: x.group, count: x.count })) },
@@ -389,7 +401,8 @@ function mailRender() {
   if (!total) {
     const syncingFirst = mail.coverage.some((c) => !c.first_sync_done);
     spacer.replaceChildren(el("div", { class: "empty" }, mail.error ||
-      (mail.query ? "No synced mail matches." : mail.labels.length ? "Nothing synced has that label or tag." :
+      (mail.query ? "No synced mail matches." : mail.view === "unread" ? "Nothing unread." :
+        mail.labels.length ? "Nothing synced has that label or tag." :
         mail.view === "not_synced" ? "Nothing was skipped." :
         syncingFirst ? "Your mail is still being downloaded and scrubbed…" : "Nothing here yet.")));
     return;
@@ -422,11 +435,15 @@ function mailRow(r, i) {
         el("span", { class: "badge badge-secondary" }, "⊘ skipped")));
   }
   const isEvent = r.kind === "event";
+  const unread = r.unread > 0;  // a thread is unread while any of its messages is (as Gmail / Messages show it)
+  if (unread) attrs.class += " unread";
   const badges = [];
   if (r.redacted) badges.push(el("span", { class: "badge badge-redacted", title: "Sensitive values blanked out on this Mac" }, `${n(r.redacted)} redacted`));
   if (r.dropped_in_thread) badges.push(el("span", { class: "badge badge-secondary", title: "Messages in this thread that weren't synced" }, `${r.dropped_in_thread} not synced`));
   // Attachment tag hidden for now (design round 2): r.has_attachments still comes from the backend.
   return el("div", attrs,
+    unread ? el("span", { class: "mrow-dot", title: r.unread > 1 ? `${n(r.unread)} unread` : "Unread" },
+      el("span", { class: "mrow-dot-label" }, "Unread")) : null,  // the dot's words, for VoiceOver
     el("div", { class: "mrow-top" },
       el("span", { class: "mrow-from" }, isEvent || !r.sender ? sourceName(r.source) : senderName(r.sender),
         r.count > 1 ? el("span", { class: "cnt" }, String(r.count)) : null),

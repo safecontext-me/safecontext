@@ -55,6 +55,7 @@ for a chat export file.
    | `to_item(record)` | One record to one `RawItem`, or `None` to skip it |
    | `cursor_of(record)` | A string that makes `read` resume after this record |
    | `check_access()` | Optional. Raise `NeedsPermission` when access is missing |
+   | `unread_ids()` | Optional, for a source with a read state: ids of every item it shows as unread now (also set `RawItem.unread`). Read it, never change it at the source |
 
    Batching, scrubbing, storing, the cursor, locking, progress and error
    handling all come from `ReaderSource`.

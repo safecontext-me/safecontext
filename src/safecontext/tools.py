@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, List, Optional
 from .auth import RECONNECT_MESSAGE
 from .scrub import KINDS
 from .sources import SOURCE_NAMES
-from .store import GMAIL, Hit, ItemView, Store
+from .store import GMAIL, READ_STATE_SOURCES, Hit, ItemView, Store
 
 MAX_BODY_CHARS = 6000
 MAX_THREAD_MESSAGES = 20
@@ -37,6 +37,10 @@ _SENDER = {"type": "string", "description": "Optional sender / organizer filter:
 _AFTER = {**_DATE, "description": "Only items on or after this date (events: ending on or after). "
                                   + _DATE["description"]}
 _BEFORE = {**_DATE, "description": "Only items before this date (events: starting before). " + _DATE["description"]}
+_UNREAD = {"type": "boolean",
+           "description": "Optional: true for only items the user hasn't read yet, false for only read ones. "
+                          "Read state comes from the source (Gmail, Messages); calendar events and files have "
+                          "none and never match true."}
 _LABEL = {"type": "string",
           "description": "Optional: only items with this Gmail label or SafeContext tag, by name (ignoring case), "
                          "e.g. 'Receipts', 'Starred' or 'Inbox'. A parent label includes its nested ones "
@@ -47,7 +51,7 @@ def _search_schema(with_source: bool) -> Dict[str, Any]:
     props: Dict[str, Any] = {"query": {"type": "string", "description": "Words to search for. All words must match."}}
     if with_source:
         props.update(source=_SOURCE, kind=_KIND)
-    props.update(sender=_SENDER, label=_LABEL, after=_AFTER, before=_BEFORE,
+    props.update(sender=_SENDER, label=_LABEL, after=_AFTER, before=_BEFORE, unread=_UNREAD,
                  limit={"type": "integer", "minimum": 1, "maximum": 50, "default": 10})
     return {"type": "object", "properties": props, "required": ["query"], "additionalProperties": False}
 
@@ -56,7 +60,7 @@ def _list_schema(with_source: bool) -> Dict[str, Any]:
     props: Dict[str, Any] = {}
     if with_source:
         props.update(source=_SOURCE, kind=_KIND)
-    props.update(sender=_SENDER, label=_LABEL, after=_AFTER, before=_BEFORE)
+    props.update(sender=_SENDER, label=_LABEL, after=_AFTER, before=_BEFORE, unread=_UNREAD)
     if with_source:
         props["order"] = {"type": "string", "enum": ["newest", "oldest"], "default": "newest",
                           "description": "newest first (default), or oldest first, e.g. for upcoming events."}
@@ -97,7 +101,7 @@ TOOLS: List[Dict[str, Any]] = [
             "List items filtered by source, kind, sender and/or date range, newest first by default. "
             "Read-only: cannot send, draft, label, or delete. Content is scrubbed; sensitive data is "
             "replaced with [REDACTED:TYPE]. No search words needed. For upcoming events use source='gcal', "
-            "after=today, order='oldest'."),
+            "after=today, order='oldest'. For unread email or messages use unread=true."),
         "parameters": _list_schema(True),
     },
     {
@@ -289,7 +293,7 @@ def _list_description(summaries: List[Dict[str, Any]]) -> str:
     else:
         lead = "List stored items, newest first by default. No sources are connected yet."
     return (f"{lead} {_use_for(summaries)} {_READONLY} No search words needed. For upcoming events "
-            "use source='gcal', after=today, order='oldest'.")
+            "use source='gcal', after=today, order='oldest'. For unread email or messages use unread=true.")
 
 
 def _sources_description(summaries: List[Dict[str, Any]]) -> str:
@@ -414,6 +418,8 @@ def _hit(h: Hit) -> Dict[str, Any]:
         "citation": _cite(h.citation.date, h.citation.sender, h.source)}
     if h.end:
         out["end"] = h.end
+    if h.source in READ_STATE_SOURCES:  # as the source shows it; reading it here changes nothing
+        out["unread"] = h.unread
     if h.source == GMAIL:  # v1 field names
         out.update(subject=h.title, gmail_link=h.citation.link)
     return out
@@ -430,6 +436,8 @@ def _item(v: ItemView, budget: int) -> Dict[str, Any]:
         out["end"] = v.end
     if v.extra:
         out["details"] = v.extra
+    if v.source in READ_STATE_SOURCES:
+        out["unread"] = v.unread
     if v.source == GMAIL:  # v1 field names
         out.update(recipients=v.participants, subject=v.title, gmail_link=v.citation.link)
     if len(body) < len(v.body):
@@ -476,6 +484,15 @@ def _limit(args: Dict[str, Any], default: int, maximum: int) -> int:
         raise ToolError("'limit' must be an integer") from None
 
 
+def _unread(args: Dict[str, Any]) -> Optional[bool]:
+    v = args.get("unread")
+    if v is None:
+        return None
+    if not isinstance(v, bool):
+        raise ToolError("'unread' must be true or false")
+    return v
+
+
 def _kind(args: Dict[str, Any]) -> Optional[str]:
     k = _str(args, "kind")
     if k and k not in KINDS:
@@ -487,7 +504,7 @@ def search(store: Store, args: Dict[str, Any]) -> Dict[str, Any]:
     labels = _label_filter(store, args)
     hits = store.search(_str(args, "query", True), source=_str(args, "source"), kind=_kind(args),
                         sender=_str(args, "sender"), after=_str(args, "after"), before=_str(args, "before"),
-                        limit=_limit(args, 10, 50), labels=labels)
+                        limit=_limit(args, 10, 50), labels=labels, unread=_unread(args))
     rows = _with_labels(store, [_hit(h) for h in hits], [(h.source, h.id, h.thread_id) for h in hits])
     return _no_label_note(args, labels, {"results": rows, "count": len(hits)})
 
@@ -527,7 +544,7 @@ def list_items(store: Store, args: Dict[str, Any]) -> Dict[str, Any]:
     labels = _label_filter(store, args)
     hits = store.list_items(source=_str(args, "source"), kind=_kind(args), sender=_str(args, "sender"),
                             after=_str(args, "after"), before=_str(args, "before"), limit=_limit(args, 20, 100),
-                            oldest_first=order == "oldest", labels=labels)
+                            oldest_first=order == "oldest", labels=labels, unread=_unread(args))
     rows = _with_labels(store, [_hit(h) for h in hits], [(h.source, h.id, h.thread_id) for h in hits])
     return _no_label_note(args, labels, {"results": rows, "count": len(hits)})
 

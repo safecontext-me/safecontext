@@ -292,3 +292,25 @@ def test_browse_plans_never_read_every_label(store, labels):
     bad = [p for p in plans if p.endswith("ix_item_labels_item (source=?)") or p.endswith("ix_items_thread (source=?)")
            or p.startswith("SCAN il") or p.startswith("SCAN c")]
     assert plans and not bad, plans
+
+
+def test_mail_synced_before_labels_gets_them_without_refetching(store, gmail):
+    run(store, gmail)
+    store._db.execute("DELETE FROM item_labels")  # as if synced by a build that didn't keep labels
+    store.set_state("gmail", "labels_state", None)
+    before = dict(gmail.fetched)
+    run(store, gmail)
+    assert dict(gmail.fetched) == before and gmail.calls["list_label"] >= 1
+    assert names(store.thread_labels("gmail", "t0001")) == ["Inbox", "Receipts"]
+    assert store.get_state("gmail", "labels_state") == "1"
+    calls = gmail.calls["list_label"]
+    run(store, gmail)
+    assert gmail.calls["list_label"] == calls  # once only
+
+
+def test_expired_history_lists_label_members_again(store, gmail):
+    run(store, gmail)
+    gmail.relabel("m0002", add=["Label_2"])
+    gmail.expire_history()
+    run(store, gmail)  # resync: m0002 is known, so it isn't fetched; the member listing brings the label
+    assert "Family" in names(store.thread_labels("gmail", "t0002"))

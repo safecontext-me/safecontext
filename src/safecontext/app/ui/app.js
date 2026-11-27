@@ -448,11 +448,14 @@ function pickSource() {
 function renderNavSources() {
   const list = navSources();
   const box = $("nav-sources");
-  const sig = list.map((x) => `${x.id}:${x.name}`).join();
+  const sig = list.map((x) => `${x.id}:${x.name}:${x.unread_count || 0}`).join();
   if (box.dataset.sig !== sig) {
     box.dataset.sig = sig;
-    box.replaceChildren(...list.map((x) => el("button", { class: "nav-child", "data-source": x.id, onclick: () => openSource(x.id) },
-      sourceIcon(x.id, "nav-ico"), x.name)));
+    // Unread count as the source shows it (Gmail, Messages), like a mail app's sidebar.
+    box.replaceChildren(...list.map((x) => el("button", { class: "nav-child", "data-source": x.id, onclick: () => openSource(x.id),
+      title: x.unread_count ? `${x.name} · ${n(x.unread_count)} unread` : x.name },
+    sourceIcon(x.id, "nav-ico"), el("span", { class: "nav-label" }, x.name),
+    x.unread_count ? el("span", { class: "nav-count", "aria-label": `${n(x.unread_count)} unread` }, n(x.unread_count)) : null)));
   }
   markNav();
 }

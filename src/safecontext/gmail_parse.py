@@ -97,6 +97,7 @@ def parse_gmail_message(resource: dict, metadata_only: bool = False) -> RawMessa
     )
 
 
+UNREAD = "UNREAD"
 # Labels the scrubber decides on: a change to one of these can keep or drop a message, so the message is
 # fetched and scrubbed again. Any other label change is applied in place.
 SCRUB_LABELS = frozenset({"SPAM", "TRASH", "DRAFT", "CHAT", "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL",
@@ -107,30 +108,48 @@ class HistoryChanges:
     """What history.list pages say changed, in order. `changed`: messages to fetch (added, or a label the
     scrubber cares about moved). `labels`: id -> the message's label ids now, for messages whose other
     label changes can be applied in place (history records carry the message's labels as of that record;
-    later records win, since history comes oldest first)."""
+    later records win, since history comes oldest first). Read state comes from the same labels (UNREAD);
+    a record without the message's labels is fetched, unless it only moved UNREAD (`unread`)."""
 
     def __init__(self) -> None:
         self.changed: Set[str] = set()
         self.deleted: Set[str] = set()
         self.labels: Dict[str, List[str]] = {}
+        self.unread: Dict[str, bool] = {}  # UNREAD-only records that didn't carry the message's labels
 
     def add_page(self, page: dict) -> None:
         for h in page.get("history") or []:
             for item in h.get("messagesAdded") or []:
                 self.changed.add(item["message"]["id"])
-            for key in ("labelsAdded", "labelsRemoved"):
+            for key, now in (("labelsAdded", True), ("labelsRemoved", False)):
                 for item in h.get(key) or []:
                     msg = item["message"]
-                    if set(item.get("labelIds") or ()) & SCRUB_LABELS or "labelIds" not in msg:
-                        self.changed.add(msg["id"])
+                    mid, moved = msg["id"], set(item.get("labelIds") or ())
+                    if moved & SCRUB_LABELS:
+                        self.changed.add(mid)
+                    elif "labelIds" in msg:
+                        self.labels[mid] = list(msg["labelIds"])
+                        self.unread.pop(mid, None)
+                    elif moved == {UNREAD}:
+                        self.unread[mid] = now
+                        if mid in self.labels:  # keep the known label list in step
+                            rest = [l for l in self.labels[mid] if l != UNREAD]
+                            self.labels[mid] = rest + [UNREAD] if now else rest
                     else:
-                        self.labels[msg["id"]] = list(msg["labelIds"])
+                        self.changed.add(mid)
             for item in h.get("messagesDeleted") or []:
                 self.deleted.add(item["message"]["id"])
 
     def label_only(self) -> Dict[str, List[str]]:
-        """Label changes for messages that need nothing else."""
+        """Label changes for messages that need nothing else: id -> the message's label ids now."""
         return {m: l for m, l in self.labels.items() if m not in self.changed and m not in self.deleted}
+
+    def unread_only(self) -> Dict[str, bool]:
+        """Read-state changes for messages that need nothing else: id -> unread now."""
+        out = {m: UNREAD in l for m, l in self.label_only().items()}
+        out.update({m: u for m, u in self.unread.items()
+                    if m not in self.labels and m not in self.changed and m not in self.deleted})
+        return out
 
 
 def history_message_ids(page: dict) -> Tuple[Set[str], Set[str]]:

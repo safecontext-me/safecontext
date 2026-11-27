@@ -38,7 +38,7 @@ except ImportError:  # pragma: no cover
 from ..errors import NeedsPermission
 from ..scrub import RawItem, scrub_item
 from ..scrub.models import KINDS
-from ..store import Store
+from ..store import READ_STATE_SOURCES, Store
 from ..sync import BaseSyncer, ProgressFn, SyncResult, read_heartbeat
 
 log = logging.getLogger("safecontext.sources")
@@ -123,6 +123,7 @@ class SourceStatus:
     last_sync_ms: Optional[int] = None
     item_count: int = 0              # kept (scrubbed) items stored on this Mac
     dropped_count: int = 0           # items skipped entirely by the scrubber
+    unread_count: int = 0            # items the source shows as unread (sources with a read state only)
     first_sync_done: bool = False
     syncing: bool = False
     progress: Optional[Dict[str, Any]] = None  # heartbeat of a running sync
@@ -240,10 +241,12 @@ class BaseSource:
     def status(self) -> SourceStatus:
         st = self.state
         kept, dropped = self.store.counts(self.id)
+        unread = self.store.unread_count(self.id) if self.id in READ_STATE_SOURCES else 0
         last = st.get("last_sync_ms")
         hb = read_heartbeat(self.store, self.id)
         out = SourceStatus(id=self.id, name=self.name, state=NOT_CONNECTED, account=self.account,
                            last_sync_ms=int(last) if last else None, item_count=kept, dropped_count=dropped,
+                           unread_count=unread,
                            first_sync_done=self.first_sync_done(), syncing=hb is not None, progress=hb)
         auth_state = st.get("auth_state")
         if not self.connected:
@@ -355,6 +358,11 @@ class ReaderSource(BaseSource):
             Access or Contacts access is missing. Called on connect and before
             every sync.
         account_label = "This Mac"
+        def unread_ids(self) -> Optional[Iterable[str]]
+            For a source with a read state: the ids of every item it shows as
+            unread right now (set RawItem.unread in to_item too). Read state can
+            change without new records, so it's re-read after every sync and
+            copied onto the stored items. Default None: no read state.
 
     That's all: batching, scrubbing, storing, the per-source cursor, lock,
     heartbeat, progress and error handling come from here. Records are read,
@@ -374,6 +382,9 @@ class ReaderSource(BaseSource):
         raise NotImplementedError
 
     def check_access(self) -> None:
+        return None
+
+    def unread_ids(self) -> Optional[Iterable[str]]:
         return None
 
     def connect(self, **options: Any) -> str:
@@ -410,6 +421,9 @@ class ReaderSyncer(BaseSyncer):
                 batch = []
         if batch:
             self._store_batch(batch, cursor)
+        unread = self.src.unread_ids()
+        if unread is not None:  # mirror the source's read state, which changes without new records
+            self.store.replace_unread(self.source, unread)
 
     def _store_batch(self, records: List[Any], cursor: Optional[str]) -> Optional[str]:
         results = []

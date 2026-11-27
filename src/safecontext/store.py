@@ -45,6 +45,8 @@ _RETIRED = "retired"
 #   title    subject / event title;  body: the scrubbed text
 #   link     deep link back to the original (Gmail, Google Calendar, ...)
 #   extra    short labelled fields shown with the item (JSON), e.g. Location
+#   unread   1 while the source shows the item as unread (Gmail's UNREAD label, Messages' is_read).
+#            Mirrored from the source on every sync; SafeContext never sets or changes it there.
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 
@@ -73,6 +75,7 @@ CREATE TABLE IF NOT EXISTS items (
     extra             TEXT NOT NULL DEFAULT '{}',
     redactions        TEXT NOT NULL DEFAULT '{}',
     scrubber_version  TEXT NOT NULL,
+    unread            INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (source, id)
 );
 CREATE INDEX IF NOT EXISTS ix_items_thread ON items(source, thread_id, date_ms);
@@ -174,6 +177,15 @@ _SYSTEM_ORDER = {"INBOX": 0, "STARRED": 1, "IMPORTANT": 2, "SENT": 3}
 class TagError(ValueError):
     """A tag can't be made or changed; the message is shown to the user as is."""
 
+# Read state (added in place, still schema v3): only unread rows are indexed, so these stay small.
+# By source and date for the unread counts and lists; by thread for "is this thread unread".
+_UNREAD_INDEXES = """
+CREATE INDEX IF NOT EXISTS ix_items_unread_date   ON items(source, date_ms) WHERE unread = 1;
+CREATE INDEX IF NOT EXISTS ix_items_unread_thread ON items(source, thread_id) WHERE unread = 1;
+"""
+
+# Sources whose items have a read state. Others (calendar, files) are never unread.
+READ_STATE_SOURCES = ("gmail", "imessage")
 
 GMAIL = "gmail"
 # Schema v1 kept Gmail's sync state in `meta`; v2 moves it to source_state('gmail').
@@ -206,6 +218,7 @@ class Hit:
     source: str = GMAIL
     kind: str = "message"
     end: Optional[str] = None
+    unread: bool = False
 
     @property
     def subject(self) -> str:
@@ -226,6 +239,7 @@ class ItemView:
     kind: str = "message"
     end: Optional[str] = None
     extra: Dict[str, str] = field(default_factory=dict)
+    unread: bool = False
 
     @property
     def subject(self) -> str:
@@ -337,7 +351,9 @@ class Store:
         self._db.executescript(_SCHEMA + _FTS_TRIGGERS)
         if self._has_table("messages"):
             self._migrate_v1()
-        self._db.executescript(_BROWSE_INDEXES + _SWITCH_INDEXES + _LABEL_SCHEMA)  # in place, idempotent
+        self._add_unread_column()
+        # indexes and label tables, added in place; idempotent
+        self._db.executescript(_BROWSE_INDEXES + _SWITCH_INDEXES + _UNREAD_INDEXES + _LABEL_SCHEMA)
         self._requeue_retired_drops()
         version = self.get_meta("schema_version")
         if version is None or (version.isdigit() and int(version) < SCHEMA_VERSION):
@@ -462,6 +478,14 @@ class Store:
             db.execute("DROP TABLE messages")
             db.execute("INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
 
+    def _add_unread_column(self) -> None:
+        """Stores made before read state get the column in place (instant: SQLite only records the
+        default). Everything starts read; each source's next sync fills in its read state."""
+        with self._lock:
+            cols = {r[1] for r in self._db.execute("PRAGMA table_info(items)")}
+            if "unread" not in cols:
+                self._db.execute("ALTER TABLE items ADD COLUMN unread INTEGER NOT NULL DEFAULT 0")
+
     def _requeue_retired_drops(self) -> None:
         """Mark mail dropped by a rule that no longer exists as stale, so sync
         re-fetches and re-scrubs just those messages instead of the whole
@@ -514,12 +538,13 @@ class Store:
                     json.dumps([dataclasses.asdict(a) for a in r.attachments]),
                     " ".join(a.filename for a in r.attachments),
                     gmail_link(account, r.message_id_header, r.thread_id), "{}",
-                    json.dumps(r.redactions), r.scrubber_version)
+                    json.dumps(r.redactions), r.scrubber_version, int(bool(r.unread)))
         return (source, r.id, account, r.kind, r.thread_id, r.date_ms, r.end_ms, r.sender, _handle(r.sender),
                 ", ".join(p for p in r.participants if p), r.title, r.body,
                 json.dumps([dataclasses.asdict(a) for a in r.attachments]),
                 " ".join(a.filename for a in r.attachments), r.link,
-                json.dumps(r.extra, ensure_ascii=False), json.dumps(r.redactions), r.scrubber_version)
+                json.dumps(r.extra, ensure_ascii=False), json.dumps(r.redactions), r.scrubber_version,
+                int(bool(r.unread)))
 
     def put_many(self, results: Iterable[StoreResult], source: str = GMAIL, account: Optional[str] = None) -> None:
         """Insert or replace one source's results. An item can move between kept
@@ -541,7 +566,7 @@ class Store:
                     db.execute(
                         "INSERT INTO items (source, id, account, kind, thread_id, date_ms, end_ms, sender,"
                         " sender_email, participants, title, body, attachments, attachment_names, link, extra,"
-                        " redactions, scrubber_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        " redactions, scrubber_version, unread) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         self._row(r, source, account))
                 else:  # never let anything else (e.g. a RawMessage / RawItem) reach disk
                     raise TypeError(f"refusing to store {type(r).__name__}")
@@ -625,6 +650,47 @@ class Store:
             db.execute("DELETE FROM seen WHERE source=?", (source,))
         return n
 
+    # read state ---------------------------------------------------------------
+    #
+    # Only ever copied from the source. These update the flag in place: no re-fetch, no re-scrub,
+    # and the FTS index isn't touched (it has no update trigger). An id that was dropped, or was
+    # never stored, gets no row: an UPDATE can't bring back something the scrubber dropped.
+
+    def set_unread(self, source: str, changes: Dict[str, bool]) -> Set[str]:
+        """Set the read state of stored items: {id: unread}. Returns the ids stored nowhere
+        (neither kept nor dropped), which the caller may want to fetch instead."""
+        unknown: Set[str] = set()
+        if not changes:
+            return unknown
+        with self._tx() as db:
+            for item_id, unread in changes.items():
+                n = db.execute("UPDATE items SET unread=? WHERE source=? AND id=?",
+                               (int(bool(unread)), source, item_id)).rowcount
+                if not n and db.execute("SELECT 1 FROM dropped WHERE source=? AND id=?",
+                                        (source, item_id)).fetchone() is None:
+                    unknown.add(item_id)
+        return unknown
+
+    def replace_unread(self, source: str, unread_ids: Iterable[str]) -> int:
+        """Make exactly these of a source's stored items unread and every other one read (a source
+        that reports its whole unread set at once). Returns how many rows changed."""
+        with self._tx() as db:
+            db.execute("CREATE TEMP TABLE IF NOT EXISTS unread_ids (id TEXT PRIMARY KEY)")
+            db.execute("DELETE FROM unread_ids")
+            db.executemany("INSERT OR IGNORE INTO unread_ids VALUES (?)", ((i,) for i in unread_ids))
+            n = db.execute("UPDATE items SET unread=0 WHERE source=? AND unread = 1 "
+                           "AND id NOT IN (SELECT id FROM unread_ids)", (source,)).rowcount
+            n += db.execute("UPDATE items SET unread=1 WHERE source=? AND unread = 0 "
+                            "AND id IN (SELECT id FROM unread_ids)", (source,)).rowcount
+            db.execute("DELETE FROM unread_ids")
+        return n
+
+    def unread_count(self, source: Optional[str] = None) -> int:
+        """Unread items (not threads), through the partial index. Reused until something changes."""
+        where, args = ("WHERE source=? AND unread = 1", [source]) if source else ("WHERE unread = 1", [])
+        return self._cached(("unread", source), lambda: self._read(
+            f"SELECT count(*) FROM items INDEXED BY ix_items_unread_date {where}", args)[0][0])
+
     # labels and tags -------------------------------------------------------------
     #
     # Gmail labels are mirrored from Gmail: their names and colours from labels.list, and which messages
@@ -687,6 +753,29 @@ class Store:
                 elif db.execute("SELECT 1 FROM dropped WHERE source=? AND id=?", (source, item_id)).fetchone() is None:
                     unknown.add(item_id)
         return unknown
+
+    def label_ext_ids(self, source: str) -> List[str]:
+        """The source's own ids of its stored labels (Gmail's, e.g. 'INBOX', 'Label_3')."""
+        return [r[0] for r in self._read("SELECT ext_id FROM labels WHERE source=? AND type != 'tag' ORDER BY lid",
+                                         (source,))]
+
+    def replace_label_members(self, source: str, ext_id: str, item_ids: Iterable[str]) -> int:
+        """Make exactly these of a source's stored items carry this label (a source that lists a label's
+        whole membership at once). Ids not stored are ignored. Returns how many items carry it now."""
+        with self._tx() as db:
+            row = db.execute("SELECT lid FROM labels WHERE source=? AND ext_id=?", (source, ext_id)).fetchone()
+            if row is None:
+                return 0
+            lid = row[0]
+            db.execute("CREATE TEMP TABLE IF NOT EXISTS label_ids (id TEXT PRIMARY KEY)")
+            db.execute("DELETE FROM label_ids")
+            db.executemany("INSERT OR IGNORE INTO label_ids VALUES (?)", ((i,) for i in item_ids))
+            db.execute("DELETE FROM item_labels WHERE lid=? AND source=? AND item_id NOT IN (SELECT id FROM label_ids)",
+                       (lid, source))
+            db.execute("INSERT OR IGNORE INTO item_labels (lid, source, item_id) SELECT ?, ?, i.id FROM label_ids l "
+                       "JOIN items i ON i.source=? AND i.id=l.id", (lid, source, source))
+            db.execute("DELETE FROM label_ids")
+            return db.execute("SELECT count(*) FROM item_labels WHERE lid=?", (lid,)).fetchone()[0]
 
     def _label_rows(self) -> List[Dict[str, object]]:
         """Every named label and tag, with how many items (Gmail labels) or threads (tags) carry it."""
@@ -892,19 +981,23 @@ class Store:
 
     def _hit(self, r: sqlite3.Row, snippet: str) -> Hit:
         return Hit(id=r["id"], thread_id=r["thread_id"], title=r["title"], snippet=snippet,
-                   citation=self._citation(r), source=r["source"], kind=r["kind"], end=_iso_or_none(r["end_ms"]))
+                   citation=self._citation(r), source=r["source"], kind=r["kind"], end=_iso_or_none(r["end_ms"]),
+                   unread=bool(r["unread"]))
 
     def _view(self, row: sqlite3.Row) -> ItemView:
         return ItemView(
             id=row["id"], thread_id=row["thread_id"], title=row["title"], participants=row["participants"],
             body=row["body"], attachments=[Attachment(**a) for a in json.loads(row["attachments"])],
             redactions=json.loads(row["redactions"]), citation=self._citation(row), source=row["source"],
-            kind=row["kind"], end=_iso_or_none(row["end_ms"]), extra=json.loads(row["extra"] or "{}"))
+            kind=row["kind"], end=_iso_or_none(row["end_ms"]), extra=json.loads(row["extra"] or "{}"),
+            unread=bool(row["unread"]))
 
     @staticmethod
     def _filters(sender: Optional[str], after: DateLike, before: DateLike, alias: str = "m",
-                 source: Optional[str] = None, kind: Optional[str] = None):
+                 source: Optional[str] = None, kind: Optional[str] = None, unread: Optional[bool] = None):
         where, args = [], []
+        if unread is not None:  # literal 1 / 0, so the planner can use the partial unread indexes
+            where.append(f"{alias}.unread = {1 if unread else 0}")
         if source:
             where.append(f"{alias}.source = ?")
             args.append(source)
@@ -933,13 +1026,14 @@ class Store:
 
     def search(self, query: str, *, source: Optional[str] = None, kind: Optional[str] = None,
                sender: Optional[str] = None, after: DateLike = None, before: DateLike = None,
-               limit: int = 20, labels: Optional[Sequence[int]] = None) -> List[Hit]:
+               limit: int = 20, unread: Optional[bool] = None,
+               labels: Optional[Sequence[int]] = None) -> List[Hit]:
         """labels: only items with one of these labels (or in a thread with one of these tags).
         An empty list matches nothing."""
         q = fts_query(query)
         if not q or (labels is not None and not labels):
             return []
-        where, args = self._filters(sender, after, before, source=source, kind=kind)
+        where, args = self._filters(sender, after, before, source=source, kind=kind, unread=unread)
         if labels:
             cond, cargs = self._label_cond("m", list(labels), per_item=True)
             where.append(cond)
@@ -972,10 +1066,11 @@ class Store:
 
     def list_items(self, *, source: Optional[str] = None, kind: Optional[str] = None,
                    sender: Optional[str] = None, after: DateLike = None, before: DateLike = None,
-                   limit: int = 50, oldest_first: bool = False, labels: Optional[Sequence[int]] = None) -> List[Hit]:
+                   limit: int = 50, oldest_first: bool = False, unread: Optional[bool] = None,
+                   labels: Optional[Sequence[int]] = None) -> List[Hit]:
         if labels is not None and not labels:
             return []
-        where, args = self._filters(sender, after, before, source=source, kind=kind)
+        where, args = self._filters(sender, after, before, source=source, kind=kind, unread=unread)
         if labels:
             cond, cargs = self._label_cond("m", list(labels), per_item=True)
             where.append(cond)
@@ -1006,6 +1101,8 @@ class Store:
         "(SELECT count(*) FROM dropped d WHERE d.source = m.source AND d.thread_id = m.thread_id) AS n_dropped, "
         "(SELECT coalesce(sum(j.value), 0) FROM items c INDEXED BY ix_items_redacted, json_each(c.redactions) j "
         " WHERE c.source = m.source AND c.thread_id = m.thread_id AND c.redactions != '{}') AS n_redacted, "
+        "(SELECT count(*) FROM items u INDEXED BY ix_items_unread_thread "
+        " WHERE u.source = m.source AND u.thread_id = m.thread_id AND u.unread = 1) AS n_unread, "
         # CROSS JOIN fixes the order: the thread's few items first, then each one's labels (never the
         # other way round, which would read every labelled message once per row).
         "(SELECT group_concat(DISTINCT il.lid) FROM items c INDEXED BY ix_items_thread CROSS JOIN item_labels il "
@@ -1057,6 +1154,7 @@ class Store:
                 "count": r["n_items"], "dropped_in_thread": r["n_dropped"], "redacted": r["n_redacted"],
                 "has_attachments": bool(r["attachment_names"]),
                 "labels": self._names(self._split_ids(r["label_ids"]) + self._split_ids(r["tag_ids"])),
+                "unread": r["n_unread"],  # unread items in the thread: a thread is unread if any of them is
                 "cursor": f"{r['date_ms']}.1.{r['rid']}"}
 
     def _dropped_row(self, r: sqlite3.Row) -> Dict[str, object]:
@@ -1068,16 +1166,23 @@ class Store:
                 "link": gmail_link(self.account, "", r["thread_id"]) if r["source"] == GMAIL else "",
                 "cursor": f"{r['date_ms']}.0.{r['rid']}"}
 
-    # Below this many labelled items, a label's page starts from its rows and sorts their threads; above
-    # it (Inbox, say), walking the date index and checking each thread fills a page sooner.
+    # Below this many unread items, an Unread page starts from the unread rows (partial index) and
+    # sorts their threads; above it, unread threads are common enough that walking the date index
+    # and checking each thread fills a page sooner.
+    UNREAD_DRIVE_MAX = 8_000  # measured: the two plans cross near here on a 112k-message mailbox
+    # The same for labels: below this many labelled items, a label's page starts from its rows and sorts
+    # their threads; above it (Inbox, say), walking the date index and checking each thread is sooner.
     LABEL_DRIVE_MAX = 20_000
 
+    _UNREAD_EXISTS = ("EXISTS (SELECT 1 FROM items u INDEXED BY ix_items_unread_thread "
+                      "WHERE u.source = m.source AND u.thread_id = m.thread_id AND u.unread = 1) ")
+
     def _kept_threads(self, sources: Sequence[str], cur, limit: int, oldest: bool = False,
-                      labels: Optional[Sequence[int]] = None) -> List[sqlite3.Row]:
+                      unread_only: bool = False, labels: Optional[Sequence[int]] = None) -> List[sqlite3.Row]:
         after, args = self._after("m", 1, cur, oldest)
         way = "ASC" if oldest else "DESC"
-        head: List[object] = []
-        if labels:
+        head = f"SELECT {self._THREAD_COLS}, substr(m.body, 1, {self._SNIPPET_CHARS}) AS snip "
+        if labels:  # a label or tag picked (with Unread on top, if that's picked too)
             lids = list(labels)
             m = self._label_map()
             if sum(int(m[i]["count"]) for i in lids if i in m) <= self.LABEL_DRIVE_MAX:
@@ -1088,22 +1193,37 @@ class Store:
                        f"      WHERE lid IN ({self._marks(lids)}) AND source IN ({self._marks(sources)})) lt "
                        "JOIN items m INDEXED BY ix_items_thread ON m.source = lt.source AND m.thread_id = lt.thread_id "
                        "WHERE 1 ")
-                head = [*lids, *sources, *lids, *sources]
+                params: List[object] = [*lids, *sources, *lids, *sources]
             else:
-                cond, head = self._label_cond("m", lids)
+                cond, cargs = self._label_cond("m", lids)
                 src = f"FROM items m WHERE m.source IN ({self._marks(sources)}) AND {cond} "
-                head = [*sources, *head]
+                params = [*sources, *cargs]
+            if unread_only:
+                src += "AND " + self._UNREAD_EXISTS
+        elif unread_only and sum(self.unread_count(s) for s in sources) <= self.UNREAD_DRIVE_MAX:
+            # Each unread thread's newest item straight from the thread index (one seek per thread,
+            # however long the chat), then only those heads are sorted.
+            src = (f"FROM (SELECT DISTINCT source, thread_id FROM items INDEXED BY ix_items_unread_thread "
+                   f"      WHERE source IN ({self._marks(sources)}) AND unread = 1) ut "
+                   "JOIN items m ON m.rowid = (SELECT h.rowid FROM items h INDEXED BY ix_items_thread "
+                   "  WHERE h.source = ut.source AND h.thread_id = ut.thread_id "
+                   "  ORDER BY h.date_ms DESC, h.rowid DESC LIMIT 1) "
+                   "WHERE 1 ")
+            sql = head + src + after + f"ORDER BY m.date_ms {way}, m.rowid {way} LIMIT ?"
+            return self._read(sql, [*sources, *args, limit])
         else:
             src = f"FROM items m WHERE m.source IN ({self._marks(sources)}) "
-            head = list(sources)
-        sql = (f"SELECT {self._THREAD_COLS}, substr(m.body, 1, {self._SNIPPET_CHARS}) AS snip {src}{after}"
+            params = list(sources)
+            if unread_only:
+                src += "AND " + self._UNREAD_EXISTS
+        sql = (head + src + after +
                # The thread's newest item stands for it. `x.date_ms >= m.date_ms` lets the probe seek
                # straight to newer items in the thread index instead of walking the whole thread,
                # which matters for long chats and recurring events.
                "AND NOT EXISTS (SELECT 1 FROM items x WHERE x.source = m.source AND x.thread_id = m.thread_id "
                "  AND x.date_ms >= m.date_ms AND (x.date_ms > m.date_ms OR x.rowid > m.rowid)) "
                f"ORDER BY m.date_ms {way}, m.rowid {way} LIMIT ?")
-        return self._read(sql, [*head, *args, limit])
+        return self._read(sql, [*params, *args, limit])
 
     def _dropped_items(self, sources: Sequence[str], reasons: Optional[Sequence[str]], cur,
                        limit: int, oldest: bool = False) -> List[sqlite3.Row]:
@@ -1124,11 +1244,11 @@ class Store:
                cursor: Optional[str] = None, limit: int = 100, order: str = "newest",
                labels: Optional[Sequence[int]] = None) -> Dict[str, object]:
         """One page of the Mail view's list. view: 'all' (kept threads and dropped items,
-        interleaved by date), 'synced' (kept threads) or 'not_synced' (dropped items,
-        optionally only these reason codes). order: 'newest' (default) or 'oldest' first.
-        labels: only threads with one of these labels or tags. Dropped items have none, so a label
-        filter shows synced threads only. Returns {"rows": [...], "next": cursor | None}."""
-        if view not in ("all", "synced", "not_synced"):
+        interleaved by date), 'synced' (kept threads), 'unread' (kept threads with an unread item)
+        or 'not_synced' (dropped items, optionally only these reason codes). order: 'newest'
+        (default) or 'oldest' first. labels: only threads with one of these labels or tags; dropped
+        items have none, so a label filter shows kept threads only. Returns {"rows": [...], "next": cursor | None}."""
+        if view not in ("all", "synced", "unread", "not_synced"):
             raise ValueError(f"unknown view {view!r}")
         if order not in ("newest", "oldest"):
             raise ValueError(f"unknown order {order!r}")
@@ -1140,12 +1260,13 @@ class Store:
         if labels:
             if view == "not_synced":
                 return {"rows": [], "next": None}
-            view = "synced"
+            if view == "all":
+                view = "synced"
         cur = self.parse_cursor(cursor)
         merged: List[tuple] = []
         full = False
-        if view in ("all", "synced"):
-            kept = self._kept_threads(sources, cur, limit, oldest, labels)
+        if view in ("all", "synced", "unread"):
+            kept = self._kept_threads(sources, cur, limit, oldest, unread_only=view == "unread", labels=labels)
             full |= len(kept) == limit
             merged += [((r["date_ms"], 1, r["rid"]), self._thread_row(r)) for r in kept]
         if view in ("all", "not_synced"):
@@ -1158,10 +1279,11 @@ class Store:
         return {"rows": rows, "next": rows[-1]["cursor"] if more and rows else None}
 
     def search_threads(self, query: str, sources: Sequence[str], *, offset: int = 0,
-                       limit: int = 100, order: str = "newest",
+                       limit: int = 100, order: str = "newest", unread_only: bool = False,
                        labels: Optional[Sequence[int]] = None) -> Dict[str, object]:
         """Threads with an item matching `query` (FTS), newest (or oldest) first; each row shows the
-        thread's newest matching item with a highlighted snippet. Offset-paged."""
+        thread's newest matching item with a highlighted snippet. Offset-paged. unread_only: only
+        threads with an unread item."""
         q = fts_query(query)
         sources = list(sources)
         limit, offset = max(1, min(int(limit), 500)), max(0, int(offset))
@@ -1171,7 +1293,9 @@ class Store:
         # A bare column next to max() takes its value from the row holding the max (SQLite).
         sql = ("SELECT m.rowid AS rid, max(m.date_ms) AS last FROM items_fts JOIN items m ON m.rowid = items_fts.rowid "
                f"WHERE items_fts MATCH ? AND m.source IN ({self._marks(sources)}) AND {cond} "
-               "GROUP BY m.source, m.thread_id "
+               + ("AND EXISTS (SELECT 1 FROM items u INDEXED BY ix_items_unread_thread WHERE u.source = m.source "
+                  "AND u.thread_id = m.thread_id AND u.unread = 1) " if unread_only else "")
+               + "GROUP BY m.source, m.thread_id "
                + ("ORDER BY last ASC, rid ASC " if order == "oldest" else "ORDER BY last DESC, rid DESC ")
                + "LIMIT ? OFFSET ?")
         rids = [r["rid"] for r in self._read(sql, [q, *sources, *cargs, limit, offset])]
@@ -1200,7 +1324,7 @@ class Store:
                 "type": "item", "id": v.id, "kind": v.kind, "source": v.source, "date": v.citation.date,
                 "end": v.end, "sender": v.citation.sender, "participants": v.participants, "title": v.title,
                 "body": v.body, "attachments": [dataclasses.asdict(a) for a in v.attachments],
-                "redactions": v.redactions, "link": v.citation.link, "details": v.extra}))
+                "redactions": v.redactions, "link": v.citation.link, "details": v.extra, "unread": v.unread}))
         for r in dropped:
             entries.append((r["date_ms"], self._dropped_row(r)))
         entries.sort(key=lambda kv: kv[0])

@@ -131,6 +131,28 @@ class FakeGmail:
             self.after_list(self.calls["list"])
         return [r["id"] for r in page], nxt
 
+    def list_unread_ids(self, page_token):
+        self._check_auth()
+        self.calls["list_unread"] += 1
+        unread = sorted((r for r in self.messages.values()
+                         if "UNREAD" in r["labelIds"] and not set(r["labelIds"]) & {"SPAM", "TRASH"}),
+                        key=lambda r: int(r["internalDate"]), reverse=True)
+        start = int(page_token or 0)
+        page = unread[start:start + self.page_size]
+        nxt = str(start + self.page_size) if start + self.page_size < len(unread) else None
+        return [r["id"] for r in page], nxt
+
+    def list_label_ids(self, label_id, page_token):
+        self._check_auth()
+        self.calls["list_label"] += 1
+        hits = sorted((r for r in self.messages.values()
+                       if label_id in r["labelIds"] and not set(r["labelIds"]) & {"SPAM", "TRASH"}),
+                      key=lambda r: int(r["internalDate"]), reverse=True)
+        start = int(page_token or 0)
+        page = hits[start:start + self.page_size]
+        nxt = str(start + self.page_size) if start + self.page_size < len(hits) else None
+        return [r["id"] for r in page], nxt
+
     def get_messages(self, ids, fmt):
         self._check_auth()
         self.calls["get_batch"] += 1
